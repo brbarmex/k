@@ -1,0 +1,33 @@
+{
+ "id": "C11",
+ "pontos": [
+  {
+   "titulo": "Célula alvo cai durante a barreira",
+   "origem": "Falhas e tratativas",
+   "contexto": "Na Fase 2 a líder antiga enfileira escritas novas enquanto espera a alvo assumir. Se a alvo cai nessa hora, as escritas ficam presas e a pausa planejada vira indisponibilidade não planejada.",
+   "na_fonte": "Limite da pausa (ex.: 200 ms) com aborto; se o `TimeoutNow` ainda não foi enviado, a líder antiga retoma (ADR-013). Os limiares são da PEND-12.",
+   "sugestao": "Testar a queda da alvo antes e depois do envio do `TimeoutNow` e medir a pausa total em cada caso. Depois do `TimeoutNow` a recuperação vira uma eleição comum, então o pior caso real é o tempo de eleição do C08, não os 200 ms."
+  },
+  {
+   "titulo": "Link AWS↔Azure cai no meio da transferência",
+   "origem": "Falhas e tratativas",
+   "contexto": "A nova líder precisa da maioria Azure para confirmar o no-op e reconstruir o gate. Se o link cai durante a transferência, a nova líder não confirma e a manutenção falha.",
+   "na_fonte": "A transferência aborta (ADR-013, ADR-046).",
+   "sugestao": "Explicitar o estado final após o aborto: a líder nova já pode ter vencido a eleição no termo T+1, e nesse caso o shard cai no caminho de Azure inalcançável do C12, com `DEGRADE_AFTER` e a política. Incluir esse caso no exercício de manutenção."
+  },
+  {
+   "titulo": "Duas transferências ao mesmo tempo",
+   "origem": "Falhas e tratativas",
+   "contexto": "Duas transferências simultâneas no mesmo shard poderiam deixar o grupo sem maioria disponível ou causar eleições cruzadas.",
+   "na_fonte": "Trava por shard e cooldown na Fase 0, com votante substituto (add-then-remove).",
+   "sugestao": "Testar a concorrência de dois pedidos de transferência e de uma transferência com uma eleição por falha. Garantir que a trava e o cooldown sobrevivem a reinício do Agent ou da líder."
+  },
+  {
+   "titulo": "Critério de líder degradada para transferência automática",
+   "origem": "Pontos em aberto",
+   "contexto": "Hoje a transferência só é disparada pelo Agent para manutenção. Uma líder lenta mas viva não é trocada automaticamente, o que deixa o shard lento até alguém agir.",
+   "na_fonte": "Não decidido na fonte. Proposta na fonte: critério de saúde além do heartbeat, com histerese e cooldown, disparando a transferência planejada (R23 H4, PEND-11); até decidir, sem disparo automático.",
+   "sugestao": "Definir métricas candidatas (latência de fsync, P99 de commit) e validar em teste com IO degradado artificial antes de ligar o disparo. Prever proteção contra transferência para um nó com o mesmo problema."
+  }
+ ]
+}

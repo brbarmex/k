@@ -1,0 +1,47 @@
+{
+ "id": "C27",
+ "pontos": [
+  {
+   "titulo": "Eleição mais longa que as tentativas do SDK",
+   "origem": "Falhas e tratativas",
+   "contexto": "O SDK faz no máximo 3 tentativas com backoff curto. Se a eleição durar mais do que isso, o cliente recebe erro mesmo com o sistema prestes a voltar. Isso afeta a disponibilidade percebida e liga com o RTO.",
+   "na_fonte": "Decidido no ADR-039: sem líder conhecida, o servidor espera até 1 s (`WAIT_LEADER`) e depois responde `503` com `retryAfter`, sem passar de 3 s do orçamento de encaminhamento.",
+   "sugestao": "Medir a duração da eleição em teste de falha e comparar com a soma das tentativas do SDK com `WAIT_LEADER`. Se a eleição for maior, avaliar ajustar `retryAfter` ou o timeout de eleição."
+  },
+  {
+   "titulo": "Requisições paradas esperando líder",
+   "origem": "Falhas e tratativas",
+   "contexto": "Durante uma eleição, cada escrita que chega a uma célula sem líder conhecida fica presa até `WAIT_LEADER`. A 3.000 TPS, 1 s de espera acumula cerca de 3.000 requisições aguardando líder. Sem teto, isso vira memória e conexões presas e pode derrubar o processo justo quando o shard está se recuperando, alongando o RTO.",
+   "na_fonte": "Não decidido na fonte. Proposta na fonte: teto de requisições aguardando, acima do qual o `503` é imediato.",
+   "sugestao": "Definir o teto no spike S1 (limiar a definir), com métrica de requisições aguardando e alerta, e validar com um teste de eleição sob carga de pico que a memória do processo fica estável."
+  },
+  {
+   "titulo": "Visões antigas persistentes",
+   "origem": "Falhas e tratativas",
+   "contexto": "Durante uma eleição, células diferentes podem ter visões diferentes de quem é a líder, e mensagens atrasadas podem reanunciar uma líder antiga. Sem proteção, A2 encaminha a A3 e A3 devolve a A2, e a requisição circula até estourar o prazo. Isso queima o orçamento de latência e carrega as células no pior momento.",
+   "na_fonte": "Decidido na fonte: o encaminhamento leva o termo conhecido, quem recebe um termo maior atualiza a visão, e uma requisição encaminhada nunca é reencaminhada.",
+   "sugestao": "Modelar no TLA+ o encaminhamento com termo e limite de 1 salto, com a propriedade de que nenhuma requisição circula. Incluir teste de caos com atraso de mensagens durante a eleição."
+  },
+  {
+   "titulo": "WAIT_LEADER na verificação de prazos da partida",
+   "origem": "Falhas e tratativas",
+   "contexto": "Os prazos em cascata precisam caber uns nos outros: se `WAIT_LEADER` mais o encaminhamento não couber em `REQUEST_DEADLINE`, a requisição estoura o prazo antes de ter chance de ser atendida. Uma configuração errada passaria despercebida em operação normal e só apareceria numa eleição, como erro de timeout em massa.",
+   "na_fonte": "Decidido na fonte: a validação de partida recusa prazos fora de ordem e inclui `WAIT_LEADER` + encaminhamento dentro de `REQUEST_DEADLINE`.",
+   "sugestao": "Cobrir a verificação com testes unitários de configuração com combinações inválidas."
+  },
+  {
+   "titulo": "Teto de requisições aguardando líder",
+   "origem": "Pontos em aberto",
+   "contexto": "O teto de requisições aguardando líder é a proteção contra o acúmulo durante a eleição, mas o valor não foi definido. Um teto baixo demais rejeita requisições que seriam atendidas em instantes; um alto demais não protege a memória.",
+   "na_fonte": "Não decidido na fonte. O valor fica para o spike S1.",
+   "sugestao": "Medir no spike S1 a memória por requisição aguardando e o pico durante eleição, e fixar o teto com alerta de ocupação."
+  },
+  {
+   "titulo": "Duração real da eleição",
+   "origem": "Pontos em aberto",
+   "contexto": "A duração real da eleição, somada à reconstrução do gate, define quanto tempo um shard fica sem escrita quando a líder cai. Ela não foi medida e liga diretamente com o RTO, que não tem número (R18). Também determina se `WAIT_LEADER` de 1 s é suficiente.",
+   "na_fonte": "Não decidido na fonte. Fica a medir nos testes de falha.",
+   "sugestao": "Medir em teste de caos a duração da eleição e a reconstrução do gate por tipo de falha, e publicar como insumo do R18."
+  }
+ ]
+}

@@ -1,0 +1,282 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>C34 — Autorização por aplicação: mTLS e lista de permissões por identidade · DataReplication v1</title>
+<link rel="stylesheet" href="../assets/site.css">
+</head>
+<body>
+<!--
+Fonte(s) usada(s) nesta página (rastreabilidade), relativas à raiz do pacote:
+  02_cenarios/atualizados/C34-autorizacao-por-aplicacao.md
+  04_diagramas/D02-implantacao-da-celula.md
+Gerado em 13/10/2026 a partir do pacote DataReplication_Versao_1.
+-->
+<header class="topo">
+<button class="menu" type="button" aria-label="Abrir navegação" onclick="document.body.classList.toggle('nav-aberta')">☰</button>
+<a href="../index.html">DataReplication v1</a><span class="sep">·</span><span>Apresentação ao comitê técnico</span>
+</header>
+<div class="layout">
+<nav class="sidebar" aria-label="Navegação">
+<a class="marca" href="../index.html">DataReplication v1<span>Comitê técnico</span></a>
+<a class="nav-inicio" href="../index.html">Resumo e requisitos</a>
+<details class="grupo"><summary>Success path <span class="qtd">10</span></summary><ul>
+<li><a class="idx" href="../success-path/index.html">Índice da seção</a></li>
+<li><a href="../success-path/C01-visao-geral.html"><b>C01</b> Visão geral da arquitetura</a></li>
+<li><a href="../success-path/C02-dentro-da-celula.html"><b>C02</b> Dentro da célula: apps do cliente e DataReplication</a></li>
+<li><a href="../success-path/C03-escrita-strong.html"><b>C03</b> Caminho feliz: escrita (apply serial depois do gate)</a></li>
+<li><a href="../success-path/C04-escrita-eventual.html"><b>C04</b> Modo Eventual: só de leitura (sem apply paralelo na v1)</a></li>
+<li><a href="../success-path/C05-leitura-strong-e-eventual.html"><b>C05</b> Caminho feliz: leitura Strong e Eventual</a></li>
+<li><a href="../success-path/C06-follower-encaminha.html"><b>C06</b> Requisição chega numa célula que não é a líder</a></li>
+<li><a href="../success-path/C11-transferencia-planejada.html"><b>C11</b> Transferência planejada de liderança (manutenção)</a></li>
+<li><a href="../success-path/C18-partida-e-recuperacao-do-no.html"><b>C18</b> Partida, recuperação e parada limpa do nó</a></li>
+<li><a href="../success-path/C23-batchwriteitem-lote-uma-entrada.html"><b>C23</b> BatchWriteItem: o lote é uma entrada e o apply é por item (antes R15)</a></li>
+<li><a href="../success-path/C31-implantacao-por-cliente-e-identidade.html"><b>C31</b> Uma instalação por cliente e identificação na API (antes R19)</a></li>
+</ul></details>
+<details class="grupo" open><summary>Fail path <span class="qtd">24</span></summary><ul>
+<li><a class="idx" href="index.html">Índice da seção</a></li>
+<li><a href="C07-timeout-depois-do-commit.html"><b>C07</b> Prazo estoura depois do commit, antes do ACK (retry do SDK)</a></li>
+<li><a href="C08-queda-de-celula-lider-ou-az-aws.html"><b>C08</b> Queda da célula líder ou de uma AZ na AWS</a></li>
+<li><a href="C09-queda-de-az-azure.html"><b>C09</b> Queda de uma AZ na Azure</a></li>
+<li><a href="C10-celulas-de-app-aws-fora.html"><b>C10</b> Apps da AWS fora, replicação viva: tráfego vai para a Azure</a></li>
+<li><a href="C12-modo-degradado.html"><b>C12</b> Link AWS↔Azure cai ou Azure cai: modo degradado com lease</a></li>
+<li><a href="C13-ressincronizacao-da-azure.html"><b>C13</b> Ressincronização da Azure</a></li>
+<li><a href="C14-aws-cai-sem-degradacao.html"><b>C14</b> AWS cai por inteiro sem degradação prévia</a></li>
+<li><a href="C15-aws-cai-em-degradacao.html"><b>C15</b> AWS cai durante o modo degradado</a></li>
+<li><a href="C16-aws-volta-apos-promocao.html"><b>C16</b> AWS volta depois da promoção da Azure</a></li>
+<li><a href="C17-maquina-de-estados.html"><b>C17</b> Máquina de estados dos modos de operação de um shard</a></li>
+<li><a href="C19-falha-do-datareplication.html"><b>C19</b> O DataReplication da célula cai ou reinicia</a></li>
+<li><a href="C20-bypass-de-escrita-direta.html"><b>C20</b> Aplicação escreve direto no banco (bypass)</a></li>
+<li><a href="C21-disco-fsync-e-reconstrucao.html"><b>C21</b> Falha de fsync, corrupção, disco lento e disco perdido</a></li>
+<li><a href="C22-cliente-com-sdk-nao-suportado.html"><b>C22</b> Cliente com SDK ou versão não suportada</a></li>
+<li><a href="C24-orcamento-de-50ms-e-escrita-no-dynamodb.html"><b>C24</b> Orçamento de 50 ms e a escrita no DynamoDB dentro do ACK (antes R21)</a></li>
+<li><a href="C25-link-lento-faixa-cinzenta.html"><b>C25</b> Link lento ou saturado (faixa cinzenta): só alertar (antes R01)</a></li>
+<li><a href="C26-entrada-venenosa.html"><b>C26</b> Entrada venenosa: um item que o banco recusa para sempre (antes R02)</a></li>
+<li><a href="C27-encaminhamento-sem-lider-conhecida.html"><b>C27</b> Loop de encaminhamento e espera pela líder durante a eleição (antes R05)</a></li>
+<li><a href="C28-leitura-eventual-na-azure-defasada.html"><b>C28</b> Leitura eventual na Azure durante a degradação (antes R04)</a></li>
+<li><a href="C29-disco-do-log-em-degradacao-longa.html"><b>C29</b> Disco do log esgota durante uma degradação longa (antes R08)</a></li>
+<li><a href="C30-aws-que-volta-boot-cercado.html"><b>C30</b> Fencing: o DynamoDB e o applier da AWS que voltam depois da promoção (antes R14)</a></li>
+<li><a href="C32-particao-e-lease-do-modo-degradado.html"><b>C32</b> Partição entre AWS e Azure: lease do modo degradado e promoção da Azure</a></li>
+<li><a href="C33-reconstrucao-em-tabela-sombra.html"><b>C33</b> Reconstrução do banco de uma célula em tabela sombra</a></li>
+<li><a class="atual" aria-current="page" href="C34-autorizacao-por-aplicacao.html"><b>C34</b> Autorização por aplicação: mTLS e lista de permissões por identidade</a></li>
+</ul></details>
+<details class="grupo"><summary>Complex path <span class="qtd">6</span></summary><ul>
+<li><a class="idx" href="../complex-path/index.html">Índice da seção</a></li>
+<li><a href="../complex-path/X01-gate-e-troca-de-lider.html"><b>X01</b> Gate: definição, monotonicidade e troca de líder</a></li>
+<li><a href="../complex-path/X02-modo-degradado.html"><b>X02</b> Modo degradado: entrada, permanência, lease e saída</a></li>
+<li><a href="../complex-path/X03-desastre-e-promocao-da-azure.html"><b>X03</b> Desastre: promoção da Azure, fencing e reconciliação</a></li>
+<li><a href="../complex-path/X04-partida-recuperacao-e-dois-logs.html"><b>X04</b> Partida, recuperação e coerência entre os dois logs</a></li>
+<li><a href="../complex-path/X05-timeouts-e-idempotencia.html"><b>X05</b> Timeouts em cascata e idempotência do retry</a></li>
+<li><a href="../complex-path/X06-delete-ttl-gsi.html"><b>X06</b> DELETE, TTL, Scan e GSI</a></li>
+</ul></details>
+<details class="grupo"><summary>Parking lot <span class="qtd">14</span></summary><ul>
+<li><a class="idx" href="../parking-lot/index.html">Índice da seção</a></li>
+<li><a href="../parking-lot/R03-backlog-de-apply-no-cosmos.html"><b>R03</b> Backlog de apply no Cosmos (429 e RU insuficiente)</a></li>
+<li><a href="../parking-lot/R06-duas-azs-aws-caem.html"><b>R06</b> Duas AZs da AWS caem com a Azure saudável</a></li>
+<li><a href="../parking-lot/R07-link-oscilando.html"><b>R07</b> Link oscilando (flapping)</a></li>
+<li><a href="../parking-lot/R09-resincronizacao-lenta-ou-bloqueada.html"><b>R09</b> Ressincronização da Azure lenta ou que nunca termina</a></li>
+<li><a href="../parking-lot/R10-operador-lento-no-desastre.html"><b>R10</b> Tempo de decisão humana no desastre</a></li>
+<li><a href="../parking-lot/R11-api-de-promocao-depende-da-aws.html"><b>R11</b> A API de promoção depende de algo que estava na AWS</a></li>
+<li><a href="../parking-lot/R12-promocao-com-aws-viva.html"><b>R12</b> Promoção da Azure com a AWS viva (split-brain, PEND-01)</a></li>
+<li><a href="../parking-lot/R13-escritas-orfas-reconciliacao.html"><b>R13</b> Escritas órfãs: reconciliação depois da promoção (PEND-03)</a></li>
+<li><a href="../parking-lot/R16-leitura-forte-em-celulas-follower.html"><b>R16</b> Leitura forte em células follower (ReadIndex e gate)</a></li>
+<li><a href="../parking-lot/R17-atributo-de-versao-e-limite-400kb.html"><b>R17</b> Atributo de versão: limite de 400 KB e ausência nas respostas</a></li>
+<li><a href="../parking-lot/R18-rto-nao-quantificado.html"><b>R18</b> RTO (Delta-T) ainda sem número</a></li>
+<li><a href="../parking-lot/R20-custo-6x.html"><b>R20</b> Custo: cada escrita lógica vira seis gravações</a></li>
+<li><a href="../parking-lot/R22-memoria-da-janela-de-dedupe.html"><b>R22</b> Memória da janela de dedupe</a></li>
+<li><a href="../parking-lot/R23-hipoteses-gerais.html"><b>R23</b> Hipóteses gerais em aberto</a></li>
+</ul></details>
+</nav>
+<main>
+<div class="migalhas"><a href="../index.html">Início</a> / <a href="index.html">Fail path</a> / C34</div>
+<h1>C34 — Autorização por aplicação: mTLS e lista de permissões por identidade</h1>
+<div class="meta"><span class="selo fail-path">Fail path</span><div><b>Status na fonte:</b> ✅ Atualizado (decidido pelo Bruno em 13/10/2026, revisão crítica); a lista de permissões depende do levantamento dos papéis IAM atuais (PEND-19)</div><div><b>Relacionados:</b> <a href="../success-path/C31-implantacao-por-cliente-e-identidade.html">C31</a>, <a href="C20-bypass-de-escrita-direta.html">C20</a>, <a href="C22-cliente-com-sdk-nao-suportado.html">C22</a>, <a href="../success-path/C02-dentro-da-celula.html">C02</a></div></div>
+<section id="visao-geral"><h2>1. Visão geral do cenário</h2>
+<p>O <a href="../../03_adr/ADR-043-uma-instalacao-por-cliente-identidade-por-configuracao.md">ADR-043</a> respondeu "quem é o cliente"; faltava responder "<strong>quem pode escrever o quê</strong>". Hoje cada aplicação do cliente tem o seu papel IAM, normalmente limitado às suas tabelas. Pelo proxy, o papel largo é o do <code>DataReplication</code> (o applier escreve em todas as tabelas da célula), e com a NetworkPolicy como única barreira <strong>qualquer pod do namespace escreve em qualquer tabela</strong>. Isso é uma <strong>ampliação de privilégio</strong> em relação ao cenário de hoje, não só impersonação. O <code>Access Key Id</code> do SigV4 não resolve, porque a camada não consegue validar a assinatura sem o segredo.</p>
+<p>A saída é identidade de carga de trabalho: cada aplicação fala <strong>mTLS</strong> com o <code>DataReplication</code>, com certificado emitido pelo cert-manager, e o <code>DataReplication</code> mantém uma lista <strong>identidade → tabelas e operações permitidas</strong>. Sem entrada na lista, a resposta é <code>403</code>.</p>
+</section>
+<section id="diagrama"><h2>2. Diagrama</h2>
+<h3>Decisão de autorização na entrada</h3>
+<div class="diagrama"><pre class="mermaid">flowchart TD
+    A[&quot;Aplicação chama o DataReplication&quot;] --&gt; B{&quot;NetworkPolicy do namespace permite a conexão?&quot;}
+    B --&gt;|&quot;não&quot;| X[&quot;Conexão recusada&quot;]
+    B --&gt;|&quot;sim&quot;| C{&quot;Handshake mTLS com certificado válido da CA da instalação?&quot;}
+    C --&gt;|&quot;não&quot;| Y[&quot;Handshake falha, sem requisição&quot;]
+    C --&gt;|&quot;sim&quot;| D[&quot;Identidade lida do certificado&quot;]
+    D --&gt; E{&quot;A identidade tem entrada na lista para esta tabela lógica e esta operação?&quot;}
+    E --&gt;|&quot;não&quot;| F[&quot;403 e métrica authz_denied com identidade, tabela e operação&quot;]
+    E --&gt;|&quot;sim&quot;| G[&quot;Segue o fluxo normal de C03 ou C05&quot;]
+    G --&gt; H[&quot;O applier escreve no banco com o papel IAM do DataReplication&quot;]</pre></div>
+<h3>Privilégio hoje, sem lista e com a lista</h3>
+<div class="diagrama"><pre class="mermaid">flowchart LR
+    subgraph HOJE[&quot;Hoje: direto no banco&quot;]
+        H1[&quot;App 1&quot;] --&gt;|&quot;papel IAM da app 1&quot;| HT1[(&quot;Tabela T1&quot;)]
+        H2[&quot;App 2&quot;] --&gt;|&quot;papel IAM da app 2&quot;| HT2[(&quot;Tabela T2&quot;)]
+    end
+    subgraph SEM[&quot;Pelo proxy, só NetworkPolicy&quot;]
+        S1[&quot;App 1&quot;] --&gt; SD[&quot;DataReplication&lt;br/&gt;papel largo&quot;]
+        S2[&quot;App 2&quot;] --&gt; SD
+        SD --&gt; ST1[(&quot;T1&quot;)]
+        SD --&gt; ST2[(&quot;T2&quot;)]
+    end
+    subgraph COM[&quot;Pelo proxy, com mTLS e lista&quot;]
+        C1[&quot;App 1&lt;br/&gt;certificado 1&quot;] --&gt;|&quot;lista: só T1&quot;| CD[&quot;DataReplication&lt;br/&gt;papel largo&quot;]
+        C2[&quot;App 2&lt;br/&gt;certificado 2&quot;] --&gt;|&quot;lista: só T2&quot;| CD
+        CD --&gt; CT1[(&quot;T1&quot;)]
+        CD --&gt; CT2[(&quot;T2&quot;)]
+    end</pre></div>
+<p>No bloco do meio, a App 1 consegue escrever em T2, o que o IAM de hoje não permite. No bloco da direita, a lista devolve o privilégio ao nível de hoje.</p>
+<h3>Arquitetura geral relacionada: <a href="../../04_diagramas/D02-implantacao-da-celula.md">D02 — Implantação de uma célula no Kubernetes</a></h3><p class="nota">Diagrama de <code>04_diagramas/</code> escolhido pelo site como contexto; o cenário fonte não faz essa associação.</p>
+<div class="diagrama"><pre class="mermaid">flowchart TD
+    subgraph NS[&quot;Namespace do cliente, NetworkPolicy fechada&quot;]
+        A1[&quot;App 1&quot;] --&gt;|&quot;mTLS por aplicação&quot;| SVC[&quot;Service interno&lt;br/&gt;porta de API&quot;]
+        A2[&quot;App 2 a 10&quot;] --&gt;|&quot;mTLS por aplicação&quot;| SVC
+        SVC --&gt; POD[&quot;Pod DataReplication&lt;br/&gt;QoS Guaranteed, PDB maxUnavailable 1&lt;br/&gt;lista identidade para tabelas e operações&quot;]
+    end
+    POD --- VOL[(&quot;Volume do Raft, pequeno e rápido&lt;br/&gt;wal do etcd, fsync no caminho do ACK&quot;)]
+    POD --- VOLP[(&quot;Volume do log de replicação, maior&lt;br/&gt;segmentos, fsync só no checkpoint&lt;br/&gt;log de replicação e progresso do applier por item&quot;)]
+    POD --&gt;|&quot;identidade da carga de trabalho&quot;| DB[(&quot;Banco da célula&quot;)]
+    POD &lt;--&gt;|&quot;mTLS, porta de replicação por balanceador interno&quot;| PEERS[&quot;DataReplication das outras células&quot;]
+    POD --&gt; ADM[&quot;Porta de administração&lt;br/&gt;livez, readyz, metrics&quot;]
+    A1 -. &quot;IAM negativo: sem escrita direta&quot; .-&gt; DB</pre></div>
+</section>
+<section id="etapas"><h2>3. Legenda e etapas</h2>
+<div class="etapas"><ol>
+<li><strong>Levantar as permissões atuais:</strong> por aplicação, quais tabelas e quais operações o papel IAM dela permite hoje (PEND-19). A lista nasce desse levantamento; se todas as aplicações compartilham o mesmo papel hoje, o ganho é menor, mas a lista continua valendo como registro.</li>
+<li><strong>Emitir os certificados:</strong> o cert-manager emite um certificado de cliente por aplicação, com uma identidade estável (por exemplo, o nome da aplicação ou da conta de serviço). A CA é da instalação do cliente.</li>
+<li><strong>Montar a lista:</strong> em configuração versionada e auditada, identidade → tabelas lógicas → operações da API da v1 (<a href="../../03_adr/ADR-025-escopo-da-api-v1-e-sdks.md">ADR-025</a>). O nome da tabela é o lógico, com <code>{cell}</code>, e a lista é a mesma em todas as células.</li>
+<li><strong>Handshake:</strong> o <code>DataReplication</code> exige certificado de cliente; o cliente HTTP do SDK precisa apresentá-lo. <strong>"Só trocar o endpoint" deixa de ser verdade.</strong> Cada SDK suportado (Java 2.x, Go v2, .NET v4) tem um ponto de extensão no cliente HTTP para isso, a validar na suíte de compatibilidade (X3). A alternativa de uma malha de serviço no cluster entregar o mTLS sem mudar a aplicação fica a avaliar.</li>
+<li><strong>Autorizar:</strong> a identidade vem do certificado, nunca do <code>Access Key Id</code> nem do <code>User-Agent</code>. A decisão é tomada na célula que recebe a chamada; o encaminhamento à líder confia no mTLS entre células (<a href="../success-path/C31-implantacao-por-cliente-e-identidade.html">C31</a>).</li>
+<li><strong>Recusar e registrar:</strong> sem entrada, <code>403</code>, com a métrica <code>authz_denied{identidade,tabela,operacao}</code> e registro de auditoria.</li>
+<li><strong>Bancos:</strong> continuam fechados para as aplicações; só o applier escreve, com o papel IAM do <code>DataReplication</code> (<a href="C20-bypass-de-escrita-direta.html">C20</a>).</li>
+</ol></div>
+</section>
+<section id="pontos"><h2>4. Pontos que precisam ser avaliados</h2>
+<p class="nota">Reescritos a partir das seções “Falhas e tratativas” e “Pontos em aberto” (e de outras seções de risco, quando existem). Em cada ponto, <b>O que a fonte define</b> vem da documentação; <b>Sugestão de encaminhamento</b> é <b>inferência do arquiteto</b>, não decisão registrada.</p>
+<article class="ponto">
+<h3><span class="num">1</span>Certificado vencido ou rotação mal feita <span class="origem">Falhas e tratativas</span></h3>
+<dl>
+<dt>Contexto</dt><dd>Se o certificado de cliente vence ou a rotação falha, o handshake mTLS falha e a aplicação perde acesso, o que para o cliente é indisponibilidade. Os SDKs costumam montar o material TLS na criação do cliente, então a recarga do certificado sem reiniciar a aplicação não é garantida.</dd>
+<dt>O que a fonte define</dt><dd class="">A fonte decide rotação com sobreposição, alerta de expiração e renovação automática pelo cert-manager; a recarga sem reinício precisa ser testada por SDK.</dd>
+<dt class="sug">Sugestão de encaminhamento <small>(inferência, não decidida)</small></dt><dd class="sug">Incluir na suíte de compatibilidade o teste de rotação por SDK e alertar com antecedência sobre certificados próximos do vencimento.</dd>
+</dl>
+</article>
+<article class="ponto">
+<h3><span class="num">2</span>Revogação e vazamento de certificado <span class="origem">Falhas e tratativas</span></h3>
+<dl>
+<dt>Contexto</dt><dd>Retirar a identidade da lista corta o acesso na próxima recarga da configuração. Se o certificado vazar, o uso dentro das permissões da própria identidade continua valendo até a revogação.</dd>
+<dt>O que a fonte define</dt><dd class="">A fonte decide proteger o segredo com RBAC de <code>Secret</code> e validade curta.</dd>
+<dt class="sug">Sugestão de encaminhamento <small>(inferência, não decidida)</small></dt><dd class="sug">Definir o tempo máximo de recarga da lista e testar a revogação em homologação.</dd>
+</dl>
+</article>
+<article class="ponto">
+<h3><span class="num">3</span>Lista incompleta no dia da ativação <span class="origem">Falhas e tratativas</span></h3>
+<dl>
+<dt>Contexto</dt><dd>Uma aplicação legítima sem entrada na lista receberia <code>403</code> em produção. Isso seria indisponibilidade causada pela própria segurança.</dd>
+<dt>O que a fonte define</dt><dd class="nd-fonte">Não decidido na fonte. Proposta na fonte: um período de observação em que a negação só conta e alerta, como no período de alerta do SDK (<a href="C22-cliente-com-sdk-nao-suportado.html">C22</a>).</dd>
+<dt class="sug">Sugestão de encaminhamento <small>(inferência, não decidida)</small></dt><dd class="sug">Adotar o período de observação com <code>authz_denied</code> como critério de ativação.</dd>
+</dl>
+</article>
+<article class="ponto">
+<h3><span class="num">4</span>Listas diferentes entre as células <span class="origem">Falhas e tratativas</span></h3>
+<dl>
+<dt>Contexto</dt><dd>Uma célula que recusa o que outra aceita muda o comportamento quando a liderança ou o tráfego muda. Depois de uma promoção, as aplicações na Azure precisam ser reconhecidas pela mesma lista.</dd>
+<dt>O que a fonte define</dt><dd class="">A fonte decide que a lista deve ser idêntica nas seis células, com alerta de divergência, e que o emissor do AKS confia na mesma CA ou a lista aceita os dois emissores.</dd>
+<dt class="sug">Sugestão de encaminhamento <small>(inferência, não decidida)</small></dt><dd class="sug">Distribuir a lista com versão e hash e alertar quando as células divergirem.</dd>
+</dl>
+</article>
+<article class="ponto">
+<h3><span class="num">5</span>Custo do handshake <span class="origem">Falhas e tratativas</span></h3>
+<dl>
+<dt>Contexto</dt><dd>O handshake mTLS tem custo na conexão nova. Com keep-alive, só a conexão nova paga o handshake, mas picos de reconexão podem afetar o orçamento de latência.</dd>
+<dt>O que a fonte define</dt><dd class="">A fonte decide reaproveitar a conexão (keep-alive, <code>IdleTimeout</code> de 120 s) e medir o efeito sobre o orçamento (<a href="C24-orcamento-de-50ms-e-escrita-no-dynamodb.html">C24</a>).</dd>
+<dt class="sug">Sugestão de encaminhamento <small>(inferência, não decidida)</small></dt><dd class="sug">Medir no spike o P99 com e sem reconexões e testar uma reconexão em massa após falha de célula.</dd>
+</dl>
+</article>
+<article class="ponto">
+<h3><span class="num">6</span>Sondas e administração <span class="origem">Falhas e tratativas</span></h3>
+<dl>
+<dt>Contexto</dt><dd>As sondas do kubelet não têm certificado de aplicação. Se ficarem na porta de dados, ou falham ou exigem exceção na autorização.</dd>
+<dt>O que a fonte define</dt><dd class="">A fonte decide colocar <code>readyz</code> e <code>livenessProbe</code> em porta separada sem acesso a dados, e manter a porta de administração separada com MFA e auditoria (<a href="../success-path/C31-implantacao-por-cliente-e-identidade.html">C31</a>).</dd>
+<dt class="sug">Sugestão de encaminhamento <small>(inferência, não decidida)</small></dt><dd class="sug">Testar que a porta de sondas não expõe dados e que a porta de administração exige MFA.</dd>
+</dl>
+</article>
+<article class="ponto">
+<h3><span class="num">7</span>Pod comprometido da própria aplicação <span class="origem">Falhas e tratativas</span></h3>
+<dl>
+<dt>Contexto</dt><dd>O mTLS não impede o que a identidade já pode fazer. Um pod comprometido da aplicação pode usar todas as permissões dela.</dd>
+<dt>O que a fonte define</dt><dd class="">A fonte aceita o risco, pois limita o dano ao que o IAM já permite hoje.</dd>
+<dt class="sug">Sugestão de encaminhamento <small>(inferência, não decidida)</small></dt><dd class="sug">Manter a auditoria por identidade e recomendar ao cliente separar identidades por função quando possível.</dd>
+</dl>
+</article>
+<article class="ponto">
+<h3><span class="num">8</span>Levantamento das permissões IAM atuais (PEND-19) <span class="origem">Pontos em aberto</span></h3>
+<dl>
+<dt>Contexto</dt><dd>A lista nasce do levantamento por aplicação. Se o levantamento estiver errado, a lista corta acesso legítimo ou concede acesso demais.</dd>
+<dt>O que a fonte define</dt><dd class="nd-fonte">Não decidido na fonte. A PEND-19 está com os times clientes e entra no inventário (<a href="../../03_adr/ADR-051-compatibilidade-dynamodb-inventario-conformidade-e-idempotencia.md">ADR-051</a>).</dd>
+<dt class="sug">Sugestão de encaminhamento <small>(inferência, não decidida)</small></dt><dd class="sug">Automatizar a extração das permissões dos papéis IAM e revisá-la com o time cliente.</dd>
+</dl>
+</article>
+<article class="ponto">
+<h3><span class="num">9</span>Formato e local da lista e nome da identidade <span class="origem">Pontos em aberto</span></h3>
+<dl>
+<dt>Contexto</dt><dd>O formato da lista, onde fica, como é recarregada e auditada, e o nome da identidade no certificado ainda não foram definidos. Sem isso, a autorização não pode ser implementada.</dd>
+<dt>O que a fonte define</dt><dd class="nd-fonte">Não decidido na fonte. Ficam a definir.</dd>
+<dt class="sug">Sugestão de encaminhamento <small>(inferência, não decidida)</small></dt><dd class="sug">Definir a lista como configuração versionada com revisão obrigatória e usar a conta de serviço como identidade.</dd>
+</dl>
+</article>
+<article class="ponto">
+<h3><span class="num">10</span>Mudança nos SDKs ou malha de serviço <span class="origem">Pontos em aberto</span></h3>
+<dl>
+<dt>Contexto</dt><dd>O cliente HTTP do SDK precisa apresentar o certificado, ou uma malha de serviço precisa entregar o mTLS. Cada opção tem custo diferente por cliente.</dd>
+<dt>O que a fonte define</dt><dd class="nd-fonte">Não decidido na fonte. A decisão é por cliente conforme o custo no inventário.</dd>
+<dt class="sug">Sugestão de encaminhamento <small>(inferência, não decidida)</small></dt><dd class="sug">Avaliar a malha de serviço em spike, comparando o custo com a mudança no SDK.</dd>
+</dl>
+</article>
+<article class="ponto">
+<h3><span class="num">11</span>Validade e sobreposição de certificados <span class="origem">Pontos em aberto</span></h3>
+<dl>
+<dt>Contexto</dt><dd>A validade dos certificados e o prazo de sobreposição na rotação não foram definidos. Validade longa aumenta o risco de vazamento; curta aumenta o risco de falha de rotação.</dd>
+<dt>O que a fonte define</dt><dd class="nd-fonte">Não decidido na fonte. Fica a definir e está ligado ao risco 18 (operação da frota).</dd>
+<dt class="sug">Sugestão de encaminhamento <small>(inferência, não decidida)</small></dt><dd class="sug">Definir os valores com segurança e testar a rotação em homologação.</dd>
+</dl>
+</article>
+</section>
+<section id="adrs"><h2>5. ADRs relacionados</h2>
+<div class="tabela"><table><thead><tr><th>ADR</th><th>Título</th><th>Decisão resumida</th><th>Arquivo</th></tr></thead><tbody>
+<tr><td class="nw"><a href="../../03_adr/ADR-052-autorizacao-por-aplicacao-com-mtls.md">ADR-052</a></td><td>Autorização por aplicação com mTLS</td><td>Cada aplicação fala mTLS com o DataReplication, que autoriza por lista identidade → tabelas e operações.</td><td><a href="../../03_adr/ADR-052-autorizacao-por-aplicacao-com-mtls.md">ADR-052-autorizacao-por-aplicacao-com-mtls.md</a></td></tr>
+<tr><td class="nw"><a href="../../03_adr/ADR-043-uma-instalacao-por-cliente-identidade-por-configuracao.md">ADR-043</a></td><td>Uma instalação por cliente; o cliente é conhecido na configuração</td><td>Uma instalação por cliente; o cliente é conhecido pela configuração do deploy.</td><td><a href="../../03_adr/ADR-043-uma-instalacao-por-cliente-identidade-por-configuracao.md">ADR-043-uma-instalacao-por-cliente-identidade-por-configuracao.md</a></td></tr>
+<tr><td class="nw"><a href="../../03_adr/ADR-051-compatibilidade-dynamodb-inventario-conformidade-e-idempotencia.md">ADR-051</a></td><td>Compatibilidade com o DynamoDB: inventário, conformidade e limite da idempotência</td><td>Compatibilidade com o DynamoDB por inventário de chamadas, suíte de conformidade e limite de idempotência documentado.</td><td><a href="../../03_adr/ADR-051-compatibilidade-dynamodb-inventario-conformidade-e-idempotencia.md">ADR-051-compatibilidade-dynamodb-inventario-conformidade-e-idempotencia.md</a></td></tr>
+<tr><td class="nw"><a href="../../03_adr/ADR-025-escopo-da-api-v1-e-sdks.md">ADR-025</a></td><td>Escopo da API v1 e SDKs suportados</td><td>API v1: PutItem, DeleteItem, BatchWriteItem, GetItem, BatchGetItem, Query e Scan; SDKs Java 2.x, Go v2 e .NET v4.</td><td><a href="../../03_adr/ADR-025-escopo-da-api-v1-e-sdks.md">ADR-025-escopo-da-api-v1-e-sdks.md</a></td></tr>
+<tr><td class="nw"><a href="../../03_adr/ADR-001-camada-intermediaria-agnostica.md">ADR-001</a></td><td>Camada intermediária agnóstica a cloud e a banco</td><td>Camada entre a aplicação e o banco que expõe a API do banco primário e mantém capacidades por backend.</td><td><a href="../../03_adr/ADR-001-camada-intermediaria-agnostica.md">ADR-001-camada-intermediaria-agnostica.md</a></td></tr>
+</tbody></table></div>
+<p class="nota">Lista extraída do cabeçalho “ADRs” do arquivo fonte. A decisão resumida condensa a seção “Decisão” de cada ADR.</p>
+</section>
+<section id="anexo"><h2>Anexo: texto original da fonte</h2><p class="nota">Seções do .md fonte reproduzidas sem reescrita, para conferência.</p>
+<details class="anexo"><summary>Falhas e tratativas</summary><ul>
+<li><strong>Certificado vencido ou rotação mal feita.</strong> O handshake falha e a aplicação perde o acesso, o que para o cliente é indisponibilidade. A rotação precisa de sobreposição (o novo certificado vale antes de o antigo vencer), alerta de expiração e renovação automática pelo cert-manager. Os SDKs costumam montar o material TLS na criação do cliente: a recarga do certificado sem reiniciar a aplicação precisa ser testada por SDK.</li>
+<li><strong>Revogação.</strong> Retirar a identidade da lista corta o acesso na próxima recarga da configuração, sem esperar o vencimento do certificado. Se o certificado vazar, o uso fora da lista continua dando <code>403</code>, mas dentro das permissões da própria identidade o vazamento vale: proteger o segredo no cluster (RBAC de <code>Secret</code>) e usar validade curta.</li>
+<li><strong>Lista incompleta no dia da ativação.</strong> Uma aplicação legítima receberia <code>403</code> em produção. Proposta: um período de observação em que a negação só conta e alerta, no mesmo molde do período de alerta do SDK (<a href="C22-cliente-com-sdk-nao-suportado.html">C22</a>), antes de impor a regra.</li>
+<li><strong>Listas diferentes entre as células.</strong> Uma célula que recusa o que outra aceita muda o comportamento quando a liderança ou o tráfego muda. A lista deve ser idêntica nas seis células, com alerta de divergência. Depois de uma promoção, as aplicações na Azure usam a mesma lista; o emissor de certificados do AKS precisa confiar na mesma CA, ou a lista deve aceitar a identidade nos dois emissores.</li>
+<li><strong>Custo do handshake.</strong> A conexão é reaproveitada (keep-alive, <code>IdleTimeout</code> de 120 s); só a conexão nova paga o handshake. Medir o efeito sobre o orçamento de latência (<a href="C24-orcamento-de-50ms-e-escrita-no-dynamodb.html">C24</a>).</li>
+<li><strong>Sondas e administração.</strong> As sondas do kubelet não têm certificado de aplicação: <code>readyz</code> e <code>livenessProbe</code> ficam em porta separada, sem acesso a dados. A porta de administração continua separada, com MFA e auditoria (<a href="../success-path/C31-implantacao-por-cliente-e-identidade.html">C31</a>).</li>
+<li><strong>Pod comprometido da própria aplicação.</strong> O mTLS não impede o que a identidade já pode fazer; limita o dano ao conjunto de tabelas e operações dela, que é o que o IAM faz hoje.</li>
+</ul></details>
+<details class="anexo"><summary>Pontos em aberto</summary><ul>
+<li>PEND-19: levantar as permissões IAM atuais de cada aplicação para montar a lista; entra no inventário de cada cliente (<a href="../../03_adr/ADR-051-compatibilidade-dynamodb-inventario-conformidade-e-idempotencia.md">ADR-051</a>).</li>
+<li>Formato e local da lista (configuração, recarga, auditoria) e o nome da identidade no certificado: a definir.</li>
+<li>Mudança nos SDKs ou malha de serviço: decidir por cliente conforme o custo no inventário.</li>
+<li>Validade dos certificados e prazo de sobreposição na rotação: a definir (risco 18, operação da frota).</li>
+</ul></details>
+</section>
+<footer class="rodape">
+Gerado em 13/10/2026 a partir de <code>DataReplication_Versao_1/</code>. O conteúdo vem dos arquivos .md citados no código-fonte desta página;
+textos marcados como <em>sugestão</em> são inferência do arquiteto e não decisões registradas.
+</footer>
+</main>
+</div>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@11.4.1/dist/mermaid.min.js"></script>
+<script>mermaid.initialize({startOnLoad: true, theme: "neutral", securityLevel: "strict", flowchart: {htmlLabels: true, useMaxWidth: true}, sequence: {useMaxWidth: true}});</script>
+</body>
+</html>

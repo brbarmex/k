@@ -1,0 +1,26 @@
+{
+ "id": "C14",
+ "pontos": [
+  {
+   "titulo": "Operador indisponível ou lento",
+   "origem": "Falhas e tratativas",
+   "contexto": "A promoção da Azure é sempre humana, então o RTO inclui perceber, decidir, esperar D + M e executar. Sem plantão e critérios pré-aprovados, isso pode levar horas.",
+   "na_fonte": "O RTO é uma distribuição medida em exercícios de falha (R18). O R10 propõe plantão, comando único de promoção e game days, sem resolução.",
+   "sugestao": "Definir quem tem autoridade de promover e um prazo máximo de decisão, junto com D e M, e realizar game days medindo cada etapa. Garantir que o comando de promoção funcione sem nada da AWS (R11)."
+  },
+  {
+   "titulo": "A API de promoção depende de algo que estava na AWS",
+   "origem": "Falhas e tratativas",
+   "contexto": "Se credenciais, imagens, pipeline, DNS ou observabilidade usados na promoção estiverem na AWS, não é possível promover quando a AWS cai. A Azure ficaria com os dados completos mas sem como assumir.",
+   "na_fonte": "Princípio: sem dependência circular de uma nuvem perdida. Falta inventário item a item e teste com a AWS bloqueada (R11).",
+   "sugestao": "Agendar o teste com a AWS totalmente bloqueada como critério de aceite da v1 e cobrir o checklist do R11, incluindo painéis de alerta e a CA do mTLS."
+  },
+  {
+   "titulo": "Promoção com a AWS viva (diagnóstico errado)",
+   "origem": "Falhas e tratativas",
+   "contexto": "Da Azure, AWS morta e link caído são idênticos. Se a Azure é promovida com a AWS viva e isolada, as duas pontas podem confirmar escrita. O lease reduz o risco, mas ele ainda depende de relógio e da regra de prorrogação.",
+   "na_fonte": "Com o lease, a AWS viva para ao fim de D antes de a Azure poder ser promovida (ADR-044); o risco residual é de relógio e da H-DR13. A regra precisa ser provada no TLA+ (R12, C32, PEND-01).",
+   "sugestao": "Provar no TLA+ as propriedades de nunca escrita nas duas pontas antes de fechar a PEND-01. Para `reject`, onde a segurança vem do fencing por maioria Azure, garantir que esse caminho também seja modelado, pois a fonte diz que ainda falta provar."
+  }
+ ]
+}

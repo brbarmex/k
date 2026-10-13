@@ -1,0 +1,26 @@
+{
+ "id": "R09",
+ "pontos": [
+  {
+   "titulo": "Catch-up consome o link",
+   "origem": "Falhas e tratativas",
+   "contexto": "Quando o link volta com backlog acumulado, os learners Azure recebem ao mesmo tempo o log antigo e o novo. Se o catch-up usar toda a banda disponível, o encaminhamento entre clouds e a replicação ao vivo pioram, empurrando o sistema para a faixa cinzenta do C25. Como o ACK depende da maioria Azure durável, um catch-up agressivo aumenta a latência de escrita de todo o shard e pode até provocar nova degradação, piorando a disponibilidade justamente durante a recuperação.",
+   "na_fonte": "A fonte propõe catch-up com limite de vazão e prioridade abaixo do tráfego vivo (que inclui o encaminhamento entre clouds), e a métrica `restore_eta_seconds`. A banda do cabo e os limites de QoS ainda dependem do time de rede.",
+   "sugestao": "Fazer um spike que injete backlog conhecido com carga de escrita ao vivo e meça a latência de ACK com e sem o limite de vazão, definindo como critério de aceite que o P99 de escrita não piore além de um limiar a definir. Verificar também se o QoS separa de fato o tráfego do gate (que precisa ser rápido) do catch-up, porque ambos chegam aos mesmos learners e um mesmo stream pode misturá-los."
+  },
+  {
+   "titulo": "Catch-up mais lento que o lease",
+   "origem": "Falhas e tratativas",
+   "contexto": "O tempo de convergência é aproximadamente `backlog / (banda_livre − taxa_de_entrada)` e é infinito se a banda livre não superar a taxa de entrada. Se o ETA do `RESTORE` passar de D, o lease do modo degradado expira antes de a Azure alcançar a AWS e as escritas param com `503 LEASE_EXPIRED` em instalações `accept`. Isso transforma uma degradação de RPO em indisponibilidade total de escrita do shard, com RTO dependente de decisão humana.",
+   "na_fonte": "A fonte define que a pessoa decide entre `RENEW` e a reconstrução (`drctl rebuild`, com C33 para o banco), e que o ETA entra no alerta junto com o tempo restante do lease (ADR-044). A reconstrução completa (C21) é o caminho quando a Azure está fora da janela de retenção.",
+   "sugestao": "Criar um alerta composto que dispare quando o ETA do `RESTORE` exceder o tempo restante do lease, com antecedência a definir, e incluir no runbook um critério objetivo para escolher entre `RENEW` e `drctl rebuild`. Lembrar que cada `RENEW` alonga a janela de órfãs e interage com a promoção (H-DR13), então a decisão precisa registrar o teto acumulado aprovado na PEND-02."
+  },
+  {
+   "titulo": "Banda do cabo, QoS e valor de RESTORE_LAG",
+   "origem": "Pontos em aberto",
+   "contexto": "Sem conhecer a banda do cabo dedicado e os limites de QoS, não é possível calcular se o catch-up converge para a taxa de entrada esperada nem dimensionar o limite de vazão. O valor de `RESTORE_LAG` define quando o shard volta ao modo normal e, portanto, quanto tempo o sistema passa com RPO > 0. Um valor mal calibrado pode prolongar a degradação ou causar oscilação entre modos (R07).",
+   "na_fonte": "Não decidido na fonte. Proposta na fonte: a banda e o QoS vêm do time de rede e o `RESTORE_LAG` está entre os limiares da PEND-12, a calibrar na POC.",
+   "sugestao": "Levar ao time de rede um pedido formal com a taxa de entrada estimada e o backlog máximo esperado (derivado de D), pedindo a banda garantida para replicação. Calibrar `RESTORE_LAG` e `RESTORE_STABLE` no mesmo experimento de caos de link oscilando do R07, com o critério de não haver mais que um número a definir de transições por hora."
+  }
+ ]
+}

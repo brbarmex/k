@@ -1,0 +1,103 @@
+{
+ "id": "R23",
+ "pontos": [
+  {
+   "titulo": "RPO > 0 sem teto aprovado no modo degradado",
+   "origem": "H2 / PEND-02. RPO > 0 sem teto no modo degradado (bloqueante)",
+   "contexto": "Com a opção B (ADR-014), a perda possível cresce com a duração da degradação, e o header `x-dr-mode: degraded` informa o cliente sem limitar a perda. Desde 13/10 o teto existe no desenho, o lease D (ADR-044), mas o valor de D e de M não foi aprovado. Sem D definido o modo degradado não pode ser ligado, e se a AWS morrer em modo degradado o RTO é pelo menos D + M.",
+   "na_fonte": "A fonte decide o mecanismo (lease D, ADR-044) e a política por instalação `accept` ou `reject` (ADR-045); a aprovação de D, M e da política por cliente é bloqueante e está pendente (PEND-02). Caminhos adicionais propostos: segundo circuito privado por outra operadora e exportação periódica do log degradado.",
+   "sugestao": "Levar ao Bruno e ao negócio um pacote de decisão que mostre, para cada D candidato, o volume máximo de órfãs, o RTO mínimo do desastre e o tamanho do volume do log de replicação. Avaliar o segundo circuito como alternativa que reduz a frequência de degradação, já que reduzir a causa vale mais que limitar o efeito."
+  },
+  {
+   "titulo": "Líder lenta, mas viva",
+   "origem": "H4 / PEND-11. Líder lenta, mas viva",
+   "contexto": "Uma líder com disco ou rede degradados continua mandando heartbeat e não perde a eleição, mas deixa todas as escritas do shard lentas. Como não há disparo automático, a latência de escrita fica degradada até alguém intervir. Isso afeta diretamente o SLO de latência e pode ser confundido com problema de link.",
+   "na_fonte": "Não decidido na fonte. Proposta na fonte: critério de saúde além do heartbeat (P99 de fsync, latência de commit, atraso de apply), com histerese e cooldown, disparando a transferência planejada do ADR-013; falha de fsync continua fatal (ADR-034).",
+   "sugestao": "Separar no critério a lentidão causada pela líder da causada pelo link Azure, porque transferir liderança não resolve a faixa cinzenta (C25) e pode gerar oscilação inútil. Testar com injeção de latência de disco só na líder e validar que a transferência ocorre uma vez, com limiares a definir."
+  },
+  {
+   "titulo": "Corrupção lógica ou bug replicado",
+   "origem": "H7. Corrupção lógica ou bug replicado",
+   "contexto": "RPO 0 replica tudo, inclusive erros: um deploy com bug que grava dado errado é replicado imediatamente para as duas clouds. Nesse caso o failover não ajuda, e a recuperação exige voltar o estado a um ponto anterior ao erro. É um risco de integridade que a arquitetura de replicação não cobre por desenho.",
+   "na_fonte": "Não decidido na fonte. Proposta na fonte: backup contínuo dos dois bancos (PITR no DynamoDB, backup contínuo no Cosmos), retenção do log suficiente para reconstruir até um índice anterior ao erro e validação de esquema e capacidades antes do commit (C26).",
+   "sugestao": "Definir e ensaiar um runbook de restauração a um ponto no tempo que mantenha as seis réplicas coerentes entre si, já que restaurar só um banco quebra a convergência. Verificar a compatibilidade entre a retenção do log de replicação e o tempo típico para detectar um bug de dado."
+  },
+  {
+   "titulo": "Bug no consenso customizado",
+   "origem": "H8. Bug no consenso customizado",
+   "contexto": "A regra de eleição só na AWS com gate de maioria Azure e modo degradado não é Raft padrão. Um erro sutil nessa composição pode perder dado ou causar split-brain sem nenhuma falha de infraestrutura. É o risco de maior impacto em RPO, porque passa despercebido até o momento da falha.",
+   "na_fonte": "A fonte decide modelar em TLA+ antes do código do gate, ampliado com lease, promoção entre nuvens, troca de membros, dedupe, resultado desconhecido, I-DEL e a barreira da leitura forte (ADR-030, ADR-046, X01), com testes tipo Jepsen; o Raft em si é o `etcd-io/raft`.",
+   "sugestao": "Exigir rastreabilidade entre cada propriedade do TLA+ e um teste Jepsen correspondente sobre a implementação, porque o modelo prova o desenho e não o código. Incluir no Jepsen as falhas de relógio e pausas que o lease do modo degradado assume limitadas."
+  },
+  {
+   "titulo": "Dependência de relógio nas leituras fortes",
+   "origem": "H9. Dependência de relógio nas leituras fortes",
+   "contexto": "Leituras por lease confiam que o relógio dos nós não deriva além de um limite, o que poderia devolver dado antigo em leitura forte. A leitura forte foi desenhada com ReadIndex para evitar isso. Porém o lease do modo degradado é outro mecanismo e depende de relógio limitado, então a premissa de relógio continua presente no sistema.",
+   "na_fonte": "A fonte decide usar ReadIndex com barreira `min(ReadIndex, gate)` e não lease para leitura (R16, ADR-049); a deriva máxima faz parte de M no lease do modo degradado (ADR-044).",
+   "sugestao": "Monitorar a deriva de relógio entre nós e entre clouds com alerta, mesmo sem leitura por lease, porque M depende dela. Registrar como decisão que ligar leitura por lease exige nova análise e teste de deriva, para evitar que vire configuração de desempenho sem revisão."
+  },
+  {
+   "titulo": "Plano de controle e identidade dos provedores",
+   "origem": "H10. Plano de controle e identidade dos provedores",
+   "contexto": "Incidentes globais costumam ser de identidade ou DNS, não de dados. Se o acesso ao Cosmos ou ao DynamoDB depender de emitir um token no momento da escrita, o caminho de dados para mesmo com os bancos de pé. Isso afeta disponibilidade das duas clouds e pode impedir a promoção.",
+   "na_fonte": "Não decidido na fonte. Proposta na fonte: credenciais com rotação controlada e tokens de validade longa em cache, e teste da camada com o serviço de identidade do provedor indisponível (R11, C31).",
+   "sugestao": "Incluir um teste de caos que bloqueia o endpoint de identidade de cada provedor por tempo maior que a validade do token em cache, medindo o comportamento. Avaliar o tradeoff de segurança de tokens longos com o time de segurança e registrar a decisão."
+  },
+  {
+   "titulo": "Shard além da capacidade de um log",
+   "origem": "H11. Crescimento de um shard além da capacidade de um log",
+   "contexto": "Com ordenação por shard, cada shard tem uma líder e um log. Se um segmento crescer muito além de 3.000 TPS, não há procedimento para dividir o shard. O resultado seria saturação da líder e aumento da latência de escrita sem saída operacional.",
+   "na_fonte": "Não decidido na fonte. Proposta na fonte: desenhar o split de shard (novo grupo de consenso, cópia, troca de roteamento) ou evoluir para ordenação por chave de partição com apply paralelo por chave.",
+   "sugestao": "Medir no teste de carga a capacidade máxima de um shard e definir alerta de ocupação com limiar a definir. Registrar como limite conhecido da v1 e exigir, no onboarding, a projeção de crescimento de cada cliente."
+  },
+  {
+   "titulo": "Reconstrução automática de réplica",
+   "origem": "H-DR1. Reconstrução automática de réplica",
+   "contexto": "Quando uma réplica perde o disco ou sai da janela de retenção, a v1 usa `drctl rebuild`, manual assistido. Isso torna a reconstrução dependente de pessoa e é exceção à meta de recuperar sem humano. Enquanto a réplica não volta, a redundância fica reduzida e o RTO de uma nova falha aumenta.",
+   "na_fonte": "A fonte decide reconstrução manual assistida na v1 com o protocolo de tabela sombra (ADR-047, C21, C33); a automação completa fica em aberto.",
+   "sugestao": "Medir o tempo de reconstrução completa por tamanho de tabela nos exercícios de falha e incluir no `Delta-T` de perda de disco. Definir um alerta que avise quando o shard estiver operando com redundância reduzida por mais que um prazo a definir."
+  },
+  {
+   "titulo": "Chave quente",
+   "origem": "H-DR4. Chave quente",
+   "contexto": "Muitas escritas à mesma chave serializam na fila por chave do applier e podem estourar throttling por partição no DynamoDB. Isso atrasa o apply, aumenta a espera de leituras fortes e pode afetar outras chaves do mesmo shard. O impacto é de latência e, no limite, de disponibilidade.",
+   "na_fonte": "Não decidido na fonte. Proposta na fonte: backpressure por chave e por cliente com os erros do DynamoDB que o SDK já entende (ADR-025), e medição no teste de carga.",
+   "sugestao": "Incluir no teste de carga um cenário de chave quente medindo o efeito sobre as demais chaves do shard e sobre `apply_wait`. Avaliar também o efeito no Cosmos, cujo particionamento é diferente e pode saturar em ponto distinto."
+  },
+  {
+   "titulo": "Parse completo do JSON no caminho quente",
+   "origem": "H-DR6. Parse completo do JSON (aceita)",
+   "contexto": "A camada faz parse completo do JSON da requisição no caminho quente, com custo de CPU e alocação. Se esse custo afetar o heartbeat ou o P99, pode provocar eleições espúrias ou violar o SLO de escrita.",
+   "na_fonte": "A fonte registra a decisão do Bruno de 12/10: custo conhecido e aceito (ADR-032), com medição no spike S2 e revisão se heartbeat ou P99 forem afetados.",
+   "sugestao": "Definir no spike S2 o critério objetivo de revisão (impacto no P99 e nos atrasos de heartbeat, limiares a definir) para que a revisão não dependa de impressão. Isolar o processamento do Raft do processamento de requisições para que picos de parse não atrasem heartbeat."
+  },
+  {
+   "titulo": "Prorrogação do lease x promoção da Azure",
+   "origem": "H-DR13. Prorrogação do lease x promoção da Azure",
+   "contexto": "Prorrogar o lease (`RENEW`) depois de D + M passados pode reabrir o risco de as duas pontas aceitarem escrita. A prorrogação é humana e replicada no Raft da AWS, mas a Azure não vê esse Raft. Sem regra, o split-brain que o lease deveria eliminar volta a ser possível.",
+   "na_fonte": "Não decidido na fonte. Proposta na fonte: regra no modelo TLA+, por exemplo marcar a Azure como `promotion_blocked` antes de prorrogar ou recusar a prorrogação depois de um limite, provada em P12 do X01 antes de a PEND-01 fechar.",
+   "sugestao": "Favorecer a opção de recusar `RENEW` com base no relógio local da AWS, já que marcar `promotion_blocked` exige o link que pode estar fora. Modelar no TLA+ a combinação de `RENEW` com partição assimétrica (H-DR14), que é o caso mais provável de quebrar a regra."
+  },
+  {
+   "titulo": "Partição assimétrica",
+   "origem": "H-DR14. Partição assimétrica",
+   "contexto": "Quando um sentido do link funciona e o outro não, o último contato visto pela Azure e o gate visto pela AWS divergem. Por exemplo, a AWS não recebe as respostas da Azure e degrada, mas a Azure ainda recebe heartbeats e continua renovando o último contato. Também não está definido se contato da AWS é qualquer votante ou só a líder (R06).",
+   "na_fonte": "Não decidido na fonte. Proposta na fonte: modelar partições simétricas e assimétricas no TLA+ (C32) e confirmar que o prazo D + M, medido no relógio da Azure, continua seguro.",
+   "sugestao": "Definir \"contato da AWS\" como mensagem que comprova que a AWS ainda recebe da Azure (por exemplo um eco de confirmação), e não apenas heartbeat recebido, para que a assimetria não esconda a degradação. Criar um teste de caos com bloqueio de um único sentido do link em cada direção."
+  },
+  {
+   "titulo": "Semântica do Cosmos depois do failover",
+   "origem": "H-DR15. Semântica do Cosmos depois do failover",
+   "contexto": "Depois do failover a aplicação fala com o Cosmos pelo Cloud-Adapter. Diferenças de tamanho de item, precisão de `Number`, índices consistentes por padrão e TTL podem mudar o comportamento que a aplicação via no DynamoDB. A aplicação pode quebrar justamente no desastre, quando o RTO já está correndo.",
+   "na_fonte": "Não decidido na fonte. Proposta na fonte: a suíte de conformidade roda a mesma sequência contra DynamoDB, camada e Cosmos (PEND-16), e a aplicação não deve depender da consistência do índice (ADR-050, ADR-051).",
+   "sugestao": "Rodar os testes de integração de cada cliente contra o Cosmos pelo Cloud-Adapter antes do onboarding, não só a suíte genérica. Dar atenção especial ao TTL, cujas expirações podem divergir entre os bancos e gerar diferenças de dado após a promoção."
+  },
+  {
+   "titulo": "Decisões pendentes do Bruno",
+   "origem": "Pontos em aberto",
+   "contexto": "O aceite formal do valor de D e do RPO > 0 (PEND-02) é bloqueante, e a aprovação de D e M também é necessária para fechar a PEND-01, cujo desenho está decidido (ADR-044) mas falta prova no TLA+. Sem essas decisões, o modo degradado não pode ser ligado e a segurança contra split-brain fica sem prova.",
+   "na_fonte": "A fonte registra que as decisões dependem do Bruno e que a promoção automática segue com os outros arquitetos e não é reaberta.",
+   "sugestao": "Agendar uma única sessão de decisão com o Bruno cobrindo D, M, política por cliente, prazo de decisão humana (R10) e dono das órfãs (R13), já que todas dependem de D. Tratar a prova no TLA+ como pré-condição para ligar `accept` em produção, mesmo com D aprovado."
+  }
+ ]
+}

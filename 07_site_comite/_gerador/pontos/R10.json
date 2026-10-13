@@ -1,0 +1,19 @@
+{
+ "id": "R10",
+ "pontos": [
+  {
+   "titulo": "Decisão tardia",
+   "origem": "Falhas e tratativas",
+   "contexto": "Como a promoção da Azure é sempre humana (ADR-033), o RTO do desastre inclui perceber, decidir e executar. Sem um prazo explícito, a decisão tende a virar \"esperar mais um pouco\", e o RTO pode chegar a horas. Em instalações `accept`, a espera de D + M já é obrigatória, mas o tempo humano corre em paralelo; se a decisão não estiver pronta quando D + M expirar, o RTO passa a ser dominado pelo operador e não pelo lease.",
+   "na_fonte": "A fonte propõe definir um prazo após o qual o plantão decide com a evidência disponível, plantão 24x7 com runbook e critérios pré-aprovados, `drctl promote` como comando único com pré-checagens e auditoria, game days e sinais externos independentes da AWS. Nenhum desses itens tem valor ou dono definido.",
+   "sugestao": "Fixar o prazo de decisão como igual ou menor que D + M, para que o tempo humano fique escondido sob a espera obrigatória, e medir em game day o tempo entre o alerta e a confirmação do `drctl promote`. Incluir no runbook uma regra padrão (promover se as evidências X, Y e Z estiverem presentes ao fim do prazo) para que o silêncio de quem decide não bloqueie a recuperação."
+  },
+  {
+   "titulo": "Autoridade e tempo máximo de decisão da promoção",
+   "origem": "Pontos em aberto",
+   "contexto": "Não está definido quem tem autoridade para decidir a promoção nem qual o tempo máximo para essa decisão. Sem isso, em um desastre real pode haver escalonamento em cadeia, o que alonga o RTO de forma imprevisível e torna o `Delta-T` do desastre impossível de prometer. O assunto se liga à PEND-01, cujo desenho (lease e promoção após D + M) está decidido no ADR-044.",
+   "na_fonte": "Não decidido na fonte. Proposta na fonte: o prazo para decidir deve ser escolhido junto com D e M (PEND-02), e a promoção automática segue com os outros arquitetos e não é reaberta.",
+   "sugestao": "Levar ao Bruno e ao negócio, na mesma reunião de aprovação de D e M, uma matriz de autoridade (titular e substitutos, com a escala de plantão) e o tempo máximo de decisão. Registrar o resultado em ADR ou no runbook, com critério de aceite de um game day em que a decisão sai dentro do prazo sem acionar quem não está de plantão."
+  }
+ ]
+}

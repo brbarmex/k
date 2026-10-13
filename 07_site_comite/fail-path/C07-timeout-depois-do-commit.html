@@ -1,0 +1,247 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>C07 — Prazo estoura depois do commit, antes do ACK (retry do SDK) · DataReplication v1</title>
+<link rel="stylesheet" href="../assets/site.css">
+</head>
+<body>
+<!--
+Fonte(s) usada(s) nesta página (rastreabilidade), relativas à raiz do pacote:
+  02_cenarios/atualizados/C07-timeout-depois-do-commit.md
+  04_diagramas/D07-prazos-em-cascata.md
+Gerado em 13/10/2026 a partir do pacote DataReplication_Versao_1.
+-->
+<header class="topo">
+<button class="menu" type="button" aria-label="Abrir navegação" onclick="document.body.classList.toggle('nav-aberta')">☰</button>
+<a href="../index.html">DataReplication v1</a><span class="sep">·</span><span>Apresentação ao comitê técnico</span>
+</header>
+<div class="layout">
+<nav class="sidebar" aria-label="Navegação">
+<a class="marca" href="../index.html">DataReplication v1<span>Comitê técnico</span></a>
+<a class="nav-inicio" href="../index.html">Resumo e requisitos</a>
+<details class="grupo"><summary>Success path <span class="qtd">10</span></summary><ul>
+<li><a class="idx" href="../success-path/index.html">Índice da seção</a></li>
+<li><a href="../success-path/C01-visao-geral.html"><b>C01</b> Visão geral da arquitetura</a></li>
+<li><a href="../success-path/C02-dentro-da-celula.html"><b>C02</b> Dentro da célula: apps do cliente e DataReplication</a></li>
+<li><a href="../success-path/C03-escrita-strong.html"><b>C03</b> Caminho feliz: escrita (apply serial depois do gate)</a></li>
+<li><a href="../success-path/C04-escrita-eventual.html"><b>C04</b> Modo Eventual: só de leitura (sem apply paralelo na v1)</a></li>
+<li><a href="../success-path/C05-leitura-strong-e-eventual.html"><b>C05</b> Caminho feliz: leitura Strong e Eventual</a></li>
+<li><a href="../success-path/C06-follower-encaminha.html"><b>C06</b> Requisição chega numa célula que não é a líder</a></li>
+<li><a href="../success-path/C11-transferencia-planejada.html"><b>C11</b> Transferência planejada de liderança (manutenção)</a></li>
+<li><a href="../success-path/C18-partida-e-recuperacao-do-no.html"><b>C18</b> Partida, recuperação e parada limpa do nó</a></li>
+<li><a href="../success-path/C23-batchwriteitem-lote-uma-entrada.html"><b>C23</b> BatchWriteItem: o lote é uma entrada e o apply é por item (antes R15)</a></li>
+<li><a href="../success-path/C31-implantacao-por-cliente-e-identidade.html"><b>C31</b> Uma instalação por cliente e identificação na API (antes R19)</a></li>
+</ul></details>
+<details class="grupo" open><summary>Fail path <span class="qtd">24</span></summary><ul>
+<li><a class="idx" href="index.html">Índice da seção</a></li>
+<li><a class="atual" aria-current="page" href="C07-timeout-depois-do-commit.html"><b>C07</b> Prazo estoura depois do commit, antes do ACK (retry do SDK)</a></li>
+<li><a href="C08-queda-de-celula-lider-ou-az-aws.html"><b>C08</b> Queda da célula líder ou de uma AZ na AWS</a></li>
+<li><a href="C09-queda-de-az-azure.html"><b>C09</b> Queda de uma AZ na Azure</a></li>
+<li><a href="C10-celulas-de-app-aws-fora.html"><b>C10</b> Apps da AWS fora, replicação viva: tráfego vai para a Azure</a></li>
+<li><a href="C12-modo-degradado.html"><b>C12</b> Link AWS↔Azure cai ou Azure cai: modo degradado com lease</a></li>
+<li><a href="C13-ressincronizacao-da-azure.html"><b>C13</b> Ressincronização da Azure</a></li>
+<li><a href="C14-aws-cai-sem-degradacao.html"><b>C14</b> AWS cai por inteiro sem degradação prévia</a></li>
+<li><a href="C15-aws-cai-em-degradacao.html"><b>C15</b> AWS cai durante o modo degradado</a></li>
+<li><a href="C16-aws-volta-apos-promocao.html"><b>C16</b> AWS volta depois da promoção da Azure</a></li>
+<li><a href="C17-maquina-de-estados.html"><b>C17</b> Máquina de estados dos modos de operação de um shard</a></li>
+<li><a href="C19-falha-do-datareplication.html"><b>C19</b> O DataReplication da célula cai ou reinicia</a></li>
+<li><a href="C20-bypass-de-escrita-direta.html"><b>C20</b> Aplicação escreve direto no banco (bypass)</a></li>
+<li><a href="C21-disco-fsync-e-reconstrucao.html"><b>C21</b> Falha de fsync, corrupção, disco lento e disco perdido</a></li>
+<li><a href="C22-cliente-com-sdk-nao-suportado.html"><b>C22</b> Cliente com SDK ou versão não suportada</a></li>
+<li><a href="C24-orcamento-de-50ms-e-escrita-no-dynamodb.html"><b>C24</b> Orçamento de 50 ms e a escrita no DynamoDB dentro do ACK (antes R21)</a></li>
+<li><a href="C25-link-lento-faixa-cinzenta.html"><b>C25</b> Link lento ou saturado (faixa cinzenta): só alertar (antes R01)</a></li>
+<li><a href="C26-entrada-venenosa.html"><b>C26</b> Entrada venenosa: um item que o banco recusa para sempre (antes R02)</a></li>
+<li><a href="C27-encaminhamento-sem-lider-conhecida.html"><b>C27</b> Loop de encaminhamento e espera pela líder durante a eleição (antes R05)</a></li>
+<li><a href="C28-leitura-eventual-na-azure-defasada.html"><b>C28</b> Leitura eventual na Azure durante a degradação (antes R04)</a></li>
+<li><a href="C29-disco-do-log-em-degradacao-longa.html"><b>C29</b> Disco do log esgota durante uma degradação longa (antes R08)</a></li>
+<li><a href="C30-aws-que-volta-boot-cercado.html"><b>C30</b> Fencing: o DynamoDB e o applier da AWS que voltam depois da promoção (antes R14)</a></li>
+<li><a href="C32-particao-e-lease-do-modo-degradado.html"><b>C32</b> Partição entre AWS e Azure: lease do modo degradado e promoção da Azure</a></li>
+<li><a href="C33-reconstrucao-em-tabela-sombra.html"><b>C33</b> Reconstrução do banco de uma célula em tabela sombra</a></li>
+<li><a href="C34-autorizacao-por-aplicacao.html"><b>C34</b> Autorização por aplicação: mTLS e lista de permissões por identidade</a></li>
+</ul></details>
+<details class="grupo"><summary>Complex path <span class="qtd">6</span></summary><ul>
+<li><a class="idx" href="../complex-path/index.html">Índice da seção</a></li>
+<li><a href="../complex-path/X01-gate-e-troca-de-lider.html"><b>X01</b> Gate: definição, monotonicidade e troca de líder</a></li>
+<li><a href="../complex-path/X02-modo-degradado.html"><b>X02</b> Modo degradado: entrada, permanência, lease e saída</a></li>
+<li><a href="../complex-path/X03-desastre-e-promocao-da-azure.html"><b>X03</b> Desastre: promoção da Azure, fencing e reconciliação</a></li>
+<li><a href="../complex-path/X04-partida-recuperacao-e-dois-logs.html"><b>X04</b> Partida, recuperação e coerência entre os dois logs</a></li>
+<li><a href="../complex-path/X05-timeouts-e-idempotencia.html"><b>X05</b> Timeouts em cascata e idempotência do retry</a></li>
+<li><a href="../complex-path/X06-delete-ttl-gsi.html"><b>X06</b> DELETE, TTL, Scan e GSI</a></li>
+</ul></details>
+<details class="grupo"><summary>Parking lot <span class="qtd">14</span></summary><ul>
+<li><a class="idx" href="../parking-lot/index.html">Índice da seção</a></li>
+<li><a href="../parking-lot/R03-backlog-de-apply-no-cosmos.html"><b>R03</b> Backlog de apply no Cosmos (429 e RU insuficiente)</a></li>
+<li><a href="../parking-lot/R06-duas-azs-aws-caem.html"><b>R06</b> Duas AZs da AWS caem com a Azure saudável</a></li>
+<li><a href="../parking-lot/R07-link-oscilando.html"><b>R07</b> Link oscilando (flapping)</a></li>
+<li><a href="../parking-lot/R09-resincronizacao-lenta-ou-bloqueada.html"><b>R09</b> Ressincronização da Azure lenta ou que nunca termina</a></li>
+<li><a href="../parking-lot/R10-operador-lento-no-desastre.html"><b>R10</b> Tempo de decisão humana no desastre</a></li>
+<li><a href="../parking-lot/R11-api-de-promocao-depende-da-aws.html"><b>R11</b> A API de promoção depende de algo que estava na AWS</a></li>
+<li><a href="../parking-lot/R12-promocao-com-aws-viva.html"><b>R12</b> Promoção da Azure com a AWS viva (split-brain, PEND-01)</a></li>
+<li><a href="../parking-lot/R13-escritas-orfas-reconciliacao.html"><b>R13</b> Escritas órfãs: reconciliação depois da promoção (PEND-03)</a></li>
+<li><a href="../parking-lot/R16-leitura-forte-em-celulas-follower.html"><b>R16</b> Leitura forte em células follower (ReadIndex e gate)</a></li>
+<li><a href="../parking-lot/R17-atributo-de-versao-e-limite-400kb.html"><b>R17</b> Atributo de versão: limite de 400 KB e ausência nas respostas</a></li>
+<li><a href="../parking-lot/R18-rto-nao-quantificado.html"><b>R18</b> RTO (Delta-T) ainda sem número</a></li>
+<li><a href="../parking-lot/R20-custo-6x.html"><b>R20</b> Custo: cada escrita lógica vira seis gravações</a></li>
+<li><a href="../parking-lot/R22-memoria-da-janela-de-dedupe.html"><b>R22</b> Memória da janela de dedupe</a></li>
+<li><a href="../parking-lot/R23-hipoteses-gerais.html"><b>R23</b> Hipóteses gerais em aberto</a></li>
+</ul></details>
+</nav>
+<main>
+<div class="migalhas"><a href="../index.html">Início</a> / <a href="index.html">Fail path</a> / C07</div>
+<h1>C07 — Prazo estoura depois do commit, antes do ACK (retry do SDK)</h1>
+<div class="meta"><span class="selo fail-path">Fail path</span><div><b>Status na fonte:</b> ✅ Atualizado (modelo v1)</div><div><b>Relacionados:</b> <a href="../complex-path/X05-timeouts-e-idempotencia.html">X05 Timeouts e idempotência</a></div></div>
+<section id="visao-geral"><h2>1. Visão geral do cenário</h2>
+<p>A escrita foi commitada pelo Raft, mas o gate (ou o apply, que é sempre serial e depois do gate) ainda não terminou e o prazo da requisição (<code>REQUEST_DEADLINE</code>, 7,5 s) acaba. O <code>DataReplication</code> responde <code>503 PENDING</code>, que o SDK retenta. O SDK tem 30 s por tentativa e no máximo 3 tentativas. O retry <strong>não pode duplicar</strong> a escrita.</p>
+</section>
+<section id="diagrama"><h2>2. Diagrama</h2>
+<div class="diagrama"><pre class="mermaid">sequenceDiagram
+    autonumber
+    participant SDK as SDK do cliente
+    participant DR as DataReplication
+    participant L as Raft e Azure
+    SDK-&gt;&gt;DR: PutItem, tentativa 1
+    DR-&gt;&gt;L: Propose
+    L--&gt;&gt;DR: commit Raft feito
+    Note over DR,L: Azure lenta, o gate não libera
+    DR--&gt;&gt;SDK: 503 PENDING aos 7,5 s
+    SDK-&gt;&gt;DR: PutItem, tentativa 2, mesmo identificador estável
+    DR-&gt;&gt;DR: dedupe reconhece e devolve o índice já commitado
+    L--&gt;&gt;DR: gate libera
+    DR--&gt;&gt;SDK: 200, sem gravar de novo</pre></div>
+<h3>Prazos em cascata</h3>
+<div class="diagrama"><pre class="mermaid">flowchart TD
+    SDK[&quot;SDK do cliente&lt;br/&gt;30 s por tentativa, até 3 tentativas&quot;] --&gt; API[&quot;Porta de entrada&lt;br/&gt;REQUEST_DEADLINE 7,5 s&quot;]
+    API --&gt; UC[&quot;WriteService&lt;br/&gt;mesmo context&quot;]
+    UC --&gt; FWD[&quot;Forward para a líder&lt;br/&gt;até 3 s&quot;]
+    UC --&gt; RAFT[&quot;Propose e commit Raft&quot;]
+    UC --&gt; GATE[&quot;Espera da Azure&lt;br/&gt;DEGRADE_AFTER 2 s&quot;]
+    GATE --&gt;|&quot;estourou 2 s, DEGRADED_POLICY accept&quot;| DEG[&quot;propõe DEGRADE com lease e segue&quot;]
+    GATE --&gt;|&quot;estourou 2 s, DEGRADED_POLICY reject&quot;| REJ[&quot;segue esperando o gate&quot;]
+    UC --&gt; APPLY[&quot;Apply serial depois do gate&lt;br/&gt;1 s por tentativa, até 2&quot;]
+    API --&gt;|&quot;prazo estourou&quot;| PEND[&quot;503 PENDING&lt;br/&gt;a entrada pode já estar commitada&quot;]
+    REJ --&gt; PEND
+    PEND --&gt; RETRY[&quot;retry do SDK&lt;br/&gt;dedupe e versão tornam seguro&quot;]</pre></div>
+<h3>Arquitetura geral relacionada: <a href="../../04_diagramas/D07-prazos-em-cascata.md">D07 — Prazos em cascata dentro dos 30 s do SDK</a></h3><p class="nota">Diagrama de <code>04_diagramas/</code> escolhido pelo site como contexto; o cenário fonte não faz essa associação.</p>
+<div class="diagrama"><pre class="mermaid">flowchart TD
+    SDK[&quot;SDK do cliente: 30 s por tentativa, até 3 tentativas&quot;] --&gt; API[&quot;REQUEST_DEADLINE 7,5 s&quot;]
+    API --&gt; FWD[&quot;Forward para a líder: até 3 s&quot;]
+    API --&gt; DEG[&quot;DEGRADE_AFTER 2 s, só com accept&quot;]
+    API --&gt; APPLY[&quot;Cliente do banco: 1 s por tentativa, até 2&quot;]
+    API --&gt; MARGEM[&quot;Margem de resposta: 500 ms ou mais&quot;]
+    API --&gt;|&quot;estourou depois do commit&quot;| PEND[&quot;503 PENDING: não perdeu, o retry é absorvido pelo dedupe&quot;]
+    PEND --&gt; DD[&quot;Dedupe de 5 min por requisição e versão condicional&quot;]
+    DEG --&gt;|&quot;DEGRADE commitado&quot;| LEASE[&quot;Lease D, valor a definir: fora da cascata de 30 s&quot;]
+    LEASE --&gt;|&quot;fim de D, conferido a cada ACK&quot;| LE[&quot;503 LEASE_EXPIRED imediato, dentro do prazo&quot;]
+    LEASE -.-&gt;|&quot;Azure só promove depois de D mais M desde o último contato&quot;| PROM[&quot;ForcePromote recusado antes disso&quot;]</pre></div>
+</section>
+<section id="etapas"><h2>3. Legenda e etapas</h2>
+<div class="etapas"><ol>
+<li><strong>Commit sem gate:</strong> o Raft commitou, mas a Azure está lenta e o gate não avança.</li>
+<li><strong>Prazo:</strong> aos 7,5 s o servidor responde <code>503 PENDING</code>; a escrita não se perde.</li>
+<li><strong>Retry:</strong> o SDK repete com o mesmo identificador estável.</li>
+<li><strong>Dedupe:</strong> a líder reconhece a repetição e devolve o índice já commitado, sem entrada nova.</li>
+<li><strong>Janela:</strong> 5 min, para cobrir 3 tentativas de 30 s no pior caso (cerca de 90 a 130 s com o servidor mudo). O dedupe é <strong>por requisição</strong>; fora da janela vale a semântica do DynamoDB (<a href="../../03_adr/ADR-051-compatibilidade-dynamodb-inventario-conformidade-e-idempotencia.md">ADR-051</a>).</li>
+</ol></div>
+</section>
+<section id="pontos"><h2>4. Pontos que precisam ser avaliados</h2>
+<p class="nota">Reescritos a partir das seções “Falhas e tratativas” e “Pontos em aberto” (e de outras seções de risco, quando existem). Em cada ponto, <b>O que a fonte define</b> vem da documentação; <b>Sugestão de encaminhamento</b> é <b>inferência do arquiteto</b>, não decisão registrada.</p>
+<article class="ponto">
+<h3><span class="num">1</span>SDK sem identificador estável <span class="origem">Falhas e tratativas</span></h3>
+<dl>
+<dt>Contexto</dt><dd>O dedupe depende de um identificador que se repete entre as tentativas do SDK. Se um SDK não tiver esse identificador, o último recurso é o hash de tabela, chave e conteúdo, que trata como repetição duas escritas legítimas iguais e descarta a segunda.</dd>
+<dt>O que a fonte define</dt><dd class="">Hash como último recurso, com falso positivo possível (<a href="../../03_adr/ADR-026-dedupe-de-retry-id-estavel.md">ADR-026</a>). Confirmar o identificador em Java 2.x, Go v2 e .NET v4 é verificação pendente.</dd>
+<dt class="sug">Sugestão de encaminhamento <small>(inferência, não decidida)</small></dt><dd class="sug">Executar a verificação por SDK na suíte de conformidade (PEND-16) e tornar a instalação recusada para SDK sem identificador estável, em vez de cair no hash em silêncio. Se o hash for mantido, expor métrica de dedupe por hash para medir o risco de falso positivo.</dd>
+</dl>
+</article>
+<article class="ponto">
+<h3><span class="num">2</span>Aplicação retenta por cima do SDK <span class="origem">Falhas e tratativas</span></h3>
+<dl>
+<dt>Contexto</dt><dd>Se a aplicação tem sua própria lógica de retry, a repetição pode chegar depois da janela de 5 min e não ser reconhecida como duplicata. Para um <code>PutItem</code>, isso pode sobrescrever uma escrita mais nova da mesma chave (caso ABA).</dd>
+<dt>O que a fonte define</dt><dd class="">Se existir em algum cliente, a janela precisa crescer; fora da janela vale a semântica do DynamoDB (<a href="../../03_adr/ADR-051-compatibilidade-dynamodb-inventario-conformidade-e-idempotencia.md">ADR-051</a>, <a href="../parking-lot/R22-memoria-da-janela-de-dedupe.html">R22</a>).</dd>
+<dt class="sug">Sugestão de encaminhamento <small>(inferência, não decidida)</small></dt><dd class="sug">Levantar no inventário (PEND-15) quais aplicações retentam por cima do SDK e com que intervalo. Avaliar o custo de memória de uma janela maior junto com o <a href="../parking-lot/R22-memoria-da-janela-de-dedupe.html">R22</a> antes de aumentar <code>DEDUPE_WINDOW</code>.</dd>
+</dl>
+</article>
+<article class="ponto">
+<h3><span class="num">3</span><code>DEGRADED_POLICY=reject</code> ou lease vencido com resultado desconhecido <span class="origem">Falhas e tratativas</span></h3>
+<dl>
+<dt>Contexto</dt><dd>Com <code>reject</code> e a Azure fora, a escrita já commitada espera o gate indefinidamente e o cliente recebe <code>503 PENDING</code> aos 7,5 s sem saber se ela aconteceu. Com <code>accept</code> e lease vencido, a resposta <code>503 LEASE_EXPIRED</code> também pode corresponder a uma entrada já commitada. A escrita pode aparecer mais tarde, após o retorno da Azure, quando o cliente já desistiu.</dd>
+<dt>O que a fonte define</dt><dd class="">O retry encontra o dedupe (<a href="../../03_adr/ADR-045-politica-de-degradacao-por-instalacao.md">ADR-045</a>, <a href="C32-particao-e-lease-do-modo-degradado.html">C32</a>). A fonte classifica ambos como resultado desconhecido.</dd>
+<dt class="sug">Sugestão de encaminhamento <small>(inferência, não decidida)</small></dt><dd class="sug">Documentar para os clientes que <code>503 PENDING</code> e <code>503 LEASE_EXPIRED</code> não significam escrita rejeitada e testar no modelo TLA+ o caso de retry depois de a janela de dedupe vencer enquanto a entrada ainda espera o gate. Avaliar se uma Azure fora por mais de 5 min deixa entradas commitadas e órfãs do dedupe.</dd>
+</dl>
+</article>
+<article class="ponto">
+<h3><span class="num">4</span>Cascata de prazos fora de ordem <span class="origem">Falhas e tratativas</span></h3>
+<dl>
+<dt>Contexto</dt><dd>Os prazos precisam ser crescentes: degradar antes de o servidor desistir, e o servidor desistir antes do cliente. Uma configuração invertida faria todas as requisições estourarem antes da degradação ou o cliente desistir antes de receber <code>503 PENDING</code>.</dd>
+<dt>O que a fonte define</dt><dd class="">A partida recusa subir se <code>DEGRADE_AFTER &gt;= REQUEST_DEADLINE</code> ou <code>REQUEST_DEADLINE &gt;= CLIENT_TIMEOUT</code> (<a href="../../03_adr/ADR-028-timeouts-em-cascata.md">ADR-028</a>).</dd>
+<dt class="sug">Sugestão de encaminhamento <small>(inferência, não decidida)</small></dt><dd class="sug">Ter teste de partida com cada combinação inválida e incluir na validação a relação entre <code>IdleTimeout</code> e o idle dos SDKs, que hoje é uma premissa e não uma checagem.</dd>
+</dl>
+</article>
+<article class="ponto">
+<h3><span class="num">5</span>Conexão ociosa fechada pelo servidor <span class="origem">Falhas e tratativas</span></h3>
+<dl>
+<dt>Contexto</dt><dd>Se o servidor fecha uma conexão ociosa antes do SDK, o SDK pode reusá-la e receber erro na escrita seguinte, gerando retries desnecessários e possíveis resultados desconhecidos.</dd>
+<dt>O que a fonte define</dt><dd class=""><code>IdleTimeout</code> de 120 s, maior que o idle dos SDKs.</dd>
+<dt class="sug">Sugestão de encaminhamento <small>(inferência, não decidida)</small></dt><dd class="sug">Confirmar o idle real de cada SDK suportado (Java 2.x, Go v2, .NET v4) e de balanceadores intermediários, e incluir esse valor na suíte de conformidade.</dd>
+</dl>
+</article>
+<article class="ponto">
+<h3><span class="num">6</span>Memória da janela de dedupe <span class="origem">Pontos em aberto</span></h3>
+<dl>
+<dt>Contexto</dt><dd>A janela de 5 min a 3.000 TPS exige cerca de 900 mil identificadores e ~58 MiB por shard, fora do orçamento original. Além disso, a nova líder precisa ter a tabela pronta ao assumir, senão reconstrói lendo 5 min de log e infla o RTO.</dd>
+<dt>O que a fonte define</dt><dd class="">Tratado em parte no <a href="../parking-lot/R22-memoria-da-janela-de-dedupe.html">R22</a>: tabela como projeção do log mantida por todos os votantes, reconstrução pelo log de replicação (<a href="../../03_adr/ADR-055-log-de-replicacao-segmentado-derivado-do-raft.md">ADR-055</a>) e janela configurável. Falta medir.</dd>
+<dt class="sug">Sugestão de encaminhamento <small>(inferência, não decidida)</small></dt><dd class="sug">Medir no spike a memória real com o tamanho de id de cada SDK e o tempo de reconstrução no reinício, e incluir esse tempo na distribuição de RTO do <a href="../success-path/C18-partida-e-recuperacao-do-no.html">C18</a>. Testar a eleição com tabela de dedupe vazia para ver o efeito no retry em voo.</dd>
+</dl>
+</article>
+<article class="ponto">
+<h3><span class="num">7</span>Lote do <code>BatchWriteItem</code> <span class="origem">Pontos em aberto</span></h3>
+<dl>
+<dt>Contexto</dt><dd>Um <code>BatchWriteItem</code> vira uma única entrada no log e o dedupe é pelo id da requisição inteira. Isso afeta como falhas parciais e retries de lote são tratados.</dd>
+<dt>O que a fonte define</dt><dd class="">Decidido em <a href="../success-path/C23-batchwriteitem-lote-uma-entrada.html">C23</a> e <a href="../../03_adr/ADR-035-lote-batchwriteitem-uma-entrada-e-apply-condicional.md">ADR-035</a>: lote como uma entrada, dedupe pelo id da requisição inteira e apply condicional.</dd>
+<dt class="sug">Sugestão de encaminhamento <small>(inferência, não decidida)</small></dt><dd class="sug">Ver <a href="../success-path/C23-batchwriteitem-lote-uma-entrada.html">C23</a>. Incluir na suíte de conformidade o caso de retry de lote com itens não processados, comparando com o DynamoDB nativo.</dd>
+</dl>
+</article>
+<article class="ponto">
+<h3><span class="num">8</span>Valores de 7,5 s e 2 s a validar <span class="origem">Pontos em aberto</span></h3>
+<dl>
+<dt>Contexto</dt><dd><code>REQUEST_DEADLINE</code> de 7,5 s e <code>DEGRADE_AFTER</code> de 2 s foram escolhidos por raciocínio, não por medição. Valores errados mudam quanto tempo uma escrita espera antes de degradar e quantos clientes recebem resultado desconhecido.</dd>
+<dt>O que a fonte define</dt><dd class="nd-fonte">Não decidido na fonte. Proposta na fonte: validar os dois valores em teste (verificações pendentes da PEND-12).</dd>
+<dt class="sug">Sugestão de encaminhamento <small>(inferência, não decidida)</small></dt><dd class="sug">Validar com teste de caos que corta o link durante carga e mede a fração de escritas que recebem <code>503 PENDING</code> contra as que esperam e são ACKadas em degradado. Escolher <code>DEGRADE_AFTER</code> junto com D e com a histerese do <a href="../parking-lot/R07-link-oscilando.html">R07</a>.</dd>
+</dl>
+</article>
+</section>
+<section id="adrs"><h2>5. ADRs relacionados</h2>
+<div class="tabela"><table><thead><tr><th>ADR</th><th>Título</th><th>Decisão resumida</th><th>Arquivo</th></tr></thead><tbody>
+<tr><td class="nw"><a href="../../03_adr/ADR-026-dedupe-de-retry-id-estavel.md">ADR-026</a></td><td>Dedupe de retry na líder por identificador estável</td><td>Dedupe de retry na líder por identificador estável do SDK, hash como último recurso, janela de 5 min.</td><td><a href="../../03_adr/ADR-026-dedupe-de-retry-id-estavel.md">ADR-026-dedupe-de-retry-id-estavel.md</a></td></tr>
+<tr><td class="nw"><a href="../../03_adr/ADR-028-timeouts-em-cascata.md">ADR-028</a></td><td>Prazos em cascata dentro do timeout do SDK</td><td>Prazos em cascata: REQUEST_DEADLINE 7,5 s, DEGRADE_AFTER 2 s, forward até 3 s; valores a validar.</td><td><a href="../../03_adr/ADR-028-timeouts-em-cascata.md">ADR-028-timeouts-em-cascata.md</a></td></tr>
+<tr><td class="nw"><a href="../../03_adr/ADR-045-politica-de-degradacao-por-instalacao.md">ADR-045</a></td><td><code>DEGRADED_POLICY</code> obrigatória por instalação</td><td>DEGRADED_POLICY obrigatória por instalação: accept (degradado com lease) ou reject (RPO 0 sempre).</td><td><a href="../../03_adr/ADR-045-politica-de-degradacao-por-instalacao.md">ADR-045-politica-de-degradacao-por-instalacao.md</a></td></tr>
+<tr><td class="nw"><a href="../../03_adr/ADR-051-compatibilidade-dynamodb-inventario-conformidade-e-idempotencia.md">ADR-051</a></td><td>Compatibilidade com o DynamoDB: inventário, conformidade e limite da idempotência</td><td>Compatibilidade com o DynamoDB por inventário de chamadas, suíte de conformidade e limite de idempotência documentado.</td><td><a href="../../03_adr/ADR-051-compatibilidade-dynamodb-inventario-conformidade-e-idempotencia.md">ADR-051-compatibilidade-dynamodb-inventario-conformidade-e-idempotencia.md</a></td></tr>
+</tbody></table></div>
+<p class="nota">Lista extraída do cabeçalho “ADRs” do arquivo fonte. A decisão resumida condensa a seção “Decisão” de cada ADR.</p>
+</section>
+<section id="anexo"><h2>Anexo: texto original da fonte</h2><p class="nota">Seções do .md fonte reproduzidas sem reescrita, para conferência.</p>
+<details class="anexo"><summary>Falhas e tratativas</summary><ul>
+<li><strong>SDK sem identificador estável.</strong> O hash de tabela, chave e conteúdo é o último recurso, com falso positivo possível em escritas legítimas iguais.</li>
+<li><strong>Aplicação retenta por cima do SDK.</strong> O retry cai fora da janela de 5 min. Se existir em algum cliente, a janela precisa crescer.</li>
+<li><strong><code>DEGRADED_POLICY=reject</code> com a Azure fora.</strong> O <code>DEGRADE</code> nunca é proposto: a escrita commitada espera o gate e o cliente recebe <code>503 PENDING</code> aos 7,5 s, com resultado desconhecido; o retry encontra o dedupe (<a href="../../03_adr/ADR-045-politica-de-degradacao-por-instalacao.md">ADR-045</a>, <a href="C32-particao-e-lease-do-modo-degradado.html">C32</a>). Com <code>accept</code> e lease vencido, a resposta é <code>503 LEASE_EXPIRED</code>, também com resultado desconhecido se a entrada já estava commitada.</li>
+<li><strong>Cascata fora de ordem.</strong> A partida recusa subir se <code>DEGRADE_AFTER &gt;= REQUEST_DEADLINE</code> ou <code>REQUEST_DEADLINE &gt;= CLIENT_TIMEOUT</code>.</li>
+<li><strong>Conexão ociosa fechada pelo servidor.</strong> <code>IdleTimeout</code> de 120 s, maior que o idle dos SDKs, para o SDK não reusar conexão já fechada.</li>
+</ul></details>
+<details class="anexo"><summary>Pontos em aberto</summary><ul>
+<li>Memória da janela de dedupe de 5 min (~58 MiB): <a href="../parking-lot/R22-memoria-da-janela-de-dedupe.html">R22</a>.</li>
+<li>Lote do <code>BatchWriteItem</code> (uma entrada, dedupe pelo id da requisição inteira): <a href="../success-path/C23-batchwriteitem-lote-uma-entrada.html">C23</a>.</li>
+<li>Valores de 7,5 s e 2 s ainda a validar em teste.</li>
+</ul></details>
+</section>
+<footer class="rodape">
+Gerado em 13/10/2026 a partir de <code>DataReplication_Versao_1/</code>. O conteúdo vem dos arquivos .md citados no código-fonte desta página;
+textos marcados como <em>sugestão</em> são inferência do arquiteto e não decisões registradas.
+</footer>
+</main>
+</div>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@11.4.1/dist/mermaid.min.js"></script>
+<script>mermaid.initialize({startOnLoad: true, theme: "neutral", securityLevel: "strict", flowchart: {htmlLabels: true, useMaxWidth: true}, sequence: {useMaxWidth: true}});</script>
+</body>
+</html>

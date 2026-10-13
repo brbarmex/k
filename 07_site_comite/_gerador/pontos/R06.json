@@ -1,0 +1,40 @@
+{
+ "id": "R06",
+ "pontos": [
+  {
+   "titulo": "Quarto votante ou testemunha",
+   "origem": "Falhas e tratativas",
+   "contexto": "Uma testemunha em terceiro domínio resolveria o desempate quando duas AZs da AWS caem, permitindo distinguir AWS morta de isolada. Sem ela, o shard para mesmo com a Azure completa e só a promoção humana resolve. Com o lease, essa retomada ainda espera D + M quando a AWS estava degradada, o que alonga o RTO justamente no cenário em que a Azure tem todos os dados.",
+   "na_fonte": "Descartada (ADR-008) por exigir um terceiro provedor, fora da restrição de só AWS e Azure.",
+   "sugestao": "Registrar no ADR-008 o custo explícito dessa escolha em RTO (pelo menos D + M em degradado) para que o comitê decida sabendo do tradeoff."
+  },
+  {
+   "titulo": "Sinal de falha no lado isolado",
+   "origem": "Falhas e tratativas",
+   "contexto": "Clientes ligados ao lado isolado têm escritas que esperam e estouram o prazo. É falha explícita, não perda silenciosa, mas a indisponibilidade de escrita dura até a promoção humana, e cada cliente consome até três tentativas do SDK antes de desistir. Se os clientes continuarem apontando para o lado isolado após a promoção, a indisponibilidade se estende além do RTO do shard.",
+   "na_fonte": "A fonte registra que é falha explícita.",
+   "sugestao": "Verificar que o roteamento (Compass-Router) desvia clientes do lado isolado e medir a taxa de `503` nesse cenário em teste de caos."
+  },
+  {
+   "titulo": "O que conta como contato da AWS",
+   "origem": "Falhas e tratativas",
+   "contexto": "Se a Azure ainda ouve um votante AWS que não é líder, não está claro se D + M conta desde esse contato ou só do contato com a líder. A definição afeta o RTO e a segurança da espera: contar só desde a líder pode encurtar a espera enquanto um votante isolado ainda participa de uma maioria capaz de degradar, e contar desde qualquer votante pode alongar o RTO sem ganho. É um caso particular de partição assimétrica.",
+   "na_fonte": "Não decidido na fonte. Proposta na fonte: incluir no modelo (H-DR14, R23).",
+   "sugestao": "Definir contato como mensagem da líder do termo corrente e modelar no TLA+ ambas as definições para comparar segurança e RTO."
+  },
+  {
+   "titulo": "Valor de D e M e prova de que o lease basta",
+   "origem": "Pontos em aberto",
+   "contexto": "Sem D e M aprovados e sem prova, não dá para descartar a regra de degradar só com 3 de 3. A decisão final depende da PEND-01. Enquanto isso, o RTO desse desastre fica sem valor e a escolha entre segurança pelo lease e simplicidade pela regra 3 de 3, que piora a disponibilidade em falha dupla, segue aberta.",
+   "na_fonte": "Não decidido na fonte. PEND-02 e PEND-01; a regra 3 de 3 fica como alternativa a comparar no modelo.",
+   "sugestao": "Modelar as duas regras e comparar disponibilidade em falha dupla; levar o resultado ao Bruno junto com D."
+  },
+  {
+   "titulo": "Modelo cobrindo duas AZs isoladas com maioria entre si",
+   "origem": "Pontos em aberto",
+   "contexto": "O modelo precisa provar que nunca dois lados aceitam escrita confirmada ao mesmo tempo nesse caso. Sem isso, o lease não está validado no cenário que mais o exige, em que um lado isolado pode eleger, degradar e ACKar escritas com RPO > 0 enquanto a Azure se prepara para ser promovida. Uma falha aqui significa escrita confirmada nas duas pontas, o pior resultado possível.",
+   "na_fonte": "A fonte pede cobertura com e sem a regra 3 de 3 (P11).",
+   "sugestao": "Incluir no escopo mínimo do TLA+ a partição que isola duas AZs AWS com maioria e a Azure. Complementar com teste de caos real isolando duas AZs."
+  }
+ ]
+}

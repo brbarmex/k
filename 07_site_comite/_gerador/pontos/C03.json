@@ -1,0 +1,47 @@
+{
+ "id": "C03",
+ "pontos": [
+  {
+   "titulo": "Apply no banco falha de forma transitória",
+   "origem": "Falhas e tratativas",
+   "contexto": "Depois do commit e do gate, o applier pode receber throttling ou erro 5xx do banco. Como o ACK só sai depois do apply na célula da líder, a escrita fica sem resposta positiva embora já esteja durável. O RPO não é afetado, mas a latência sobe e o cliente pode receber resultado desconhecido.",
+   "na_fonte": "A escrita não se perde: a resposta é `503 PENDING` (retentável) e o applier repete com backoff; o retry do SDK é absorvido pelo dedupe e pela versão (ADR-026).",
+   "sugestao": "Testar com injeção de throttling no DynamoDB da líder e medir quantas escritas viram `503 PENDING` e o tempo até o applier drenar. Alertar sobre o atraso `last_committed` menos `last_applied` na líder com limiar a definir, pois um throttling longo trava todo o shard já que o apply é serial."
+  },
+  {
+   "titulo": "Apply falha de forma permanente",
+   "origem": "Falhas e tratativas",
+   "contexto": "Se o banco recusa sempre um item já commitado, o apply serial para nesse ponto e todas as escritas seguintes do shard ficam presas. Todas as células tropeçam na mesma entrada, então o problema afeta disponibilidade do shard inteiro, não só de uma chave.",
+   "na_fonte": "Remete a C26 (entrada venenosa); o desvio da entrada é sempre decisão humana (ADR-038) com skip por item (ADR-048).",
+   "sugestao": "Ver C26 e priorizar validação antes do commit (tamanho, tipos, nomes de atributo) para que o caso permanente seja raro. Definir o alerta e o tempo de resposta esperado do humano, já que o shard fica parado até a decisão."
+  },
+  {
+   "titulo": "Azure lenta ou fora",
+   "origem": "Falhas e tratativas",
+   "contexto": "O gate exige maioria Azure durável, então uma Azure lenta ou fora segura o ACK de toda escrita. Passado `DEGRADE_AFTER`, o comportamento muda conforme a política: com `accept` o RPO passa a ser maior que zero, com `reject` a disponibilidade de escrita cai.",
+   "na_fonte": "Sem Azure por `DEGRADE_AFTER`, `accept` entra em modo degradado com lease (C12, C32) e `reject` responde `503 PENDING` (ADR-045).",
+   "sugestao": "Rodar a suíte de falhas nos dois valores da política, como a própria fonte prevê, e medir o efeito sobre as escritas que estavam em voo no instante da degradação. Ver C12 e C25 para a faixa cinzenta abaixo de `DEGRADE_AFTER`."
+  },
+  {
+   "titulo": "Prazo da requisição estoura",
+   "origem": "Falhas e tratativas",
+   "contexto": "Se gate ou apply não terminam dentro de `REQUEST_DEADLINE`, o cliente recebe uma resposta sem saber se a escrita aconteceu. O risco é duplicação no retry ou perda de idempotência fora da janela de dedupe.",
+   "na_fonte": "Remete a C07 e ao ADR-028 (timeouts em cascata), com `503 PENDING` e dedupe por identificador estável.",
+   "sugestao": "Ver C07. Incluir no modelo TLA+ o estado de resultado desconhecido seguido de retry, já listado entre os itens a modelar."
+  },
+  {
+   "titulo": "P99 do DynamoDB no caminho do ACK",
+   "origem": "Pontos em aberto",
+   "contexto": "O ACK espera o apply no banco da célula líder, então a cauda de latência do DynamoDB, incluindo throttling por partição quente, aparece inteira no tempo que o cliente vê. A meta de overhead de 50 ms exclui a escrita no banco, mas o cliente sente `overhead + escrita no banco`.",
+   "na_fonte": "Tratado em C24 e ADR-036 (SLO de 50 ms exclui a escrita no banco). O apply paralelo só será reavaliado se o spike S5 mostrar que `t_apply` estoura o orçamento (ADR-053).",
+   "sugestao": "Definir antes do spike S5 o critério de aceite que dispararia a reavaliação (por exemplo, a fração de P99 ponta a ponta explicada por `t_apply`, limiar a definir) para que a decisão não seja feita depois de ver os números. Medir com escrita condicional e itens de tamanho real, não com escrita simples."
+  },
+  {
+   "titulo": "Latência depende do RTT AWS↔Azure e do fsync",
+   "origem": "Pontos em aberto",
+   "contexto": "O tempo de ACK inclui `max(t_raft, t_azure)`, e `t_azure` depende do RTT entre as nuvens e do P99 de fsync nos learners. Nenhum dos dois foi medido, então o orçamento de latência ainda não está validado.",
+   "na_fonte": "Não decidido na fonte. Proposta na fonte: medir no spike S1.",
+   "sugestao": "Rodar o spike S1 com carga e tamanho de item realistas, no link dedicado real, e separar `t_raft`, `t_azure`, `t_apply` e `t_parse` por métrica. Levar o resultado ao comitê como condição para aprovar o orçamento de 50 ms."
+  }
+ ]
+}

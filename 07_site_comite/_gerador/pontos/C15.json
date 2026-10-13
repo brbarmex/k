@@ -1,0 +1,40 @@
+{
+ "id": "C15",
+ "pontos": [
+  {
+   "titulo": "Escritas órfãs sem processo de reconciliação",
+   "origem": "Falhas e tratativas",
+   "contexto": "As escritas ACKadas em degradado desde `fromIndex` existem só na AWS e se perdem na promoção. Se a AWS volta, elas reaparecem no log e no DynamoDB, e não há dono nem política para decidir o que fazer.",
+   "na_fonte": "Sem resolução (R13, PEND-03). Proposta do R13: exportar as órfãs antes da recriação do banco, reaplicação sempre humana.",
+   "sugestao": "Definir dono do processo e política de comunicação ao cliente antes de ligar `accept`. Testar a extração das órfãs com a célula cercada, antes da recriação do banco, porque recriar o banco apaga as órfãs."
+  },
+  {
+   "titulo": "Lease já vencido quando a AWS cai",
+   "origem": "Falhas e tratativas",
+   "contexto": "Se o lease já tinha vencido, a AWS parou de ACKar ao fim de D. Mas existem entradas commitadas nunca confirmadas ao cliente (`503 LEASE_EXPIRED`), cujo resultado é desconhecido para quem escreveu.",
+   "na_fonte": "Tratadas como resultado desconhecido; o que existe só na AWS são as ACKadas dentro de D mais essas commitadas sem confirmação.",
+   "sugestao": "Separar no relatório de órfãs as entradas ACKadas das commitadas e nunca ACKadas, pois exigem decisões diferentes. Documentar para os clientes como tratar respostas `503 LEASE_EXPIRED`."
+  },
+  {
+   "titulo": "Prorrogação em curso",
+   "origem": "Falhas e tratativas",
+   "contexto": "Se uma pessoa prorrogou o lease antes da queda, a janela de órfãs passa de D e a promoção da Azure precisa esperar o novo prazo. O RTO e a perda aumentam, e a Azure não enxerga o Raft da AWS para saber da prorrogação.",
+   "na_fonte": "A regra prorrogação x promoção é a H-DR13 (PEND-20), a fechar no TLA+.",
+   "sugestao": "Definir como a Azure toma conhecimento da prorrogação (por exemplo, `promotion_blocked` antes de prorrogar, proposta no R12) e incluir o caso no TLA+. Exigir registro e aprovação formal de cada `RENEW`, porque ele amplia a perda aceita."
+  },
+  {
+   "titulo": "PEND-02 é pré-requisito deste cenário",
+   "origem": "Pontos em aberto",
+   "contexto": "Este cenário só é aceitável se o negócio tiver aprovado de antemão o tamanho da perda possível, que é limitado por D. Sem esse aceite, a promoção declarando perda não tem respaldo formal.",
+   "na_fonte": "Não decidido na fonte. Bloqueante: PEND-02 (aceite do RPO > 0 e do valor de D).",
+   "sugestao": "Ver C12. Associar ao aceite o valor de M e o RTO mínimo D + M deste cenário."
+  },
+  {
+   "titulo": "Cenário vale só para `DEGRADED_POLICY=accept`",
+   "origem": "Pontos em aberto",
+   "contexto": "Com `reject` o shard nunca degrada, então não chega a este estado e não há órfãs. A escolha da política define se o cliente aceita perda nesse desastre.",
+   "na_fonte": "Decidido: só vale para `accept` (ADR-045). A escolha por cliente está na PEND-17.",
+   "sugestao": "Incluir na escolha da política por cliente uma explicação deste cenário e registrá-la junto da configuração da instalação."
+  }
+ ]
+}

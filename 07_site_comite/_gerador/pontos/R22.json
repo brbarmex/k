@@ -1,0 +1,33 @@
+{
+ "id": "R22",
+ "pontos": [
+  {
+   "titulo": "Retry acima do SDK fora da janela (ABA)",
+   "origem": "Falhas e tratativas",
+   "contexto": "Um retry feito pela aplicação acima do SDK, depois de mais de 5 minutos, escapa do dedupe. Para um `PutItem`, isso pode sobrescrever uma escrita mais nova da mesma chave (A, depois B por outro cliente, depois a repetição de A). O mesmo ocorre no DynamoDB, mas como a escrita condicional está fora da v1, uma aplicação com concorrência otimista não tem como se proteger pela camada, o que pode corromper dados de negócio.",
+   "na_fonte": "A fonte documenta o limite no ADR-051, decide levantar o uso real de `ConditionExpression` antes de cada cliente entrar (PEND-15) e não adota identificador durável de operação de negócio.",
+   "sugestao": "Tornar o uso de `ConditionExpression` um bloqueio explícito de entrada para o cliente que dependa dele, e não só um levantamento. Pedir a cada time que declare se faz retry acima do SDK e com que intervalo, e incluir um teste na suíte de conformidade que reproduza o ABA para documentar o comportamento."
+  },
+  {
+   "titulo": "Identificador estável por SDK",
+   "origem": "Falhas e tratativas",
+   "contexto": "O dedupe depende de um identificador que se mantenha igual entre as tentativas do SDK, por exemplo `amz-sdk-invocation-id`. Se algum SDK gerar um valor novo a cada tentativa, o dedupe não funciona e um retry após timeout pode gravar duas vezes. Usar hash do conteúdo como alternativa causa falso positivo para escritas idênticas legítimas.",
+   "na_fonte": "A fonte decide pelo identificador estável (ADR-026), com hash do conteúdo só como último recurso, e exige verificar em cada SDK suportado (Java 2.x, Go v2, .NET v4).",
+   "sugestao": "Incluir na suíte de conformidade (PEND-16) um teste que force timeout e retry em cada SDK e verifique o mesmo identificador nas tentativas. Definir o comportamento da camada quando o cabeçalho vier ausente (recusar, aceitar sem dedupe ou usar hash) e emitir métrica dessas requisições."
+  },
+  {
+   "titulo": "Confirmação do cabeçalho, retries da aplicação e uso de ConditionExpression",
+   "origem": "Pontos em aberto",
+   "contexto": "Ainda não foi confirmado em cada SDK que o cabeçalho de identificador estável existe e se mantém, nem se alguma aplicação retenta por cima do SDK. O uso de `ConditionExpression` por cliente também não foi levantado. Esses três itens determinam se o dedupe protege de fato contra escrita duplicada em cada cliente.",
+   "na_fonte": "Não decidido na fonte. Proposta na fonte: confirmar o cabeçalho na suíte de conformidade (PEND-16) e levantar o uso de `ConditionExpression` no inventário (PEND-15).",
+   "sugestao": "Juntar os três levantamentos em um único questionário de entrada por cliente, com respostas registradas antes do onboarding. Tratar uma resposta \"não sabemos\" sobre retry acima do SDK como risco aberto, com teste na aplicação antes da entrada."
+  },
+  {
+   "titulo": "Retenção do log do Raft e tamanho da janela",
+   "origem": "Pontos em aberto",
+   "contexto": "Desde o ADR-055 o log do Raft guarda só segundos, então a reconstrução da tabela de dedupe no reinício precisa ler o log de replicação. A tabela ocupa cerca de 58 MiB por shard a 3.000 TPS com janela de 5 minutos, que não estavam no orçamento de memória. A retenção e o tamanho da janela afetam memória, tempo de reinício e, portanto, o RTO.",
+   "na_fonte": "Não decidido na fonte. Proposta na fonte: tabela mantida por todos os votantes como projeção do log, reconstrução pelo log de replicação com retenção mínima cobrindo a janela mais margem, memória incluída em `GOMEMLIMIT` e janela configurável (`DEDUPE_WINDOW`).",
+   "sugestao": "Medir no spike o tempo de reconstrução da tabela no reinício a partir do log de replicação e incluí-lo no RTO de reinício (R18). Definir uma regra de readiness que impeça o nó de votar ou virar líder antes de a tabela estar completa, para evitar uma líder com dedupe incompleto."
+  }
+ ]
+}

@@ -1,0 +1,54 @@
+{
+ "id": "X03",
+ "pontos": [
+  {
+   "titulo": "Valores de D e M e aceite do negócio",
+   "origem": "Pontos em aberto",
+   "contexto": "A promoção da Azure em instalações `accept` só é permitida depois de D + M desde o último contato da AWS, então o RTO do desastre fica em pelo menos D + M quando a AWS morre em modo degradado. Sem D e M aprovados, a espera não tem valor e a PEND-01 não fecha. É a principal troca entre segurança (sem duas pontas) e RTO.",
+   "na_fonte": "Não decidido na fonte. PEND-02 (bloqueante) e PEND-01 fecham quando D e M forem aprovados e o TLA+ provar a regra (ADR-044, R23).",
+   "sugestao": "Apresentar ao negócio o RTO mínimo resultante (D + M mais decisão humana e drenagem) junto com o valor de D, para que o aceite cubra RPO e RTO ao mesmo tempo. Medir M (deriva de relógio e pausa de processo) antes dessa reunião."
+  },
+  {
+   "titulo": "Prorrogação x promoção e partição assimétrica",
+   "origem": "Pontos em aberto",
+   "contexto": "Prorrogar o lease depois de a Azure já poder ser promovida reabre o risco de escrita nas duas pontas. Com partição assimétrica, o último contato medido pela Azure pode não corresponder ao que a AWS acha, e a espera de D + M pode ser insuficiente.",
+   "na_fonte": "Não decidido na fonte. Proposta na fonte: H-DR13 e H-DR14, a fechar no TLA+ (R23).",
+   "sugestao": "Fazer a API `ForcePromote` exibir ao operador o último contato da AWS medido pela Azure e recusar se houver `promotion_blocked` ativo. Verificar P11 e P12 no modelo com canais de sentido único."
+  },
+  {
+   "titulo": "Tempo de decisão humana no RTO",
+   "origem": "Pontos em aberto",
+   "contexto": "A promoção é humana, então o RTO inclui o tempo até alguém reunir evidências e agir. Esse tempo pode dominar o RTO e não tem limite técnico.",
+   "na_fonte": "Tratado em R10; a promoção continua humana (ADR-033) e a automação não deve ser reaberta sem o Bruno.",
+   "sugestao": "Medir em game days o tempo de decisão como distribuição e definir um alvo interno (limiar a definir), com runbook de evidências objetivas. Ver R10."
+  },
+  {
+   "titulo": "API de promoção sem dependência da AWS",
+   "origem": "Pontos em aberto",
+   "contexto": "Se a API de promoção depender de algo hospedado na AWS (autenticação, controle, DNS), ela pode não funcionar justo quando a AWS caiu. Nesse caso o RTO do desastre fica indefinido, porque a única saída prevista é a promoção humana pela própria API.",
+   "na_fonte": "Tratado em R11.",
+   "sugestao": "Incluir em teste de desastre a execução de `ForcePromote` com a AWS totalmente bloqueada na rede, como critério de aceite. Ver R11."
+  },
+  {
+   "titulo": "Split-brain com a AWS viva",
+   "origem": "Pontos em aberto",
+   "contexto": "A Azure não distingue AWS morta de AWS isolada. Promover com a AWS viva e isolada pode gerar duas pontas aceitando escrita se a regra de espera falhar.",
+   "na_fonte": "Tratado em R12; o desenho de lease e espera D + M do ADR-044 é a defesa principal, e em `reject` vale o fencing por maioria Azure (P11).",
+   "sugestao": "Ver R12; incluir no modelo e em teste de caos o cenário de AWS isolada em degradado no momento do `ForcePromote`."
+  },
+  {
+   "titulo": "Reconciliação de escritas órfãs",
+   "origem": "Pontos em aberto",
+   "contexto": "Em modo degradado, entradas de `fromIndex` em diante podem existir só na AWS. Se a AWS volta, essas escritas foram ACKadas ao cliente e não estão na Azure promovida.",
+   "na_fonte": "Tratado em R13: extrair do log local antes da recriação do banco, gerar relatório por cliente e chave e reaplicar só com aprovação do negócio.",
+   "sugestao": "Ver R13; garantir que a recriação da célula AWS (ADR-042) seja bloqueada até a extração das órfãs terminar."
+  },
+  {
+   "titulo": "Fencing do banco que volta",
+   "origem": "Pontos em aberto",
+   "contexto": "Mesmo com um applier por célula, um applier antigo da AWS que volte depois da promoção pode tentar escrever no banco. O lease impede o ACK, mas não a escrita tardia de um processo antigo no banco.",
+   "na_fonte": "Tratado em C30 e ADR-042: boot cercado, revogação de credenciais e recriação da célula, complementar ao lease.",
+   "sugestao": "Ver C30; incluir no teste de failback um applier antigo religado com credenciais ainda válidas para provar que o boot cercado o bloqueia."
+  }
+ ]
+}

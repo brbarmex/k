@@ -1,0 +1,40 @@
+{
+ "id": "C13",
+ "pontos": [
+  {
+   "titulo": "Catch-up mais lento que a entrada nova",
+   "origem": "Falhas e tratativas",
+   "contexto": "Se a banda do catch-up não supera a taxa de entrada, a Azure nunca alcança a AWS e o `RESTORE` não acontece; em `accept` as escritas param ao fim de D. Além disso, o atraso de apply no Cosmos não bloqueia o `RESTORE`, mas aumenta o RTO de um failover posterior.",
+   "na_fonte": "Só o catch-up do log bloqueia o `RESTORE`; o atraso de apply no Cosmos é tratado no R03, com limite de elegibilidade a definir (PEND-18).",
+   "sugestao": "Expor `restore_eta_seconds` (proposto no R09) ao lado do tempo restante do lease e testar o catch-up com o link em banda reduzida. Definir a meta de atraso de apply e o limite da PEND-18 com testes de RU."
+  },
+  {
+   "titulo": "Learner cai no meio do catch-up",
+   "origem": "Falhas e tratativas",
+   "contexto": "Se o learner cai durante o catch-up, parte das entradas recebidas pode não estar durável. Se ele tivesse informado ao Raft um índice acima do que gravou, o gate contaria uma durabilidade da Azure que não existe, quebrando o RPO 0.",
+   "na_fonte": "O que foi gravado com fsync fica e o resto é pedido de novo; o learner nunca informa ao Raft um índice acima do último fsync do log de replicação (ADR-055).",
+   "sugestao": "Incluir no TLA+ a propriedade de que o índice reportado por um learner nunca supera o seu último fsync, e testar com kill do learner entre a gravação e o fsync do lote."
+  },
+  {
+   "titulo": "Azure não alcança a AWS",
+   "origem": "Falhas e tratativas",
+   "contexto": "A ressincronização pode ficar lenta ou nunca terminar, por banda insuficiente ou competição com o tráfego vivo. Isso prolonga o degradado e pode levar ao fim do lease.",
+   "na_fonte": "Parcialmente tratado no R09: limite de vazão para o catch-up, métrica de ETA e reconstrução completa como caminho alternativo (C21, C33).",
+   "sugestao": "Definir a prioridade do catch-up abaixo da replicação viva com teste de QoS e definir o critério objetivo para trocar o catch-up por reconstrução (ETA maior que o lease restante, por exemplo)."
+  },
+  {
+   "titulo": "Lease vencido e a Azure volta",
+   "origem": "Falhas e tratativas",
+   "contexto": "Com o lease vencido as escritas estão paradas. Quando a Azure volta, o `RESTORE` encerra o degradado, mas não pode competir com uma promoção da Azure já em curso, e a ordem entre `RENEW`, `RESTORE` e o desbloqueio da promoção ainda não está fechada.",
+   "na_fonte": "A ordem entre `RENEW`, `RESTORE` e `promotion_blocked` (H-DR13) é definida no modelo TLA+ (C32, PEND-20).",
+   "sugestao": "Modelar no TLA+ a corrida entre um `RESTORE` da AWS e um `ForcePromote` na Azure feito após D + M. Incluir o caso no runbook com regra de quem decide."
+  },
+  {
+   "titulo": "Reconstrução automática de réplica",
+   "origem": "Pontos em aberto",
+   "contexto": "Quando a retenção não cobre o período, a Azure precisa de reconstrução manual assistida. Enquanto ela não termina, a Azure não é elegível para failover e o shard fica sem a proteção de RPO 0.",
+   "na_fonte": "Não decidido na fonte. Proposta na fonte: manual assistida na v1 com `drctl rebuild` e protocolo de tabela sombra (H-DR1, ADR-047, C33); automação em aberto.",
+   "sugestao": "Medir o tempo de reconstrução manual nos exercícios e tratar esse tempo como janela sem failover possível. Automatizar primeiro as validações, deixando só a decisão final ao humano."
+  }
+ ]
+}

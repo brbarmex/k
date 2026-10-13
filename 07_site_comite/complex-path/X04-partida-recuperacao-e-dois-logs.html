@@ -1,0 +1,244 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>X04 — Partida, recuperação e coerência entre os dois logs · DataReplication v1</title>
+<link rel="stylesheet" href="../assets/site.css">
+</head>
+<body>
+<!--
+Fonte(s) usada(s) nesta página (rastreabilidade), relativas à raiz do pacote:
+  02_cenarios/complexos/X04-partida-recuperacao-e-dois-logs.md
+  04_diagramas/D04-dois-logs-e-commitpump.md
+Gerado em 13/10/2026 a partir do pacote DataReplication_Versao_1.
+-->
+<header class="topo">
+<button class="menu" type="button" aria-label="Abrir navegação" onclick="document.body.classList.toggle('nav-aberta')">☰</button>
+<a href="../index.html">DataReplication v1</a><span class="sep">·</span><span>Apresentação ao comitê técnico</span>
+</header>
+<div class="layout">
+<nav class="sidebar" aria-label="Navegação">
+<a class="marca" href="../index.html">DataReplication v1<span>Comitê técnico</span></a>
+<a class="nav-inicio" href="../index.html">Resumo e requisitos</a>
+<details class="grupo"><summary>Success path <span class="qtd">10</span></summary><ul>
+<li><a class="idx" href="../success-path/index.html">Índice da seção</a></li>
+<li><a href="../success-path/C01-visao-geral.html"><b>C01</b> Visão geral da arquitetura</a></li>
+<li><a href="../success-path/C02-dentro-da-celula.html"><b>C02</b> Dentro da célula: apps do cliente e DataReplication</a></li>
+<li><a href="../success-path/C03-escrita-strong.html"><b>C03</b> Caminho feliz: escrita (apply serial depois do gate)</a></li>
+<li><a href="../success-path/C04-escrita-eventual.html"><b>C04</b> Modo Eventual: só de leitura (sem apply paralelo na v1)</a></li>
+<li><a href="../success-path/C05-leitura-strong-e-eventual.html"><b>C05</b> Caminho feliz: leitura Strong e Eventual</a></li>
+<li><a href="../success-path/C06-follower-encaminha.html"><b>C06</b> Requisição chega numa célula que não é a líder</a></li>
+<li><a href="../success-path/C11-transferencia-planejada.html"><b>C11</b> Transferência planejada de liderança (manutenção)</a></li>
+<li><a href="../success-path/C18-partida-e-recuperacao-do-no.html"><b>C18</b> Partida, recuperação e parada limpa do nó</a></li>
+<li><a href="../success-path/C23-batchwriteitem-lote-uma-entrada.html"><b>C23</b> BatchWriteItem: o lote é uma entrada e o apply é por item (antes R15)</a></li>
+<li><a href="../success-path/C31-implantacao-por-cliente-e-identidade.html"><b>C31</b> Uma instalação por cliente e identificação na API (antes R19)</a></li>
+</ul></details>
+<details class="grupo"><summary>Fail path <span class="qtd">24</span></summary><ul>
+<li><a class="idx" href="../fail-path/index.html">Índice da seção</a></li>
+<li><a href="../fail-path/C07-timeout-depois-do-commit.html"><b>C07</b> Prazo estoura depois do commit, antes do ACK (retry do SDK)</a></li>
+<li><a href="../fail-path/C08-queda-de-celula-lider-ou-az-aws.html"><b>C08</b> Queda da célula líder ou de uma AZ na AWS</a></li>
+<li><a href="../fail-path/C09-queda-de-az-azure.html"><b>C09</b> Queda de uma AZ na Azure</a></li>
+<li><a href="../fail-path/C10-celulas-de-app-aws-fora.html"><b>C10</b> Apps da AWS fora, replicação viva: tráfego vai para a Azure</a></li>
+<li><a href="../fail-path/C12-modo-degradado.html"><b>C12</b> Link AWS↔Azure cai ou Azure cai: modo degradado com lease</a></li>
+<li><a href="../fail-path/C13-ressincronizacao-da-azure.html"><b>C13</b> Ressincronização da Azure</a></li>
+<li><a href="../fail-path/C14-aws-cai-sem-degradacao.html"><b>C14</b> AWS cai por inteiro sem degradação prévia</a></li>
+<li><a href="../fail-path/C15-aws-cai-em-degradacao.html"><b>C15</b> AWS cai durante o modo degradado</a></li>
+<li><a href="../fail-path/C16-aws-volta-apos-promocao.html"><b>C16</b> AWS volta depois da promoção da Azure</a></li>
+<li><a href="../fail-path/C17-maquina-de-estados.html"><b>C17</b> Máquina de estados dos modos de operação de um shard</a></li>
+<li><a href="../fail-path/C19-falha-do-datareplication.html"><b>C19</b> O DataReplication da célula cai ou reinicia</a></li>
+<li><a href="../fail-path/C20-bypass-de-escrita-direta.html"><b>C20</b> Aplicação escreve direto no banco (bypass)</a></li>
+<li><a href="../fail-path/C21-disco-fsync-e-reconstrucao.html"><b>C21</b> Falha de fsync, corrupção, disco lento e disco perdido</a></li>
+<li><a href="../fail-path/C22-cliente-com-sdk-nao-suportado.html"><b>C22</b> Cliente com SDK ou versão não suportada</a></li>
+<li><a href="../fail-path/C24-orcamento-de-50ms-e-escrita-no-dynamodb.html"><b>C24</b> Orçamento de 50 ms e a escrita no DynamoDB dentro do ACK (antes R21)</a></li>
+<li><a href="../fail-path/C25-link-lento-faixa-cinzenta.html"><b>C25</b> Link lento ou saturado (faixa cinzenta): só alertar (antes R01)</a></li>
+<li><a href="../fail-path/C26-entrada-venenosa.html"><b>C26</b> Entrada venenosa: um item que o banco recusa para sempre (antes R02)</a></li>
+<li><a href="../fail-path/C27-encaminhamento-sem-lider-conhecida.html"><b>C27</b> Loop de encaminhamento e espera pela líder durante a eleição (antes R05)</a></li>
+<li><a href="../fail-path/C28-leitura-eventual-na-azure-defasada.html"><b>C28</b> Leitura eventual na Azure durante a degradação (antes R04)</a></li>
+<li><a href="../fail-path/C29-disco-do-log-em-degradacao-longa.html"><b>C29</b> Disco do log esgota durante uma degradação longa (antes R08)</a></li>
+<li><a href="../fail-path/C30-aws-que-volta-boot-cercado.html"><b>C30</b> Fencing: o DynamoDB e o applier da AWS que voltam depois da promoção (antes R14)</a></li>
+<li><a href="../fail-path/C32-particao-e-lease-do-modo-degradado.html"><b>C32</b> Partição entre AWS e Azure: lease do modo degradado e promoção da Azure</a></li>
+<li><a href="../fail-path/C33-reconstrucao-em-tabela-sombra.html"><b>C33</b> Reconstrução do banco de uma célula em tabela sombra</a></li>
+<li><a href="../fail-path/C34-autorizacao-por-aplicacao.html"><b>C34</b> Autorização por aplicação: mTLS e lista de permissões por identidade</a></li>
+</ul></details>
+<details class="grupo" open><summary>Complex path <span class="qtd">6</span></summary><ul>
+<li><a class="idx" href="index.html">Índice da seção</a></li>
+<li><a href="X01-gate-e-troca-de-lider.html"><b>X01</b> Gate: definição, monotonicidade e troca de líder</a></li>
+<li><a href="X02-modo-degradado.html"><b>X02</b> Modo degradado: entrada, permanência, lease e saída</a></li>
+<li><a href="X03-desastre-e-promocao-da-azure.html"><b>X03</b> Desastre: promoção da Azure, fencing e reconciliação</a></li>
+<li><a class="atual" aria-current="page" href="X04-partida-recuperacao-e-dois-logs.html"><b>X04</b> Partida, recuperação e coerência entre os dois logs</a></li>
+<li><a href="X05-timeouts-e-idempotencia.html"><b>X05</b> Timeouts em cascata e idempotência do retry</a></li>
+<li><a href="X06-delete-ttl-gsi.html"><b>X06</b> DELETE, TTL, Scan e GSI</a></li>
+</ul></details>
+<details class="grupo"><summary>Parking lot <span class="qtd">14</span></summary><ul>
+<li><a class="idx" href="../parking-lot/index.html">Índice da seção</a></li>
+<li><a href="../parking-lot/R03-backlog-de-apply-no-cosmos.html"><b>R03</b> Backlog de apply no Cosmos (429 e RU insuficiente)</a></li>
+<li><a href="../parking-lot/R06-duas-azs-aws-caem.html"><b>R06</b> Duas AZs da AWS caem com a Azure saudável</a></li>
+<li><a href="../parking-lot/R07-link-oscilando.html"><b>R07</b> Link oscilando (flapping)</a></li>
+<li><a href="../parking-lot/R09-resincronizacao-lenta-ou-bloqueada.html"><b>R09</b> Ressincronização da Azure lenta ou que nunca termina</a></li>
+<li><a href="../parking-lot/R10-operador-lento-no-desastre.html"><b>R10</b> Tempo de decisão humana no desastre</a></li>
+<li><a href="../parking-lot/R11-api-de-promocao-depende-da-aws.html"><b>R11</b> A API de promoção depende de algo que estava na AWS</a></li>
+<li><a href="../parking-lot/R12-promocao-com-aws-viva.html"><b>R12</b> Promoção da Azure com a AWS viva (split-brain, PEND-01)</a></li>
+<li><a href="../parking-lot/R13-escritas-orfas-reconciliacao.html"><b>R13</b> Escritas órfãs: reconciliação depois da promoção (PEND-03)</a></li>
+<li><a href="../parking-lot/R16-leitura-forte-em-celulas-follower.html"><b>R16</b> Leitura forte em células follower (ReadIndex e gate)</a></li>
+<li><a href="../parking-lot/R17-atributo-de-versao-e-limite-400kb.html"><b>R17</b> Atributo de versão: limite de 400 KB e ausência nas respostas</a></li>
+<li><a href="../parking-lot/R18-rto-nao-quantificado.html"><b>R18</b> RTO (Delta-T) ainda sem número</a></li>
+<li><a href="../parking-lot/R20-custo-6x.html"><b>R20</b> Custo: cada escrita lógica vira seis gravações</a></li>
+<li><a href="../parking-lot/R22-memoria-da-janela-de-dedupe.html"><b>R22</b> Memória da janela de dedupe</a></li>
+<li><a href="../parking-lot/R23-hipoteses-gerais.html"><b>R23</b> Hipóteses gerais em aberto</a></li>
+</ul></details>
+</nav>
+<main>
+<div class="migalhas"><a href="../index.html">Início</a> / <a href="index.html">Complex path</a> / X04</div>
+<h1>X04 — Partida, recuperação e coerência entre os dois logs</h1>
+<div class="meta"><span class="selo complex-path">Complex path</span><div><b>Status na fonte:</b> Decidido (ADR-018; progresso por item em 13/10, <a href="../../03_adr/ADR-048-skip-por-item.md">ADR-048</a>; log de replicação segmentado sem fsync e checkpoint durável em 13/10, <a href="../../03_adr/ADR-055-log-de-replicacao-segmentado-derivado-do-raft.md">ADR-055</a>); casos de queda a cobrir nos testes</div></div>
+<section id="visao-geral"><h2>1. Visão geral do cenário</h2>
+<p>Há dois logs por réplica, cada um no seu volume: o do Raft (WAL do etcd, fsync antes do ACK) e o de replicação (log segmentado próprio, gravado depois do commit <strong>sem fsync</strong>, com um fsync de checkpoint a cada <code>REPLOG_SYNC_INTERVAL</code>). Uma queda pode acontecer entre as gravações. Este documento lista cada janela de queda e o que a partida faz.</p>
+<p>Há dois tipos de queda com efeitos diferentes no log de replicação:
+- <strong>Queda do processo</strong> (pânico, OOM, reinício do contêiner): o que o log já entregou ao kernel continua no cache de páginas e chega ao disco. Nada se perde.
+- <strong>Queda do host</strong> (energia, kernel, VM encerrada): o que veio depois do último fsync pode sumir, e o último registro pode ficar rasgado. O que sobra é um <strong>prefixo</strong> do log: a abertura trunca a cauda rasgada.</p>
+</section>
+<section id="diagrama"><h2>2. Diagrama</h2>
+<h3>Janelas de queda</h3>
+<div class="diagrama"><pre class="mermaid">sequenceDiagram
+    autonumber
+    participant R as Log do Raft, WAL do etcd
+    participant P as CommitPump
+    participant L as Log de replicação segmentado
+    participant AP as Applier
+    participant DB as Banco
+    R-&gt;&gt;R: fsync da entrada N
+    Note over R: queda A: N só no log do Raft
+    R-&gt;&gt;P: N commitada
+    P-&gt;&gt;AP: entrega N pela memória
+    P-&gt;&gt;L: anexa N sem fsync
+    Note over L: queda B: N no log sem fsync, Raft ainda retém N
+    AP-&gt;&gt;DB: apply do item de N
+    AP-&gt;&gt;L: progresso por item sem fsync
+    Note over AP,DB: queda C: itens de N aplicados, progresso atrás
+    L-&gt;&gt;L: Checkpointer faz fsync, cobre até N
+    L-&gt;&gt;R: DurableIndex N permite compactar o Raft até N
+    Note over R,L: queda D: depois do checkpoint, N durável no log de replicação</pre></div>
+<h3>Arquitetura geral relacionada: <a href="../../04_diagramas/D04-dois-logs-e-commitpump.md">D04 — Os dois logs e o CommitPump</a></h3><p class="nota">Diagrama de <code>04_diagramas/</code> escolhido pelo site como contexto; o cenário fonte não faz essa associação.</p>
+<div class="diagrama"><pre class="mermaid">flowchart TD
+    W[&quot;WriteService: Propose&quot;] --&gt; RAFT[&quot;RaftNode&quot;]
+    RAFT --&gt;|&quot;fsync antes do ACK&quot;| RLOG[(&quot;log do Raft: wal do etcd&lt;br/&gt;vida curta, volume do Raft&quot;)]
+    RAFT --&gt;|&quot;commit&quot;| PUMP[&quot;CommitPump&quot;]
+    AZ[&quot;Respostas do AppendEntries&lt;br/&gt;dos learners Azure: termo, índice, identidade&quot;] --&gt;|&quot;por evento, só termo atual&quot;| GATE[&quot;Gate&quot;]
+    PUMP --&gt;|&quot;índice de commit&quot;| GATE
+    PUMP --&gt;|&quot;entradas pela memória&quot;| APPL[&quot;Applier&quot;]
+    PUMP --&gt;|&quot;sem fsync, fora do caminho do ACK&quot;| REP[(&quot;log de replicação segmentado&lt;br/&gt;vida longa, volume próprio&quot;)]
+    GATE --&gt;|&quot;libera ACK&quot;| W
+    GATE --&gt;|&quot;libera o apply até o gate&quot;| APPL
+    APPL --&gt;|&quot;escrita condicional por versão&quot;| DB[(&quot;Banco da célula&quot;)]
+    APPL --&gt;|&quot;progresso por item: índice e ordem, sem fsync&quot;| REP
+    CK[&quot;Checkpointer: fsync a cada REPLOG_SYNC_INTERVAL&quot;] --&gt; REP
+    CK -.-&gt;|&quot;compacta até RaftCompactLimit&quot;| RLOG
+    REP -.-&gt;|&quot;DurableIndex do checkpoint: até onde o log do Raft pode ser truncado&quot;| RLOG</pre></div>
+</section>
+<section id="etapas"><h2>3. Legenda e etapas</h2>
+<div class="etapas"><ol>
+<li><strong>Queda A (N só no log do Raft):</strong> na partida, o nó abre o log de replicação (trunca a cauda rasgada), lê o maior índice presente e completa o log de replicação a partir do Raft antes de aceitar tráfego.</li>
+<li><strong>Queda B (N no log de replicação sem fsync):</strong> a regra de truncamento garante que o Raft ainda tem N: <strong>o Raft só é compactado até o <code>DurableIndex</code> do log de replicação, que é o índice coberto pelo último fsync de checkpoint</strong>, nunca o índice apenas copiado (<a href="../../03_adr/ADR-055-log-de-replicacao-segmentado-derivado-do-raft.md">ADR-055</a>). Se N sobreviveu à queda, regravar é inofensivo (a chave é o índice); se sumiu, volta pelo passo 1. Código: <code>domain.RaftCompactLimit</code> e <code>usecase.Checkpointer</code>.</li>
+<li><strong>Queda C (N aplicada em parte, progresso atrás):</strong> o applier guarda o progresso <strong>por item</strong>, <code>(índice, ordem)</code>, num registro com CRC no volume do log de replicação (não no banco). Na partida ele reaplica em ordem a partir desse ponto; a escrita é idempotente pela versão, então os itens já aplicados de um lote são reaplicados sem efeito e um item marcado por <code>SKIP</code> é pulado sozinho (<a href="../../03_adr/ADR-048-skip-por-item.md">ADR-048</a>, <a href="../fail-path/C26-entrada-venenosa.html">C26</a>). DELETE é refeito na ordem; o item pode reaparecer por instantes durante o replay. Sem fsync, o progresso pode voltar atrás numa queda de host: o replay fica maior, não errado. Registro com CRC errado vale como ausente, e o applier recomeça do início do que está retido. O truncamento do log nunca passa do <code>applied</code> (<code>domain.ReplogTruncateLimit</code>), então o replay sempre encontra as entradas. Código: <code>usecase.Applier</code>.</li>
+<li><strong>High-water mark e I-DEL:</strong> o ponto mais alto que o applier já tinha aplicado fica no registro de progresso. As leituras só abrem depois que o applier o alcança. Essa regra é a que sustenta a invariante <strong>I-DEL</strong> (com as leituras abertas, o estado materializado é a dobra do log até <code>applied</code>): é imposta por código e coberta por teste de propriedade e pelo modelo TLA+ (<a href="../../03_adr/ADR-047-delete-real-invariante-e-reconstrucao-em-tabela-sombra.md">ADR-047</a>, <a href="X06-delete-ttl-gsi.html">X06</a>). Como o high-water mark pode voltar até um checkpoint atrás numa queda de host, <strong>a proposta é abrir as leituras só quando o applier alcançar o índice de commit recuperado do <code>HardState</code> do Raft</strong>, que é sempre maior ou igual ao que já tinha sido aplicado (o apply nunca passa do gate, e o gate nunca passa do commit). Os caminhos que <strong>não passam pelo checkpoint</strong> (reconstrução, restauração PITR, cópia de outra célula) não têm essa proteção e usam o protocolo da tabela sombra (<a href="../fail-path/C33-reconstrucao-em-tabela-sombra.html">C33</a>).</li>
+<li><strong>Leitura forte depois da partida:</strong> além do high-water mark, a líder recém-eleita só atende leitura forte depois de reconstruir o gate (<a href="../../03_adr/ADR-049-barreira-da-leitura-forte-e-o-gate.md">ADR-049</a>, <a href="X01-gate-e-troca-de-lider.html">X01</a>). Com o applier parado por entrada venenosa, a leitura forte falha rápido com <code>503</code>.</li>
+<li><strong>Cauda rasgada e corrupção:</strong> o WAL do etcd trata o registro parcial no fim do último segmento; o <code>replog</code> trunca a cauda inválida do último segmento. <strong>Corrupção no meio</strong> de qualquer um dos dois: o nó recusa subir.</li>
+<li><strong>Índice único:</strong> o índice do log de replicação é o próprio índice Raft (sem sequência paralela).</li>
+<li><strong>Tabela de dedupe:</strong> é projeção do log e é reconstruída na partida. Como o log do Raft agora é curto (segundos), ela é lida do <strong>log de replicação</strong>, cuja retenção mínima cobre a janela de dedupe de 5 min mais uma margem (<a href="X05-timeouts-e-idempotencia.html">X05</a>, <a href="../parking-lot/R22-memoria-da-janela-de-dedupe.html">R22</a>).</li>
+<li><strong>Learner em catch-up:</strong> o lote recebido pelo canal de catch-up é gravado no log de replicação <strong>com fsync</strong> antes de o learner informar o índice ao Raft (<a href="../fail-path/C13-ressincronizacao-da-azure.html">C13</a>).</li>
+</ol></div>
+</section>
+<section id="pontos"><h2>4. Pontos que precisam ser avaliados</h2>
+<p class="nota">Reescritos a partir das seções “Falhas e tratativas” e “Pontos em aberto” (e de outras seções de risco, quando existem). Em cada ponto, <b>O que a fonte define</b> vem da documentação; <b>Sugestão de encaminhamento</b> é <b>inferência do arquiteto</b>, não decisão registrada.</p>
+<article class="ponto">
+<h3><span class="num">1</span>Erro de escrita ou de fsync no log de replicação <span class="origem">Falhas e tratativas</span></h3>
+<dl>
+<dt>Contexto</dt><dd>O log de replicação é gravado depois do commit e o checkpoint faz fsync periódico. Um erro de escrita ou de fsync deixa incerto o que está em disco, e continuar operando poderia permitir compactar o Raft com base num <code>DurableIndex</code> falso. Isso arrisca perder entradas para a Azure e o replay do applier.</dd>
+<dt>O que a fonte define</dt><dd class="">Erro é fatal para o processo, como o fsync do Raft (<a href="../../03_adr/ADR-034-fsync-fatal-e-identidade-nova.md">ADR-034</a>); na volta, o trecho perdido vem do Raft (passo 1 da partida).</dd>
+<dt class="sug">Sugestão de encaminhamento <small>(inferência, não decidida)</small></dt><dd class="sug">Teste de falha com injeção de erro de fsync (dispositivo de bloco com falha, por exemplo <code>dm-flakey</code>) confirmando que o processo morre e que, na volta, o log é completado a partir do Raft. Alertar sobre reinícios repetidos por fsync, que indicam disco ruim e deveriam levar à troca do nó com identidade nova.</dd>
+</dl>
+</article>
+<article class="ponto">
+<h3><span class="num">2</span>Perda só do volume do log de replicação <span class="origem">Falhas e tratativas</span></h3>
+<dl>
+<dt>Contexto</dt><dd>O Raft do nó fica inteiro, mas guarda só segundos de histórico; o histórico para a Azure, o progresso do applier e o high-water mark se perdem. Manter a identidade do nó com esse estado perdido poderia fazê-lo contar com dados que não tem. Tratar como disco perdido aumenta o tempo de volta do nó (RTO do nó) por exigir catch-up completo.</dd>
+<dt>O que a fonte define</dt><dd class="">Padrão adotado: tratar como disco perdido, e o nó volta com identidade nova (<a href="../../03_adr/ADR-034-fsync-fatal-e-identidade-nova.md">ADR-034</a>). A alternativa (manter identidade e recarregar o histórico de um par) está nas perguntas para o Bruno.</dd>
+<dt class="sug">Sugestão de encaminhamento <small>(inferência, não decidida)</small></dt><dd class="sug">Manter o padrão de identidade nova pela simplicidade de prova (P13) e medir o tempo de catch-up completo de um votante como parte do RTO do nó. Só reabrir a alternativa se essa medida for inaceitável, levando o número ao Bruno.</dd>
+</dl>
+</article>
+<article class="ponto">
+<h3><span class="num">3</span>Checkpoint parado (volume lento ou cheio) <span class="origem">Falhas e tratativas</span></h3>
+<dl>
+<dt>Contexto</dt><dd>Se o checkpoint para, o <code>DurableIndex</code> não avança e o Raft deixa de ser compactado. O log do Raft cresce no volume pequeno dele e na memória do <code>MemoryStorage</code>, o que pode levar a falta de memória ou de disco no votante. É uma falha silenciosa que vira queda de nó depois.</dd>
+<dt>O que a fonte define</dt><dd class="">Métrica <code>raft_log_bytes</code> com alerta e <code>replog_durable_lag</code> (risco 31); erro de fsync é fatal.</dd>
+<dt class="sug">Sugestão de encaminhamento <small>(inferência, não decidida)</small></dt><dd class="sug">Definir limiares de alerta (a definir) para <code>replog_durable_lag</code> e <code>raft_log_bytes</code> e um teste de caos que degrade a latência do volume do log de replicação até o checkpoint ficar atrás, observando o crescimento de memória. Avaliar um limite duro em que o nó recusa novas entradas em vez de morrer por falta de memória.</dd>
+</dl>
+</article>
+<article class="ponto">
+<h3><span class="num">4</span>High-water mark perdido <span class="origem">Falhas e tratativas</span></h3>
+<dl>
+<dt>Contexto</dt><dd>Numa queda de host, o high-water mark do applier pode voltar até um checkpoint atrás. Se as leituras abrirem com base nele, um item apagado pode reaparecer durante o replay e ser lido, violando I-DEL. É um risco de leitura incorreta, não de perda de dado.</dd>
+<dt>O que a fonte define</dt><dd class="">Proposta na fonte: abrir as leituras só quando o applier alcançar o índice de commit recuperado do <code>HardState</code> do Raft. A fonte registra que falta fixar no desenho e testar.</dd>
+<dt class="sug">Sugestão de encaminhamento <small>(inferência, não decidida)</small></dt><dd class="sug">Fixar a proposta em ADR e incluí-la no teste de propriedade de I-DEL com queda de host simulada (descartar o que veio depois do último fsync). Medir quanto isso atrasa a abertura de leituras na partida, já que entra no RTO do nó.</dd>
+</dl>
+</article>
+<article class="ponto">
+<h3><span class="num">5</span>Conformidade com queda de host simulada <span class="origem">Pontos em aberto</span></h3>
+<dl>
+<dt>Contexto</dt><dd>Os testes de conformidade de <code>ReplicationLog</code> e <code>ConsensusEngine</code> precisam cobrir todas as janelas de queda (A a D) entre os dois logs. Queda de processo preserva o cache de páginas e não exercita a perda do que veio depois do último fsync. Sem simular queda de host, a regra de compactação pelo <code>DurableIndex</code> não é testada de verdade.</dd>
+<dt>O que a fonte define</dt><dd class="">A fonte registra o ponto como pendente: incluir todos os casos, com queda de host simulada, e não só queda de processo.</dd>
+<dt class="sug">Sugestão de encaminhamento <small>(inferência, não decidida)</small></dt><dd class="sug">Implementar um sistema de arquivos de teste que descarte escritas não sincronizadas na queda e rodar a suíte em cada janela A a D, com asserção de I-DEL e de <code>RaftCompactLimit</code>. Tornar isso critério de aceite da fase 1.</dd>
+</dl>
+</article>
+<article class="ponto">
+<h3><span class="num">6</span>Valores de <code>REPLOG_SYNC_INTERVAL</code> e <code>RAFT_RETAIN_MAX</code> <span class="origem">Pontos em aberto</span></h3>
+<dl>
+<dt>Contexto</dt><dd>O intervalo de checkpoint define quanto replay há após queda de host e quanto o Raft cresce antes de ser compactado. A retenção máxima do Raft limita a memória do <code>MemoryStorage</code>. Valores mal escolhidos trocam latência de fsync por tempo de partida ou por risco de memória.</dd>
+<dt>O que a fonte define</dt><dd class="nd-fonte">Não decidido na fonte. PEND-22 traz valores propostos, a validar nos spikes S1 e S2.</dd>
+<dt class="sug">Sugestão de encaminhamento <small>(inferência, não decidida)</small></dt><dd class="sug">Rodar os spikes S1 e S2 com carga de pico e medir latência de escrita, tempo de replay e uso de memória para cada valor candidato. Registrar o critério de escolha junto com o valor.</dd>
+</dl>
+</article>
+<article class="ponto">
+<h3><span class="num">7</span>Tempo total de partida do nó <span class="origem">Pontos em aberto</span></h3>
+<dl>
+<dt>Contexto</dt><dd>A partida inclui truncar a cauda, completar o log a partir do Raft, reconstruir a tabela de dedupe, fazer o replay do applier e varrer segmentos para validar CRC. Com volume grande, essa varredura pode dominar o tempo de volta do nó. Isso entra no RTO do nó e indiretamente na disponibilidade do shard.</dd>
+<dt>O que a fonte define</dt><dd class="nd-fonte">Não decidido na fonte. <a href="../parking-lot/R18-rto-nao-quantificado.html">R18</a> trata do RTO medido em exercícios de falha como distribuição; a varredura de CRC entra na medição.</dd>
+<dt class="sug">Sugestão de encaminhamento <small>(inferência, não decidida)</small></dt><dd class="sug">Medir a partida por etapa (abertura do log, dedupe, replay) com volume cheio no teto de 70%. Se a varredura de CRC dominar, avaliar validar só o último segmento na partida e o restante em segundo plano.</dd>
+</dl>
+</article>
+</section>
+<section id="adrs"><h2>5. ADRs relacionados</h2>
+<div class="tabela"><table><thead><tr><th>ADR</th><th>Título</th><th>Decisão resumida</th><th>Arquivo</th></tr></thead><tbody>
+<tr><td class="nw"><a href="../../03_adr/ADR-018-dois-logs-raft-e-replicacao.md">ADR-018</a></td><td>Dois logs separados: o do Raft e o de replicação</td><td>Dois logs: o do Raft (curto, fsync antes do ACK) e o de replicação (longo, após o commit); revisado pelo <a href="../../03_adr/ADR-055-log-de-replicacao-segmentado-derivado-do-raft.md">ADR-055</a>.</td><td><a href="../../03_adr/ADR-018-dois-logs-raft-e-replicacao.md">ADR-018-dois-logs-raft-e-replicacao.md</a></td></tr>
+<tr><td class="nw"><a href="../../03_adr/ADR-019-wal-proprio-volume-dedicado.md">ADR-019</a></td><td>Log do Raft em volume de bloco dedicado; sem ACK em memória</td><td>Log do Raft em volume de bloco dedicado com fsync fatal; sem ACK em memória; WAL próprio substituído pelo <a href="../../03_adr/ADR-055-log-de-replicacao-segmentado-derivado-do-raft.md">ADR-055</a>.</td><td><a href="../../03_adr/ADR-019-wal-proprio-volume-dedicado.md">ADR-019-wal-proprio-volume-dedicado.md</a></td></tr>
+<tr><td class="nw"><a href="../../03_adr/ADR-055-log-de-replicacao-segmentado-derivado-do-raft.md">ADR-055</a></td><td>Log de replicação segmentado, derivado do Raft, sem fsync no caminho do ACK e em volume separado</td><td>Log de replicação segmentado, derivado do Raft, sem fsync no caminho do ACK e em volume separado.</td><td><a href="../../03_adr/ADR-055-log-de-replicacao-segmentado-derivado-do-raft.md">ADR-055-log-de-replicacao-segmentado-derivado-do-raft.md</a></td></tr>
+<tr><td class="nw"><a href="../../03_adr/ADR-034-fsync-fatal-e-identidade-nova.md">ADR-034</a></td><td>Falha de fsync é fatal; disco perdido volta com identidade nova</td><td>Falha de fsync é fatal; disco perdido volta com identidade nova como learner; rebuild manual na v1.</td><td><a href="../../03_adr/ADR-034-fsync-fatal-e-identidade-nova.md">ADR-034-fsync-fatal-e-identidade-nova.md</a></td></tr>
+<tr><td class="nw"><a href="../../03_adr/ADR-047-delete-real-invariante-e-reconstrucao-em-tabela-sombra.md">ADR-047</a></td><td>DELETE real com invariante formal; reconstrução em tabela sombra</td><td>DELETE real com invariante I-DEL e reconstrução do banco em tabela sombra (cópia difusa mais replay).</td><td><a href="../../03_adr/ADR-047-delete-real-invariante-e-reconstrucao-em-tabela-sombra.md">ADR-047-delete-real-invariante-e-reconstrucao-em-tabela-sombra.md</a></td></tr>
+<tr><td class="nw"><a href="../../03_adr/ADR-048-skip-por-item.md">ADR-048</a></td><td>O SKIP identifica o item: (índice, ordem)</td><td>O SKIP identifica o item por (índice, ordem) e o applier persiste o progresso por item.</td><td><a href="../../03_adr/ADR-048-skip-por-item.md">ADR-048-skip-por-item.md</a></td></tr>
+</tbody></table></div>
+<p class="nota">Lista extraída do cabeçalho “ADRs” do arquivo fonte. A decisão resumida condensa a seção “Decisão” de cada ADR.</p>
+</section>
+<section id="anexo"><h2>Anexo: texto original da fonte</h2><p class="nota">Seções do .md fonte reproduzidas sem reescrita, para conferência.</p>
+<details class="anexo"><summary>Falhas e tratativas</summary><ul>
+<li><strong>Erro de escrita ou de fsync no log de replicação.</strong> Fatal para o processo, como o fsync do Raft (<a href="../../03_adr/ADR-034-fsync-fatal-e-identidade-nova.md">ADR-034</a>). Na volta, o trecho perdido vem do Raft (passo 1).</li>
+<li><strong>Perda só do volume do log de replicação.</strong> O Raft do nó está inteiro, mas guarda só segundos; o histórico para a Azure, o progresso do applier e o high-water mark se perdem. Padrão adotado: tratar como disco perdido, e o nó volta com <strong>identidade nova</strong> (<a href="../../03_adr/ADR-034-fsync-fatal-e-identidade-nova.md">ADR-034</a>). A alternativa (manter a identidade e recarregar o histórico de um par) está nas <a href="../../06_pendencias_e_riscos/03_perguntas_para_o_bruno.md">perguntas para o Bruno</a>.</li>
+<li><strong>Checkpoint parado (volume do log de replicação lento ou cheio).</strong> O <code>DurableIndex</code> para, o Raft deixa de ser compactado e cresce no volume pequeno dele e na memória do <code>MemoryStorage</code>. Métrica <code>raft_log_bytes</code> com alerta; risco 31.</li>
+<li><strong>High-water mark perdido.</strong> Coberto pela proposta do passo 4 (abrir leituras no commit do <code>HardState</code>); falta fixar no desenho e testar.</li>
+</ul></details>
+<details class="anexo"><summary>Pontos em aberto</summary><ul>
+<li>Conformidade (<code>ReplicationLog</code> e <code>ConsensusEngine</code>) inclui todos os casos de queda entre os dois logs, com <strong>queda de host simulada</strong> (descartar o que o log de replicação gravou depois do último fsync), e não só queda de processo.</li>
+<li>Valor de <code>REPLOG_SYNC_INTERVAL</code> e de <code>RAFT_RETAIN_MAX</code> (PEND-22).</li>
+<li>Tempo total de partida (RTO do nó, medido em exercícios de falha como distribuição): <a href="../parking-lot/R18-rto-nao-quantificado.html">R18</a>. A abertura do log de replicação varre os segmentos para validar o CRC; com volume grande, entra na medição.</li>
+</ul></details>
+</section>
+<footer class="rodape">
+Gerado em 13/10/2026 a partir de <code>DataReplication_Versao_1/</code>. O conteúdo vem dos arquivos .md citados no código-fonte desta página;
+textos marcados como <em>sugestão</em> são inferência do arquiteto e não decisões registradas.
+</footer>
+</main>
+</div>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@11.4.1/dist/mermaid.min.js"></script>
+<script>mermaid.initialize({startOnLoad: true, theme: "neutral", securityLevel: "strict", flowchart: {htmlLabels: true, useMaxWidth: true}, sequence: {useMaxWidth: true}});</script>
+</body>
+</html>

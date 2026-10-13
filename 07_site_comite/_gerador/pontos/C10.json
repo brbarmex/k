@@ -1,0 +1,19 @@
+{
+ "id": "C10",
+ "pontos": [
+  {
+   "titulo": "O link vira caminho quente",
+   "origem": "Falhas e tratativas",
+   "contexto": "Com as apps da AWS fora, cada escrita vinda da Azure cruza o link duas vezes: o encaminhamento para a líder e a replicação de volta. O link passa a carregar tráfego de cliente além da replicação, o que pode levar à faixa cinzenta e, por ela, a latência alta ou degradação.",
+   "na_fonte": "Dimensionar o link e considerar QoS (C25).",
+   "sugestao": "Medir no spike S1 a banda necessária nesse cenário (forward mais replicação para 3 learners) e definir QoS que priorize a replicação. Ponto não coberto: se o link satura, a replicação atrasa e o shard pode degradar, abrindo RPO > 0 por causa de tráfego de cliente."
+  },
+  {
+   "titulo": "Router manda tráfego à Azure com o link fora",
+   "origem": "Falhas e tratativas",
+   "contexto": "Se o Agent direciona o tráfego à Azure enquanto o link está fora, a Azure não alcança a líder e todas as escritas falham. O cliente fica sem escrita embora a AWS esteja viva.",
+   "na_fonte": "O `DataReplication` responde erro recuperável e nunca escreve localmente; dependência externa registrada.",
+   "sugestao": "Pedir ao dono do Agent que a decisão de roteamento consulte o estado do link, e incluir no exercício de falha a combinação apps AWS fora e link fora, medindo o tempo até alguém perceber."
+  }
+ ]
+}

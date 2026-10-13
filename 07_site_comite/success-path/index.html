@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Success path · DataReplication v1</title>
+<link rel="stylesheet" href="../assets/site.css">
+</head>
+<body>
+<!--
+Fonte(s) usada(s) nesta página (rastreabilidade), relativas à raiz do pacote:
+  02_cenarios/atualizados/C01-visao-geral.md
+  02_cenarios/atualizados/C02-dentro-da-celula.md
+  02_cenarios/atualizados/C03-escrita-strong.md
+  02_cenarios/atualizados/C04-escrita-eventual.md
+  02_cenarios/atualizados/C05-leitura-strong-e-eventual.md
+  02_cenarios/atualizados/C06-follower-encaminha.md
+  02_cenarios/atualizados/C11-transferencia-planejada.md
+  02_cenarios/atualizados/C18-partida-e-recuperacao-do-no.md
+  02_cenarios/atualizados/C23-batchwriteitem-lote-uma-entrada.md
+  02_cenarios/atualizados/C31-implantacao-por-cliente-e-identidade.md
+Gerado em 13/10/2026 a partir do pacote DataReplication_Versao_1.
+-->
+<header class="topo">
+<button class="menu" type="button" aria-label="Abrir navegação" onclick="document.body.classList.toggle('nav-aberta')">☰</button>
+<a href="../index.html">DataReplication v1</a><span class="sep">·</span><span>Apresentação ao comitê técnico</span>
+</header>
+<div class="layout">
+<nav class="sidebar" aria-label="Navegação">
+<a class="marca" href="../index.html">DataReplication v1<span>Comitê técnico</span></a>
+<a class="nav-inicio" href="../index.html">Resumo e requisitos</a>
+<details class="grupo" open><summary>Success path <span class="qtd">10</span></summary><ul>
+<li><a class="idx atual" href="index.html">Índice da seção</a></li>
+<li><a href="C01-visao-geral.html"><b>C01</b> Visão geral da arquitetura</a></li>
+<li><a href="C02-dentro-da-celula.html"><b>C02</b> Dentro da célula: apps do cliente e DataReplication</a></li>
+<li><a href="C03-escrita-strong.html"><b>C03</b> Caminho feliz: escrita (apply serial depois do gate)</a></li>
+<li><a href="C04-escrita-eventual.html"><b>C04</b> Modo Eventual: só de leitura (sem apply paralelo na v1)</a></li>
+<li><a href="C05-leitura-strong-e-eventual.html"><b>C05</b> Caminho feliz: leitura Strong e Eventual</a></li>
+<li><a href="C06-follower-encaminha.html"><b>C06</b> Requisição chega numa célula que não é a líder</a></li>
+<li><a href="C11-transferencia-planejada.html"><b>C11</b> Transferência planejada de liderança (manutenção)</a></li>
+<li><a href="C18-partida-e-recuperacao-do-no.html"><b>C18</b> Partida, recuperação e parada limpa do nó</a></li>
+<li><a href="C23-batchwriteitem-lote-uma-entrada.html"><b>C23</b> BatchWriteItem: o lote é uma entrada e o apply é por item (antes R15)</a></li>
+<li><a href="C31-implantacao-por-cliente-e-identidade.html"><b>C31</b> Uma instalação por cliente e identificação na API (antes R19)</a></li>
+</ul></details>
+<details class="grupo"><summary>Fail path <span class="qtd">24</span></summary><ul>
+<li><a class="idx" href="../fail-path/index.html">Índice da seção</a></li>
+<li><a href="../fail-path/C07-timeout-depois-do-commit.html"><b>C07</b> Prazo estoura depois do commit, antes do ACK (retry do SDK)</a></li>
+<li><a href="../fail-path/C08-queda-de-celula-lider-ou-az-aws.html"><b>C08</b> Queda da célula líder ou de uma AZ na AWS</a></li>
+<li><a href="../fail-path/C09-queda-de-az-azure.html"><b>C09</b> Queda de uma AZ na Azure</a></li>
+<li><a href="../fail-path/C10-celulas-de-app-aws-fora.html"><b>C10</b> Apps da AWS fora, replicação viva: tráfego vai para a Azure</a></li>
+<li><a href="../fail-path/C12-modo-degradado.html"><b>C12</b> Link AWS↔Azure cai ou Azure cai: modo degradado com lease</a></li>
+<li><a href="../fail-path/C13-ressincronizacao-da-azure.html"><b>C13</b> Ressincronização da Azure</a></li>
+<li><a href="../fail-path/C14-aws-cai-sem-degradacao.html"><b>C14</b> AWS cai por inteiro sem degradação prévia</a></li>
+<li><a href="../fail-path/C15-aws-cai-em-degradacao.html"><b>C15</b> AWS cai durante o modo degradado</a></li>
+<li><a href="../fail-path/C16-aws-volta-apos-promocao.html"><b>C16</b> AWS volta depois da promoção da Azure</a></li>
+<li><a href="../fail-path/C17-maquina-de-estados.html"><b>C17</b> Máquina de estados dos modos de operação de um shard</a></li>
+<li><a href="../fail-path/C19-falha-do-datareplication.html"><b>C19</b> O DataReplication da célula cai ou reinicia</a></li>
+<li><a href="../fail-path/C20-bypass-de-escrita-direta.html"><b>C20</b> Aplicação escreve direto no banco (bypass)</a></li>
+<li><a href="../fail-path/C21-disco-fsync-e-reconstrucao.html"><b>C21</b> Falha de fsync, corrupção, disco lento e disco perdido</a></li>
+<li><a href="../fail-path/C22-cliente-com-sdk-nao-suportado.html"><b>C22</b> Cliente com SDK ou versão não suportada</a></li>
+<li><a href="../fail-path/C24-orcamento-de-50ms-e-escrita-no-dynamodb.html"><b>C24</b> Orçamento de 50 ms e a escrita no DynamoDB dentro do ACK (antes R21)</a></li>
+<li><a href="../fail-path/C25-link-lento-faixa-cinzenta.html"><b>C25</b> Link lento ou saturado (faixa cinzenta): só alertar (antes R01)</a></li>
+<li><a href="../fail-path/C26-entrada-venenosa.html"><b>C26</b> Entrada venenosa: um item que o banco recusa para sempre (antes R02)</a></li>
+<li><a href="../fail-path/C27-encaminhamento-sem-lider-conhecida.html"><b>C27</b> Loop de encaminhamento e espera pela líder durante a eleição (antes R05)</a></li>
+<li><a href="../fail-path/C28-leitura-eventual-na-azure-defasada.html"><b>C28</b> Leitura eventual na Azure durante a degradação (antes R04)</a></li>
+<li><a href="../fail-path/C29-disco-do-log-em-degradacao-longa.html"><b>C29</b> Disco do log esgota durante uma degradação longa (antes R08)</a></li>
+<li><a href="../fail-path/C30-aws-que-volta-boot-cercado.html"><b>C30</b> Fencing: o DynamoDB e o applier da AWS que voltam depois da promoção (antes R14)</a></li>
+<li><a href="../fail-path/C32-particao-e-lease-do-modo-degradado.html"><b>C32</b> Partição entre AWS e Azure: lease do modo degradado e promoção da Azure</a></li>
+<li><a href="../fail-path/C33-reconstrucao-em-tabela-sombra.html"><b>C33</b> Reconstrução do banco de uma célula em tabela sombra</a></li>
+<li><a href="../fail-path/C34-autorizacao-por-aplicacao.html"><b>C34</b> Autorização por aplicação: mTLS e lista de permissões por identidade</a></li>
+</ul></details>
+<details class="grupo"><summary>Complex path <span class="qtd">6</span></summary><ul>
+<li><a class="idx" href="../complex-path/index.html">Índice da seção</a></li>
+<li><a href="../complex-path/X01-gate-e-troca-de-lider.html"><b>X01</b> Gate: definição, monotonicidade e troca de líder</a></li>
+<li><a href="../complex-path/X02-modo-degradado.html"><b>X02</b> Modo degradado: entrada, permanência, lease e saída</a></li>
+<li><a href="../complex-path/X03-desastre-e-promocao-da-azure.html"><b>X03</b> Desastre: promoção da Azure, fencing e reconciliação</a></li>
+<li><a href="../complex-path/X04-partida-recuperacao-e-dois-logs.html"><b>X04</b> Partida, recuperação e coerência entre os dois logs</a></li>
+<li><a href="../complex-path/X05-timeouts-e-idempotencia.html"><b>X05</b> Timeouts em cascata e idempotência do retry</a></li>
+<li><a href="../complex-path/X06-delete-ttl-gsi.html"><b>X06</b> DELETE, TTL, Scan e GSI</a></li>
+</ul></details>
+<details class="grupo"><summary>Parking lot <span class="qtd">14</span></summary><ul>
+<li><a class="idx" href="../parking-lot/index.html">Índice da seção</a></li>
+<li><a href="../parking-lot/R03-backlog-de-apply-no-cosmos.html"><b>R03</b> Backlog de apply no Cosmos (429 e RU insuficiente)</a></li>
+<li><a href="../parking-lot/R06-duas-azs-aws-caem.html"><b>R06</b> Duas AZs da AWS caem com a Azure saudável</a></li>
+<li><a href="../parking-lot/R07-link-oscilando.html"><b>R07</b> Link oscilando (flapping)</a></li>
+<li><a href="../parking-lot/R09-resincronizacao-lenta-ou-bloqueada.html"><b>R09</b> Ressincronização da Azure lenta ou que nunca termina</a></li>
+<li><a href="../parking-lot/R10-operador-lento-no-desastre.html"><b>R10</b> Tempo de decisão humana no desastre</a></li>
+<li><a href="../parking-lot/R11-api-de-promocao-depende-da-aws.html"><b>R11</b> A API de promoção depende de algo que estava na AWS</a></li>
+<li><a href="../parking-lot/R12-promocao-com-aws-viva.html"><b>R12</b> Promoção da Azure com a AWS viva (split-brain, PEND-01)</a></li>
+<li><a href="../parking-lot/R13-escritas-orfas-reconciliacao.html"><b>R13</b> Escritas órfãs: reconciliação depois da promoção (PEND-03)</a></li>
+<li><a href="../parking-lot/R16-leitura-forte-em-celulas-follower.html"><b>R16</b> Leitura forte em células follower (ReadIndex e gate)</a></li>
+<li><a href="../parking-lot/R17-atributo-de-versao-e-limite-400kb.html"><b>R17</b> Atributo de versão: limite de 400 KB e ausência nas respostas</a></li>
+<li><a href="../parking-lot/R18-rto-nao-quantificado.html"><b>R18</b> RTO (Delta-T) ainda sem número</a></li>
+<li><a href="../parking-lot/R20-custo-6x.html"><b>R20</b> Custo: cada escrita lógica vira seis gravações</a></li>
+<li><a href="../parking-lot/R22-memoria-da-janela-de-dedupe.html"><b>R22</b> Memória da janela de dedupe</a></li>
+<li><a href="../parking-lot/R23-hipoteses-gerais.html"><b>R23</b> Hipóteses gerais em aberto</a></li>
+</ul></details>
+</nav>
+<main>
+<div class="migalhas"><a href="../index.html">Início</a> / Success path</div>
+<h1>Success path</h1><p class="lead">Fluxos em regime normal, sem falha.</p><p class="nota">Classificação success/fail aprovada pelo Bruno em 13/10/2026. Fonte: <code>02_cenarios/atualizados/</code>.</p><div class="cartoes"><a class="cartao" href="C01-visao-geral.html"><span class="id">C01</span><span class="t">Visão geral da arquitetura</span><span class="st">✅ Atualizado (modelo v1)</span><span class="r">Estrutura de um shard em regime normal. Cada célula é um cluster Kubernetes (EKS ou AKS) numa AZ. No namespace do cliente rodam as apps e <strong>um único</strong> <code>DataReplication</code>. As 3 células AWS são votantes do Raft; as 3 células Azure são learners. O Compass-Router e o Agent do control plane são externos ao time.</span></a><a class="cartao" href="C02-dentro-da-celula.html"><span class="id">C02</span><span class="t">Dentro da célula: apps do cliente e DataReplication</span><span class="st">✅ Atualizado (modelo v1)</span><span class="r">No namespace do cliente, as apps (por exemplo 10 microsserviços) falam com <strong>um único</strong> <code>DataReplication</code> por uma porta. Não há sidecar nem HPA: o número de réplicas é o quórum. Uma NetworkPolicy fecha o namespace e cada app fala <strong>mTLS</strong> com o <code>DataReplication</code>, que autoriza por uma lista identidade → tabelas e operações (C34). As apps <strong>não têm credencial de escrita</strong> nos bancos; só o applier do <code>DataReplication</code> escreve.</span></a><a class="cartao" href="C03-escrita-strong.html"><span class="id">C03</span><span class="t">Caminho feliz: escrita (apply serial depois do gate)</span><span class="st">✅ Atualizado (modelo v1, revisão crítica de 13/10/2026)</span><span class="r">Regime normal, AWS e Azure se alcançando. A app faz um <code>PutItem</code>. O <code>DataReplication</code> valida, deduplica e propõe a entrada ao Raft. A entrada é gravada com fsync no log do Raft, replicada para 2 de 3 votantes AWS e para 2 de 3 learners Azure. Quando o gate alcança o índice, o applier grava no banco da célula e o ACK sai. <strong>O apply é sempre serial e depois do gate</strong>, em todas as instalações: o <code>WRITE_MODE</code> e o apply paralelo saíram da v1 (ADR-053), então o <code>applied</code> nunca passa do gate. RPO = 0. O apply nas outras células é assíncrono.</span></a><a class="cartao" href="C04-escrita-eventual.html"><span class="id">C04</span><span class="t">Modo Eventual: só de leitura (sem apply paralelo na v1)</span><span class="st">✅ Atualizado (modelo v1, revisão crítica de 13/10/2026); o apply paralelo foi retirado da v1</span><span class="r">O pacote chegou a prever um modo Eventual de <strong>escrita</strong>, com o applier da célula líder gravando no banco assim que a AWS confirmasse o commit, em paralelo à espera da Azure. Esse modo foi retirado: um leitor poderia ver uma escrita ainda <strong>não durável na Azure</strong> que nunca seria ACKada se a AWS caísse antes, e quem leu agiu sobre um valor que depois "não aconteceu". O ganho era esconder <code>t_apply</code> (alguns ms) atrás da Azure, desproporcional ao risco.</span></a><a class="cartao" href="C05-leitura-strong-e-eventual.html"><span class="id">C05</span><span class="t">Caminho feliz: leitura Strong e Eventual</span><span class="st">✅ Atualizado (modelo v1, revisão crítica de 13/10/2026)</span><span class="r">O padrão é leitura forte: <code>READ_MODE_DEFAULT=strong</code> (obrigatória), válido <strong>só para a tabela base</strong>. <code>ConsistentRead=true</code> na tabela base é sempre forte; ausente ou <code>false</code> segue o padrão. A leitura forte pede à líder o <strong>ReadIndex e o gate</strong> e espera o <code>appliedIndex</code> local alcançar <strong><code>min(ReadIndex, gate)</code></strong>. Um cliente só pode ter visto escritas já ACKadas, e toda escrita ACKada está abaixo do gate, então a leitura-do-que-escrevi continua garantida <strong>sem depender da saúde da Azure</strong>. A leitura eventual lê o banco local direto e informa a defasagem em headers. Em <strong>GSI</strong> a leitura é sempre eventual.</span></a><a class="cartao" href="C06-follower-encaminha.html"><span class="id">C06</span><span class="t">Requisição chega numa célula que não é a líder</span><span class="st">✅ Atualizado (modelo v1)</span><span class="r">O Compass-Router entrega a requisição a uma célula follower. O <code>DataReplication</code> dela <strong>encaminha</strong> a escrita à líder por gRPC (+1 a 2 ms) e devolve a resposta como se fosse local. A liderança não muda por requisição; ela só muda por eleição de saúde ou transferência planejada.</span></a><a class="cartao" href="C11-transferencia-planejada.html"><span class="id">C11</span><span class="t">Transferência planejada de liderança (manutenção)</span><span class="st">✅ Atualizado (modelo v1)</span><span class="r">Uma célula vai entrar em manutenção (uma por vez). O Agent dispara a transferência. A sincronização pesada acontece <strong>antes</strong> da pausa; a pausa dura cerca de 1 RTT (meta de 50 ms, janela de exceção fora do P99). As escritas voltam quando a nova líder confirma o no-op; as leituras fortes esperam a nova líder reconstruir o gate e o banco da célula nova aplicar até <code>min(ReadIndex, gate)</code>. O roteamento muda por último. RPO = 0. Detalhes das 5 fases no ADR-013.</span></a><a class="cartao" href="C18-partida-e-recuperacao-do-no.html"><span class="id">C18</span><span class="t">Partida, recuperação e parada limpa do nó</span><span class="st">✅ Atualizado (modelo v1)</span><span class="r">Ao subir, o <code>DataReplication</code> valida configuração, abre os logs, completa o log de replicação a partir do Raft, retoma o applier até o último ponto aplicado e só então abre a porta de API. A parada é limpa: fecha a API, transfere a liderança se for a líder, drena e fecha os logs.</span></a><a class="cartao" href="C23-batchwriteitem-lote-uma-entrada.html"><span class="id">C23</span><span class="t">BatchWriteItem: o lote é uma entrada e o apply é por item (antes R15)</span><span class="st">✅ Atualizado (decidido pelo Bruno em 13/10/2026)</span><span class="r">O <code>BatchWriteItem</code> carrega até <strong>25 itens</strong>, cada um com a sua tabela. Se o lote virasse 25 entradas, cada uma com índice e ACK próprios, uma falha da líder no meio expõe parte do lote. Além disso, o <code>BatchWriteItem</code> do DynamoDB <strong>não aceita <code>ConditionExpression</code></strong>, e o applier depende da condição de versão (<code>v &lt; índice</code>) para o replay ser idempotente.</span></a><a class="cartao" href="C31-implantacao-por-cliente-e-identidade.html"><span class="id">C31</span><span class="t">Uma instalação por cliente e identificação na API (antes R19)</span><span class="st">✅ Atualizado (decidido pelo Bruno em 13/10/2026); consequências do 1 para 1 respondidas em 13/10; mTLS por aplicação acrescentado na revisão crítica</span><span class="r">A pergunta era como identificar o cliente na API (<code>Access Key Id</code> do SigV4 ou mTLS). O Bruno esclareceu que a solução é <strong>1 para 1</strong>: na configuração já se sabe qual é o time que usa o serviço, e <strong>cada time tem a sua conta AWS</strong> com a arquitetura isolada. Isso responde "quem é o cliente", mas não "quem pode escrever o quê" dentro do namespace: com a NetworkPolicy como única barreira, qualquer pod escreveria em qualquer tabela pelo papel largo do <code>DataReplication</code>, uma ampliação de privilégio em relação ao IAM por aplicação de hoje. A revisão crítica completou a decisão com <strong>mTLS por aplicação</strong> e uma lista identidade → tabelas e operações (ADR-052, C34).</span></a></div>
+<footer class="rodape">
+Gerado em 13/10/2026 a partir de <code>DataReplication_Versao_1/</code>. O conteúdo vem dos arquivos .md citados no código-fonte desta página;
+textos marcados como <em>sugestão</em> são inferência do arquiteto e não decisões registradas.
+</footer>
+</main>
+</div>
+
+</body>
+</html>

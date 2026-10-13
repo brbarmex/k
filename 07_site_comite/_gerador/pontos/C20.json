@@ -1,0 +1,26 @@
+{
+ "id": "C20",
+ "pontos": [
+  {
+   "titulo": "Pod do namespace sem certificado ou com certificado de outra aplicação",
+   "origem": "Falhas e tratativas",
+   "contexto": "Com o banco fechado para as aplicações, o papel largo de escrita passa a ser o do `DataReplication`, e se a única barreira fosse a NetworkPolicy qualquer pod do namespace escreveria em qualquer tabela. Um pod sem certificado ou que obteve o certificado de outra aplicação tentaria usar esse privilégio ampliado. O impacto não é de RPO, mas de segurança: escrita indevida que é replicada fielmente para todas as células.",
+   "na_fonte": "Decidido no ADR-052 e no C34: sem certificado o handshake mTLS falha; com o certificado de outra identidade vale a lista dela; a NetworkPolicy continua sendo a primeira barreira.",
+   "sugestao": "Proteger os segredos dos certificados com RBAC de `Secret` por conta de serviço e validade curta, e incluir no teste de segurança um pod do mesmo namespace que monta o segredo de outra aplicação, confirmando que isso é bloqueado pelo RBAC. Auditar `authz_denied` por identidade com alerta para negações fora do padrão."
+  },
+  {
+   "titulo": "Escrita direta detectada só por auditoria",
+   "origem": "Falhas e tratativas",
+   "contexto": "Uma escrita feita direto no DynamoDB ou no Cosmos não passa pelo log, não é replicada e quebra a ordem e o RPO, além de poder ser sobrescrita pelo applier. A camada não consegue impedir esse bypass; só o IAM impede, e a auditoria do provedor apenas detecta depois do fato. Até a detecção, as réplicas divergem sem que ninguém saiba.",
+   "na_fonte": "A fonte decide que só o papel do `DataReplication` tem escrita nas tabelas da célula e que a auditoria do provedor (CloudTrail, log de atividade do Cosmos) alerta escrita fora desse papel; a leitura direta no Cosmos também é proibida e deve ser reforçada por permissão.",
+   "sugestao": "Adicionar uma política de negação explícita (SCP ou equivalente) para escrita nas tabelas por qualquer principal que não seja o papel da célula ou o papel temporário de reconstrução, e testar o alerta de auditoria com uma escrita direta controlada em game day. Definir o procedimento de correção quando uma escrita direta for detectada (anti-entropia por checksum ou reconstrução em tabela sombra, C33)."
+  },
+  {
+   "titulo": "Autenticação, IAM, lista de permissões e rotação de certificados",
+   "origem": "Pontos em aberto",
+   "contexto": "O C20 depende de detalhes que estão em outros cenários: o modelo de identidade e IAM por célula (C31) e a lista identidade, tabelas e operações com a rotação dos certificados (C34). Sem esses detalhes fechados, a regra de que a aplicação não tem credencial de escrita não pode ser implantada sem risco de ampliar privilégio ou de cortar acesso legítimo.",
+   "na_fonte": "Não decidido na fonte. O C20 remete o detalhamento ao C31 e ao C34; a lista depende do levantamento PEND-19.",
+   "sugestao": "Tratar como critério de entrada de cada cliente: lista de permissões gerada a partir do PEND-19, IAM das aplicações sem escrita comprovado por teste, e rotação de certificado exercitada em homologação antes do go-live."
+  }
+ ]
+}

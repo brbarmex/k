@@ -1,0 +1,33 @@
+{
+ "id": "R03",
+ "pontos": [
+  {
+   "titulo": "Gate acoplado ao apply",
+   "origem": "Falhas e tratativas",
+   "contexto": "O gate conta o fsync dos learners, não o apply no Cosmos, então RPO segue 0 mas o backlog de apply pode crescer sem limite. Acoplar o gate ao apply daria RPO e RTO previsíveis, mas amarraria a latência e a disponibilidade de escrita da AWS ao desempenho do Cosmos. O backlog sem limite vira RTO escondido e pode encher o disco dos learners.",
+   "na_fonte": "Não recomendado na fonte: manter a AWS independente com alerta e dimensionamento; o limite de lag (PEND-18) é critério de decisão e não entra no gate.",
+   "sugestao": "Manter o desacoplamento, mas tratar o atraso de apply como SLO com dono e alerta, e incluir em game day a medição do tempo de drenagem em função do tamanho da fila. Documentar ao negócio que o RTO real depende desse backlog."
+  },
+  {
+   "titulo": "Entrada venenosa na Azure",
+   "origem": "Falhas e tratativas",
+   "contexto": "Uma entrada que o applier da Azure não consegue aplicar produz o mesmo sintoma do 429: backlog crescente. O diagnóstico pode confundir as duas causas, e a ação certa é diferente: mais RU no caso de 429, intervenção no item no caso de entrada venenosa. Enquanto o applier está parado, o RTO de failover cresce como no caso do 429.",
+   "na_fonte": "Ver C26 (skip por item, ADR-048).",
+   "sugestao": "Separar as métricas de atraso por causa (429 versus erro de aplicação) para que o alerta indique a ação certa. Ver C26."
+  },
+  {
+   "titulo": "Meta de atraso de apply, dono do alerta e limite de elegibilidade",
+   "origem": "Pontos em aberto",
+   "contexto": "Sem meta e sem limite, não há como dizer se a Azure está apta a assumir com RTO previsível. O limite de elegibilidade define quando a promoção exige decisão humana explícita.",
+   "na_fonte": "Não decidido na fonte. PEND-18, a definir com testes de RU e exercícios de falha; a fonte cita como exemplo um SLO de atraso abaixo de 5 s.",
+   "sugestao": "Atribuir o dono (time do Cloud-Adapter, segundo PEND-18) e medir RU por operação com o Cloud-Adapter real e itens reais. Definir o limite a partir do tempo de drenagem medido e incluí-lo no runbook de promoção (R10)."
+  },
+  {
+   "titulo": "Política quando o disco do learner passa do teto",
+   "origem": "Pontos em aberto",
+   "contexto": "Backlog longo impede truncar o log da Azure e enche o disco dos learners. Learner sem disco falha o fsync e sai do gate, e a AWS pode entrar em modo degradado: um Cosmos lento causa RPO > 0. Não está decidido se o learner pausa o recebimento de forma controlada ou continua até falhar.",
+   "na_fonte": "Não decidido na fonte. Proposta na fonte: saída controlada com alerta antes de falhar.",
+   "sugestao": "Adotar a saída controlada com alerta de projeção de tempo até encher, e testar com Cosmos limitado em RU até o teto. Avaliar se a saída simultânea de dois learners pelo mesmo motivo deveria gerar alerta de alta severidade, já que leva a modo degradado."
+  }
+ ]
+}

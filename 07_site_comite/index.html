@@ -1,0 +1,276 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Resumo executivo e requisitos · DataReplication v1</title>
+<link rel="stylesheet" href="assets/site.css">
+</head>
+<body>
+<!--
+Fonte(s) usada(s) nesta página (rastreabilidade), relativas à raiz do pacote:
+  DataReplication_Versao_1.md
+Gerado em 13/10/2026 a partir do pacote DataReplication_Versao_1.
+-->
+<header class="topo">
+<button class="menu" type="button" aria-label="Abrir navegação" onclick="document.body.classList.toggle('nav-aberta')">☰</button>
+<a href="index.html">DataReplication v1</a><span class="sep">·</span><span>Apresentação ao comitê técnico</span>
+</header>
+<div class="layout">
+<nav class="sidebar" aria-label="Navegação">
+<a class="marca" href="index.html">DataReplication v1<span>Comitê técnico</span></a>
+<a class="nav-inicio atual" href="index.html">Resumo e requisitos</a>
+<details class="grupo"><summary>Success path <span class="qtd">10</span></summary><ul>
+<li><a class="idx" href="success-path/index.html">Índice da seção</a></li>
+<li><a href="success-path/C01-visao-geral.html"><b>C01</b> Visão geral da arquitetura</a></li>
+<li><a href="success-path/C02-dentro-da-celula.html"><b>C02</b> Dentro da célula: apps do cliente e DataReplication</a></li>
+<li><a href="success-path/C03-escrita-strong.html"><b>C03</b> Caminho feliz: escrita (apply serial depois do gate)</a></li>
+<li><a href="success-path/C04-escrita-eventual.html"><b>C04</b> Modo Eventual: só de leitura (sem apply paralelo na v1)</a></li>
+<li><a href="success-path/C05-leitura-strong-e-eventual.html"><b>C05</b> Caminho feliz: leitura Strong e Eventual</a></li>
+<li><a href="success-path/C06-follower-encaminha.html"><b>C06</b> Requisição chega numa célula que não é a líder</a></li>
+<li><a href="success-path/C11-transferencia-planejada.html"><b>C11</b> Transferência planejada de liderança (manutenção)</a></li>
+<li><a href="success-path/C18-partida-e-recuperacao-do-no.html"><b>C18</b> Partida, recuperação e parada limpa do nó</a></li>
+<li><a href="success-path/C23-batchwriteitem-lote-uma-entrada.html"><b>C23</b> BatchWriteItem: o lote é uma entrada e o apply é por item (antes R15)</a></li>
+<li><a href="success-path/C31-implantacao-por-cliente-e-identidade.html"><b>C31</b> Uma instalação por cliente e identificação na API (antes R19)</a></li>
+</ul></details>
+<details class="grupo"><summary>Fail path <span class="qtd">24</span></summary><ul>
+<li><a class="idx" href="fail-path/index.html">Índice da seção</a></li>
+<li><a href="fail-path/C07-timeout-depois-do-commit.html"><b>C07</b> Prazo estoura depois do commit, antes do ACK (retry do SDK)</a></li>
+<li><a href="fail-path/C08-queda-de-celula-lider-ou-az-aws.html"><b>C08</b> Queda da célula líder ou de uma AZ na AWS</a></li>
+<li><a href="fail-path/C09-queda-de-az-azure.html"><b>C09</b> Queda de uma AZ na Azure</a></li>
+<li><a href="fail-path/C10-celulas-de-app-aws-fora.html"><b>C10</b> Apps da AWS fora, replicação viva: tráfego vai para a Azure</a></li>
+<li><a href="fail-path/C12-modo-degradado.html"><b>C12</b> Link AWS↔Azure cai ou Azure cai: modo degradado com lease</a></li>
+<li><a href="fail-path/C13-ressincronizacao-da-azure.html"><b>C13</b> Ressincronização da Azure</a></li>
+<li><a href="fail-path/C14-aws-cai-sem-degradacao.html"><b>C14</b> AWS cai por inteiro sem degradação prévia</a></li>
+<li><a href="fail-path/C15-aws-cai-em-degradacao.html"><b>C15</b> AWS cai durante o modo degradado</a></li>
+<li><a href="fail-path/C16-aws-volta-apos-promocao.html"><b>C16</b> AWS volta depois da promoção da Azure</a></li>
+<li><a href="fail-path/C17-maquina-de-estados.html"><b>C17</b> Máquina de estados dos modos de operação de um shard</a></li>
+<li><a href="fail-path/C19-falha-do-datareplication.html"><b>C19</b> O DataReplication da célula cai ou reinicia</a></li>
+<li><a href="fail-path/C20-bypass-de-escrita-direta.html"><b>C20</b> Aplicação escreve direto no banco (bypass)</a></li>
+<li><a href="fail-path/C21-disco-fsync-e-reconstrucao.html"><b>C21</b> Falha de fsync, corrupção, disco lento e disco perdido</a></li>
+<li><a href="fail-path/C22-cliente-com-sdk-nao-suportado.html"><b>C22</b> Cliente com SDK ou versão não suportada</a></li>
+<li><a href="fail-path/C24-orcamento-de-50ms-e-escrita-no-dynamodb.html"><b>C24</b> Orçamento de 50 ms e a escrita no DynamoDB dentro do ACK (antes R21)</a></li>
+<li><a href="fail-path/C25-link-lento-faixa-cinzenta.html"><b>C25</b> Link lento ou saturado (faixa cinzenta): só alertar (antes R01)</a></li>
+<li><a href="fail-path/C26-entrada-venenosa.html"><b>C26</b> Entrada venenosa: um item que o banco recusa para sempre (antes R02)</a></li>
+<li><a href="fail-path/C27-encaminhamento-sem-lider-conhecida.html"><b>C27</b> Loop de encaminhamento e espera pela líder durante a eleição (antes R05)</a></li>
+<li><a href="fail-path/C28-leitura-eventual-na-azure-defasada.html"><b>C28</b> Leitura eventual na Azure durante a degradação (antes R04)</a></li>
+<li><a href="fail-path/C29-disco-do-log-em-degradacao-longa.html"><b>C29</b> Disco do log esgota durante uma degradação longa (antes R08)</a></li>
+<li><a href="fail-path/C30-aws-que-volta-boot-cercado.html"><b>C30</b> Fencing: o DynamoDB e o applier da AWS que voltam depois da promoção (antes R14)</a></li>
+<li><a href="fail-path/C32-particao-e-lease-do-modo-degradado.html"><b>C32</b> Partição entre AWS e Azure: lease do modo degradado e promoção da Azure</a></li>
+<li><a href="fail-path/C33-reconstrucao-em-tabela-sombra.html"><b>C33</b> Reconstrução do banco de uma célula em tabela sombra</a></li>
+<li><a href="fail-path/C34-autorizacao-por-aplicacao.html"><b>C34</b> Autorização por aplicação: mTLS e lista de permissões por identidade</a></li>
+</ul></details>
+<details class="grupo"><summary>Complex path <span class="qtd">6</span></summary><ul>
+<li><a class="idx" href="complex-path/index.html">Índice da seção</a></li>
+<li><a href="complex-path/X01-gate-e-troca-de-lider.html"><b>X01</b> Gate: definição, monotonicidade e troca de líder</a></li>
+<li><a href="complex-path/X02-modo-degradado.html"><b>X02</b> Modo degradado: entrada, permanência, lease e saída</a></li>
+<li><a href="complex-path/X03-desastre-e-promocao-da-azure.html"><b>X03</b> Desastre: promoção da Azure, fencing e reconciliação</a></li>
+<li><a href="complex-path/X04-partida-recuperacao-e-dois-logs.html"><b>X04</b> Partida, recuperação e coerência entre os dois logs</a></li>
+<li><a href="complex-path/X05-timeouts-e-idempotencia.html"><b>X05</b> Timeouts em cascata e idempotência do retry</a></li>
+<li><a href="complex-path/X06-delete-ttl-gsi.html"><b>X06</b> DELETE, TTL, Scan e GSI</a></li>
+</ul></details>
+<details class="grupo"><summary>Parking lot <span class="qtd">14</span></summary><ul>
+<li><a class="idx" href="parking-lot/index.html">Índice da seção</a></li>
+<li><a href="parking-lot/R03-backlog-de-apply-no-cosmos.html"><b>R03</b> Backlog de apply no Cosmos (429 e RU insuficiente)</a></li>
+<li><a href="parking-lot/R06-duas-azs-aws-caem.html"><b>R06</b> Duas AZs da AWS caem com a Azure saudável</a></li>
+<li><a href="parking-lot/R07-link-oscilando.html"><b>R07</b> Link oscilando (flapping)</a></li>
+<li><a href="parking-lot/R09-resincronizacao-lenta-ou-bloqueada.html"><b>R09</b> Ressincronização da Azure lenta ou que nunca termina</a></li>
+<li><a href="parking-lot/R10-operador-lento-no-desastre.html"><b>R10</b> Tempo de decisão humana no desastre</a></li>
+<li><a href="parking-lot/R11-api-de-promocao-depende-da-aws.html"><b>R11</b> A API de promoção depende de algo que estava na AWS</a></li>
+<li><a href="parking-lot/R12-promocao-com-aws-viva.html"><b>R12</b> Promoção da Azure com a AWS viva (split-brain, PEND-01)</a></li>
+<li><a href="parking-lot/R13-escritas-orfas-reconciliacao.html"><b>R13</b> Escritas órfãs: reconciliação depois da promoção (PEND-03)</a></li>
+<li><a href="parking-lot/R16-leitura-forte-em-celulas-follower.html"><b>R16</b> Leitura forte em células follower (ReadIndex e gate)</a></li>
+<li><a href="parking-lot/R17-atributo-de-versao-e-limite-400kb.html"><b>R17</b> Atributo de versão: limite de 400 KB e ausência nas respostas</a></li>
+<li><a href="parking-lot/R18-rto-nao-quantificado.html"><b>R18</b> RTO (Delta-T) ainda sem número</a></li>
+<li><a href="parking-lot/R20-custo-6x.html"><b>R20</b> Custo: cada escrita lógica vira seis gravações</a></li>
+<li><a href="parking-lot/R22-memoria-da-janela-de-dedupe.html"><b>R22</b> Memória da janela de dedupe</a></li>
+<li><a href="parking-lot/R23-hipoteses-gerais.html"><b>R23</b> Hipóteses gerais em aberto</a></li>
+</ul></details>
+</nav>
+<main>
+
+
+<h1>DataReplication v1</h1>
+<p class="lead">Camada intermediária entre a aplicação e o banco que só confirma a escrita depois de o dado estar
+durável na AWS (DynamoDB) e na Azure (Cosmos DB). Estado da documentação: 13/10/2026, com as decisões da revisão crítica (ADR-044 a ADR-054) e o log de replicação segmentado (ADR-055).</p>
+<div class="kpis">
+<div><b>RPO = 0</b><span>em operação normal</span></div>
+<div><b>RTO = Delta-T</b><span>sem número: não decidido na fonte</span></div>
+<div><b>~3.000 TPS</b><span>PutItem e BatchWriteItem</span></div>
+<div><b>P99 ≤ 50 ms</b><span>overhead, sem a escrita no banco</span></div>
+</div>
+<nav class="cartoes secoes" aria-label="Seções do site"><a class="cartao secao success-path" href="success-path/index.html"><span class="t">Success path</span><span class="st">10 páginas</span><span class="r">Fluxos em regime normal, sem falha.</span></a><a class="cartao secao fail-path" href="fail-path/index.html"><span class="t">Fail path</span><span class="st">24 páginas</span><span class="r">Falhas e degradações com tratamento decidido.</span></a><a class="cartao secao complex-path" href="complex-path/index.html"><span class="t">Complex path</span><span class="st">6 páginas</span><span class="r">Cenários compostos e aprofundados.</span></a><a class="cartao secao parking-lot" href="parking-lot/index.html"><span class="t">Parking lot</span><span class="st">14 páginas</span><span class="r">Riscos e questões ainda sem decisão fechada.</span></a></nav>
+
+<section id="resumo"><h2>Resumo executivo</h2>
+<h3>O problema</h3>
+<p>As aplicações do cliente persistem dados no <strong>DynamoDB</strong> (AWS) por meio do AWS SDK. Esses dados são valores de negócio, inclusive monetários, e precisam sobreviver à <strong>perda de uma nuvem inteira</strong>. Hoje não existe garantia de que um dado confirmado na AWS esteja em outra nuvem no instante da confirmação.</p>
+<p>O que se quer:</p>
+<ul>
+<li><strong>RPO = 0 em operação normal:</strong> nenhuma escrita confirmada ao cliente pode desaparecer num desastre coberto pelo modelo.</li>
+<li><strong>RTO = Delta-T</strong>, ainda sem número: será uma <strong>distribuição medida em exercícios de falha</strong>, não uma soma de percentis (<a href="parking-lot/R18-rto-nao-quantificado.html">R18</a>). Se a AWS morrer em modo degradado, o RTO é no mínimo D + M (<a href="../03_adr/ADR-044-lease-do-modo-degradado-e-promocao-da-azure.md">ADR-044</a>).</li>
+<li><strong>Sem mudar a lógica das aplicações:</strong> elas continuam falando "DynamoDB" com o AWS SDK. Mudam o endpoint e o certificado de cliente do mTLS por aplicação (<a href="../03_adr/ADR-052-autorizacao-por-aplicacao-com-mtls.md">ADR-052</a>); "só trocar o endpoint" não é mais verdade.</li>
+<li><strong>Baixa latência de cauda:</strong> meta de overhead P99 ≤ 50 ms a ~3.000 TPS.</li>
+<li><strong>Autocura</strong> para falhas de uma célula, sem humano; falhas que exigem humano ficam explícitas.</li>
+</ul>
+<p>A organização usa arquitetura <strong>celular</strong> (células isoladas, como <em>bulkheads</em>). Um <strong>shard</strong> reúne células; dentro dele, uma líder coordena as escritas. A AWS é a nuvem primária e a <strong>Azure</strong> é a de failover; ambas somente em <strong>São Paulo</strong>.</p>
+<p>Contexto e requisitos originais: <a href="../01_arquitetura/01_forma_do_app_e_escopo.md">01_arquitetura/01_forma_do_app_e_escopo.md</a>.</p>
+<h3>A solução em uma página</h3>
+<p>Uma <strong>camada intermediária</strong>, o <code>DataReplication</code>, fica entre a aplicação e o banco. Ela fala o protocolo do DynamoDB e <strong>só confirma a escrita depois que o dado está durável na AWS e na Azure</strong>.</p>
+<div class="diagrama"><pre class="mermaid">flowchart LR
+    APP[&quot;Aplicações do cliente&lt;br/&gt;AWS SDK v2 ou superior&quot;] --&gt; DR[&quot;DataReplication&lt;br/&gt;uma por célula&quot;]
+    DR --&gt; AWSDB[(&quot;DynamoDB&lt;br/&gt;AWS primária&quot;)]
+    DR ==&gt;|&quot;link dedicado&quot;| AZ[&quot;DataReplication na Azure&lt;br/&gt;learners do consenso&quot;]
+    AZ --&gt; AZDB[(&quot;Cosmos DB&lt;br/&gt;Azure failover&quot;)]
+    ROUTER[&quot;Compass-Router e Agent&lt;br/&gt;externos ao escopo&quot;] -.-&gt; APP</pre></div>
+<p><strong>Como funciona, em cinco ideias:</strong></p>
+<ol>
+<li><strong>Célula = um cluster Kubernetes (EKS ou AKS) numa AZ.</strong> No namespace do cliente rodam as apps e <strong>um único</strong> <code>DataReplication</code> (sem sidecar). Há 3 células na AWS e 3 na Azure.</li>
+<li><strong>Consenso Raft só na AWS.</strong> As 3 células AWS são votantes (<code>etcd-io/raft</code>). As 3 células Azure são <strong>learners</strong>: recebem o log e informam o índice <strong>durável</strong>, mas não votam.</li>
+<li><strong>O gate decide o ACK:</strong> <code>gate = min(commit do Raft, 2º maior índice durável dos learners Azure)</code>. Ele <strong>nunca recua</strong>. O ACK sai depois do gate e do apply no banco da célula da líder.</li>
+<li><strong>Dois logs:</strong> o do Raft (curto, fsync antes do ACK) e o de replicação (nosso, longo, em lote depois do commit). Um banco por célula; a escrita lógica é aplicada nos <strong>seis</strong> bancos.</li>
+<li><strong>Se a Azure ou o link cair</strong>, a política da instalação decide (<a href="../03_adr/ADR-045-politica-de-degradacao-por-instalacao.md">ADR-045</a>). Com <code>DEGRADED_POLICY=accept</code>, após 2 s a líder propõe <code>DEGRADE</code> com <strong>validade D</strong>: a AWS segue sozinha (<strong>RPO &gt; 0</strong>) sinalizando <code>x-dr-mode: degraded</code> e <strong>para sozinha ao fim de D</strong>. Com <code>reject</code>, as escritas falham e o RPO é 0 sempre. A Azure <strong>nunca se promove sozinha</strong>: a promoção é humana e só é aceita depois de D + M (<a href="../03_adr/ADR-044-lease-do-modo-degradado-e-promocao-da-azure.md">ADR-044</a>).</li>
+</ol>
+<p>Detalhe: <a href="../04_diagramas/D01-visao-do-sistema.md">D01</a>, <a href="success-path/C01-visao-geral.html">C01</a>, <a href="success-path/C02-dentro-da-celula.html">C02</a>.</p>
+</section>
+
+<section id="requisitos"><h2>Requisitos e capabilities</h2>
+<div class="duas">
+<div class="caixa dentro"><h3>Dentro da v1</h3>
+<ul>
+<li>ACK só depois do gate: commit do Raft na maioria AWS e índice durável na maioria Azure.</li>
+<li>API compatível com DynamoDB: <code>PutItem</code>, <code>DeleteItem</code>, <code>BatchWriteItem</code>, <code>GetItem</code>, <code>BatchGetItem</code>, <code>Query</code> e <code>Scan</code>.</li>
+<li>SDKs AWS Java 2.x, Go v2 e .NET v4.</li>
+<li>Leitura forte (padrão) e eventual; GSI sempre eventual.</li>
+<li>Modo degradado por política da instalação (<code>DEGRADED_POLICY</code> accept com lease D, ou reject).</li>
+<li>Uma instalação por cliente; autorização por aplicação com mTLS.</li>
+</ul>
+<p class="nota">Itens condensados das seções 2 e 3 do documento principal.</p></div>
+<div class="caixa fora"><h3>Fora da v1</h3>
+<p>plataforma multi-cliente com muitos shards, <code>UpdateItem</code> com expressão, escritas condicionais e transações do DynamoDB, multirregião, terceiro provedor de nuvem.</p>
+<p class="nota">Texto do documento principal, seção 1 (“Não é objetivo da v1”). Valores de D, M e do RTO: <b>não decididos na fonte</b>.</p></div>
+</div>
+<h3>RPO, RTO e metas</h3>
+<h4>3.1 Restrições duras</h4>
+<div class="tabela"><table>
+<thead>
+<tr>
+<th>Restrição</th>
+<th>Valor</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Nuvens e regiões</td>
+<td><strong>Somente AWS e Azure, ambas só em São Paulo</strong> (<code>sa-east-1</code> e Brazil South)</td>
+</tr>
+<tr>
+<td>Papéis</td>
+<td>AWS primária (DynamoDB); Azure failover (Cosmos DB via Cloud-Adapter)</td>
+</tr>
+<tr>
+<td>RPO / RTO</td>
+<td>RPO = 0 em operação normal; RTO = Delta-T (a definir)</td>
+</tr>
+<tr>
+<td>Carga</td>
+<td>~3.000 TPS, escritas majoritariamente <code>PutItem</code> e <code>BatchWriteItem</code></td>
+</tr>
+<tr>
+<td>Manutenção</td>
+<td>Derruba <strong>uma célula por vez</strong></td>
+</tr>
+<tr>
+<td>Rede</td>
+<td>3 clusters AWS na <strong>mesma VPC</strong>; <strong>link dedicado físico</strong> AWS↔Azure, com tráfego transitivo entre contas e VPCs</td>
+</tr>
+<tr>
+<td>Capacidade</td>
+<td>DynamoDB sob demanda; Cosmos em RU; 3 AZs por nuvem</td>
+</tr>
+<tr>
+<td>Política de degradação</td>
+<td><code>DEGRADED_POLICY</code> obrigatória por instalação: <code>accept</code> (com lease D) ou <code>reject</code> (<a href="../03_adr/ADR-045-politica-de-degradacao-por-instalacao.md">ADR-045</a>)</td>
+</tr>
+<tr>
+<td>Implantação</td>
+<td><strong>Uma instalação por cliente</strong>, com conta AWS própria; o cabo dedicado é compartilhado (<a href="../03_adr/ADR-043-uma-instalacao-por-cliente-identidade-por-configuracao.md">ADR-043</a>, <a href="success-path/C31-implantacao-por-cliente-e-identidade.html">C31</a>)</td>
+</tr>
+<tr>
+<td>Linguagem e plataforma</td>
+<td>Go 1.27, cloud-native em AKS e EKS, 12 Factors</td>
+</tr>
+</tbody>
+</table></div>
+<h4>3.2 Metas</h4>
+<div class="tabela"><table>
+<thead>
+<tr>
+<th>Meta</th>
+<th>Valor</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Latência</td>
+<td>Overhead P99 ≤ 50 ms (alvo interno 30 a 35 ms); a escrita no banco fica fora da soma e é publicada como <code>overhead + banco</code> (<a href="../03_adr/ADR-036-slo-de-50ms-exclui-a-escrita-no-banco.md">ADR-036</a>, <a href="fail-path/C24-orcamento-de-50ms-e-escrita-no-dynamodb.html">C24</a>)</td>
+</tr>
+<tr>
+<td>Memória e partida</td>
+<td><code>DataReplication</code> ≤ 256 MiB RSS e partida em segundos</td>
+</tr>
+<tr>
+<td>Autocura</td>
+<td>Reiniciar qualquer processo sem perder dado ACKado</td>
+</tr>
+</tbody>
+</table></div>
+<h4>3.3 Clientes e API</h4>
+<ul>
+<li><strong>SDKs aceitos:</strong> AWS SDK <strong>Java 2.x, Go v2 e .NET v4</strong>, identificados pelo <code>User-Agent</code> (período de alerta e depois rejeição). Os clientes fixam <em>timeout</em> de 30 s por tentativa e no máximo 3 tentativas.</li>
+<li><strong>API da v1:</strong> <code>PutItem</code>, <code>DeleteItem</code>, <code>BatchWriteItem</code>, <code>GetItem</code>, <code>BatchGetItem</code>, <code>Query</code> e <code>Scan</code>. <strong>Fora:</strong> <code>UpdateItem</code> com expressão, escrita condicional e transações; o uso real de condicionais por cliente deve ser levantado antes de ele entrar (<a href="../03_adr/ADR-051-compatibilidade-dynamodb-inventario-conformidade-e-idempotencia.md">ADR-051</a>).</li>
+<li><strong>Uso informado:</strong> alguns clientes usam <strong>TTL</strong>, poucos usam <strong>Scan</strong>, algumas <strong>Query</strong> usam <strong>GSI</strong>. Valores monetários trafegam como <strong>String</strong>.</li>
+<li>Entrada máxima de <strong>4 MiB</strong>; item do DynamoDB de até 400 KB (<a href="parking-lot/R17-atributo-de-versao-e-limite-400kb.html">R17</a>).</li>
+</ul>
+<h4>3.4 Fora do escopo do time (dependências externas)</h4>
+<p>O <strong>Compass-Router</strong> (gateway) e o <strong>Agent</strong> do control plane decidem para onde vai o tráfego; o router sobrevive à perda total da AWS e o Agent roda nas duas nuvens.</p>
+<p>Detalhe: <a href="../01_arquitetura/01_forma_do_app_e_escopo.md">01_forma_do_app_e_escopo</a> (seção 2), <a href="../01_arquitetura/09_12factors_cloud_native_e_sdks.md">09_12factors_cloud_native_e_sdks</a>.</p>
+</section>
+
+<section id="pendencias"><h2>Pendências e riscos em aberto</h2>
+<ul>
+<li><strong>Perguntas para o Bruno</strong> (formato <code>1a 2b</code>, com recomendação; abertas: 16 e 17, sobre o log do Raft e a perda do volume do log de replicação): <a href="../06_pendencias_e_riscos/03_perguntas_para_o_bruno.md">03_perguntas_para_o_bruno</a>.</li>
+<li><strong>Bloqueante:</strong> PEND-02, o aceite formal do RPO &gt; 0 no modo degradado, agora <strong>com o valor de D</strong> (a validade do lease). <strong>PEND-01</strong> (promoção da Azure, split-brain) tem desenho decidido (<a href="../03_adr/ADR-044-lease-do-modo-degradado-e-promocao-da-azure.md">ADR-044</a>) e fecha quando D e M forem aprovados e o modelo TLA+ provar a regra.</li>
+<li><strong>Pendências numeradas:</strong> <a href="../06_pendencias_e_riscos/01_pendencias.md">01_pendencias</a>. <strong>Riscos priorizados:</strong> <a href="../06_pendencias_e_riscos/02_riscos.md">02_riscos</a>. <strong>Revisões críticas:</strong> <a href="../06_pendencias_e_riscos/revisao_critica_12_10.md">12/10</a> e <a href="../06_pendencias_e_riscos/revisao_critica_13_10.md">13/10</a>.</li>
+</ul>
+<p>Os riscos de maior atenção, incluindo os <strong>bloqueantes de segurança</strong> da revisão de 13/10: (1) duas pontas aceitando escrita na partição (mitigado pelo lease, a provar no TLA+); (2) prefixo do gate e reconstrução na troca de líder; (3) DELETE e replay sem prova; (4) RPO &gt; 0 sem teto e sem aceite; (5) entrada venenosa trava o shard; (6) disco do log esgota em degradação longa; (7) Cosmos lento enchendo o disco do learner e degradando a AWS; (8) compatibilidade com o DynamoDB sem inventário nem suíte.</p>
+</section>
+
+<section id="pronto"><h2>Definição de pronto da v1</h2>
+<details class="anexo"><summary>Lista do documento principal (a provar, não feita)</summary>
+<p>A definição de pronto vale <strong>por instalação</strong> (uma por cliente) e é uma lista de coisas a <strong>provar</strong>, não de coisas já feitas.</p>
+<ol>
+<li>Um único app <code>DataReplication</code> por célula (módulos <code>api</code> e <code>core</code>, em portas e adaptadores), imagem <em>distroless</em>, rodando em AKS e EKS com os mesmos manifests.</li>
+<li><code>PutItem</code>, <code>DeleteItem</code>, <code>BatchWriteItem</code>, <code>GetItem</code>, <code>BatchGetItem</code> e <code>Query</code> funcionando contra os SDKs do contrato, com <strong>inventário de chamadas do cliente</strong> e <strong>suíte de conformidade verde</strong> (DynamoDB real, camada e Cosmos pelo Cloud-Adapter) para o uso real dele (<a href="../03_adr/ADR-051-compatibilidade-dynamodb-inventario-conformidade-e-idempotencia.md">ADR-051</a>).</li>
+<li>Commit com gate (maioria AWS e maioria Azure), modo degradado <strong>com lease</strong> e retorno por entradas replicadas; <code>DEGRADED_POLICY</code> definida e testada nos dois valores.</li>
+<li>Log com <em>group commit</em>, recuperação de queda e detecção de corrupção.</li>
+<li><strong>Modelo TLA+ ampliado</strong> verificado: gate, lease e promoção, troca de membros, dedupe, resultado desconhecido, DELETE e replay, barreira da leitura forte.</li>
+<li><strong>SLO ponta a ponta</strong> (latência, erro e recuperação), medido sobre a operação completa nos discos e no link reais: overhead P99 ≤ 50 ms a 3.000 TPS, publicado como <code>overhead + banco</code>. O <strong>RTO é uma distribuição medida em exercícios de falha</strong> (mediana, P95, pior caso), não uma soma de percentis.</li>
+<li>Matar qualquer pod, particionar o link e encher o disco <strong>não perdem dado ACKado</strong>. A recuperação segue a <strong>matriz automático, assistido e manual</strong> (<a href="../01_arquitetura/08_resiliencia_autocura_e_timeouts.md">08_resiliencia</a>): promoção da Azure, <code>SKIP</code>, <code>drctl rebuild</code>, extração de órfãs e prorrogação de lease <strong>são humanos</strong> e entram na definição por exercício (game day), não por "sem humano".</li>
+<li>Métricas por etapa e painel que provam as metas, incluindo as métricas de garantia por shard (<code>last_committed</code>, <code>last_azure_durable</code>, <code>last_acked</code>, <code>last_applied</code>, <code>last_reconciled</code>).</li>
+<li><strong>Prazos:</strong> em cada cenário de falha, nenhuma requisição ultrapassa <code>REQUEST_DEADLINE</code> + margem, e o resultado é sucesso ou erro definido; o processo recusa subir com prazos fora de ordem.</li>
+<li>Autorização por aplicação (mTLS) e NetworkPolicy ativas; o IAM das aplicações sem escrita nas tabelas.</li>
+<li>Código organizado como no guia de implementação (hexagonal, <code>depguard</code> no CI, Raft e Fx isolados), com testes de concorrência para o gate, o lease e o SKIP por item.</li>
+</ol>
+</details>
+</section>
+
+<footer class="rodape">
+Gerado em 13/10/2026 a partir de <code>DataReplication_Versao_1/</code>. O conteúdo vem dos arquivos .md citados no código-fonte desta página;
+textos marcados como <em>sugestão</em> são inferência do arquiteto e não decisões registradas.
+</footer>
+</main>
+</div>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@11.4.1/dist/mermaid.min.js"></script>
+<script>mermaid.initialize({startOnLoad: true, theme: "neutral", securityLevel: "strict", flowchart: {htmlLabels: true, useMaxWidth: true}, sequence: {useMaxWidth: true}});</script>
+</body>
+</html>

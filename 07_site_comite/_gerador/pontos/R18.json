@@ -1,0 +1,33 @@
+{
+ "id": "R18",
+ "pontos": [
+  {
+   "titulo": "Etapas do RTO sem teste hoje",
+   "origem": "Falhas e tratativas",
+   "contexto": "Nenhuma das etapas que compõem o tempo de recuperação foi medida: eleição com `ElectionTick` real, replay do log do Raft, reconstrução do gate (D9), reconstrução da tabela de dedupe (R22), tempo para o `appliedIndex` alcançar o ponto anterior e drenagem do backlog do Cosmos na promoção (R03). Sem isso o `Delta-T` é uma incógnita e não pode ser prometido. Uma etapa lenta escondida, como a reconstrução do dedupe, pode dominar o RTO.",
+   "na_fonte": "A fonte decide o método em 13/10: exercícios de falha nos cenários C08, C18, C19, C14 e C32 medindo a operação completa, com os tempos de cada etapa usados só para diagnóstico.",
+   "sugestao": "Instrumentar cada etapa com métricas de início e fim desde o primeiro protótipo, para que os exercícios já produzam a decomposição. Priorizar a medição da drenagem do Cosmos e da espera de apply para leituras fortes, que são as etapas com maior variância provável e menos controle."
+  },
+  {
+   "titulo": "EBS preso à AZ",
+   "origem": "Falhas e tratativas",
+   "contexto": "O volume do log de cada célula AWS é preso à sua AZ; se a AZ inteira cai, o volume fica indisponível. A recuperação passa a depender das outras células e não do volume, o que muda o perfil de RTO em relação ao reinício simples de um nó. Se outra célula estiver lenta ou fora da janela, a recuperação pode exigir reconstrução completa.",
+   "na_fonte": "A fonte registra que a recuperação vem das outras células, não do volume, e inclui C08 (queda de célula ou AZ) nos exercícios de falha.",
+   "sugestao": "Medir separadamente o RTO de queda de AZ com e sem uma segunda célula degradada, e verificar que a célula substituta entra com identidade nova (ADR-034) sem depender do volume perdido. Definir o `Delta-T` para queda de AZ como categoria própria."
+  },
+  {
+   "titulo": "Poucas amostras",
+   "origem": "Falhas e tratativas",
+   "contexto": "Uma distribuição de RTO baseada em poucos exercícios engana, porque o pior caso raro não aparece e a mediana pode ser otimista. Se o `Delta-T` for anunciado a partir de poucas execuções, o contrato com o negócio pode ser quebrado no primeiro incidente real. Mudanças no código também invalidam medições antigas.",
+   "na_fonte": "A fonte decide registrar o número de execuções junto com mediana, P95 e pior caso, e repetir depois de cada mudança relevante.",
+   "sugestao": "Automatizar os exercícios de falha em pipeline para gerar amostras em volume, e definir um número mínimo de execuções (a definir) abaixo do qual o resultado não pode ser usado em contrato. Marcar cada medição com a versão do código para que medições antigas não sejam misturadas."
+  },
+  {
+   "titulo": "Plano de medição e meta de Delta-T por tipo de falha",
+   "origem": "Pontos em aberto",
+   "contexto": "Ainda não há plano de medição nos spikes S2 a S6 nem meta de `Delta-T` por tipo de falha (nó, AZ, nuvem, desastre em modo normal e em modo degradado). Sem meta, não há critério de aceite para o sistema nem base para comparar alternativas de desenho. No desastre em modo degradado o piso é D + M, que depende da PEND-02.",
+   "na_fonte": "Não decidido na fonte. Proposta na fonte: definir o `Delta-T` por tipo de falha com o negócio, sobre um SLO ponta a ponta, em vez de somar percentis.",
+   "sugestao": "Montar uma matriz de tipo de falha por spike que diga qual spike mede qual `Delta-T` e quem é dono de cada medição. Levar ao negócio a meta por tipo de falha junto com a aprovação de D e M, porque o RTO do desastre degradado não pode ser menor que D + M."
+  }
+ ]
+}

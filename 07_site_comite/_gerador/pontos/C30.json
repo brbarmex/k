@@ -1,0 +1,47 @@
+{
+ "id": "C30",
+ "pontos": [
+  {
+   "titulo": "Boot cercado e disponibilidade",
+   "origem": "Falhas e tratativas",
+   "contexto": "O boot cercado deixa os appliers desligados até a célula confirmar a epoch com a Azure. Se essa regra valesse para todo reinício, uma célula AWS que reinicia por deploy ou por perda de nó ficaria parada sempre que não alcançasse a Azure. Isso reduziria a disponibilidade em operação normal por causa de um mecanismo de desastre.",
+   "na_fonte": "A fonte decide que a regra só vale quando a célula detecta que a epoch do grupo mudou ou quando o log local tem entradas além do `commitIndex` conhecido.",
+   "sugestao": "Testar os dois gatilhos em caos: reinício comum com link caído (deve aplicar normalmente) e reinício depois de uma promoção (deve ficar cercado). Verificar no TLA+ que nenhum caminho de reinício comum permite aplicar entradas da epoch antiga depois de E+1."
+  },
+  {
+   "titulo": "Recriar o banco apaga as órfãs",
+   "origem": "Falhas e tratativas",
+   "contexto": "A recriação do DynamoDB da célula apaga as escritas ACKadas só na AWS durante a degradação. Se o passo de extrair as órfãs for pulado, essas escritas somem. É perda de dado confirmado ao cliente.",
+   "na_fonte": "A fonte exige aprovação humana para a recriação e um backup PITR como rede de segurança, com extração das órfãs antes (R13).",
+   "sugestao": "Fazer o `drctl rebuild` recusar a recriação enquanto não houver o registro da extração das órfãs, em vez de depender só do runbook. Testar em game day a extração e o PITR."
+  },
+  {
+   "titulo": "Custo e tempo da recriação",
+   "origem": "Falhas e tratativas",
+   "contexto": "Reler tudo do Cosmos para recriar o DynamoDB da célula consome RU e leva um tempo ainda não medido. Durante esse tempo a célula AWS não está disponível como réplica em dia, o que atrasa o failback.",
+   "na_fonte": "Não decidido na fonte. A fonte remete ao R09.",
+   "sugestao": "Medir no spike a duração da recriação por tamanho de tabela e limitar o ritmo para não causar throttling no Cosmos que hoje é a líder."
+  },
+  {
+   "titulo": "Revogação de credenciais depende do console",
+   "origem": "Falhas e tratativas",
+   "contexto": "A revogação do papel IAM dos appliers antigos é um passo da promoção, mas depende do console da AWS estar acessível. Se a AWS estiver fora, a revogação espera.",
+   "na_fonte": "A fonte decide que o boot cercado cobre o intervalo (R11).",
+   "sugestao": "Incluir no runbook a revogação assim que a AWS voltar, antes de qualquer ação na célula, e alertar enquanto ela não for feita."
+  },
+  {
+   "titulo": "Failback para a AWS",
+   "origem": "Falhas e tratativas",
+   "contexto": "Depois da promoção, voltar à AWS exige que a célula seja reconstruída e validada. Um failback prematuro reintroduziria a divergência.",
+   "na_fonte": "A fonte decide que o retorno é uma transferência planejada depois da reconstrução e validação da célula (C16).",
+   "sugestao": "Definir o critério de aceite do failback, como checksum por faixa igual e lag de apply abaixo de um limiar a definir, e exercitar em game day."
+  },
+  {
+   "titulo": "Gatilho da promoção e fechamento da PEND-01",
+   "origem": "Pontos em aberto",
+   "contexto": "O desenho do gatilho está decidido no ADR-044, mas a PEND-01 só fecha quando D e M forem aprovados e o TLA+ provar a ausência de escrita nas duas pontas. Sem isso, a promoção ainda não tem garantia formal.",
+   "na_fonte": "Não decidido na fonte. A fonte condiciona o fechamento ao PEND-02 e ao modelo TLA+ (R12).",
+   "sugestao": "Priorizar o modelo TLA+ do lease e da promoção, incluindo o boot cercado, e levar o resultado aos outros arquitetos como recomenda a PEND-01."
+  }
+ ]
+}

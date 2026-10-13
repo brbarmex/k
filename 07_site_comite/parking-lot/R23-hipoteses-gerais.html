@@ -1,0 +1,424 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>R23 — Hipóteses gerais em aberto · DataReplication v1</title>
+<link rel="stylesheet" href="../assets/site.css">
+</head>
+<body>
+<!--
+Fonte(s) usada(s) nesta página (rastreabilidade), relativas à raiz do pacote:
+  02_cenarios/a_rever/R23-hipoteses-gerais.md
+  04_diagramas/D01-visao-do-sistema.md
+Gerado em 13/10/2026 a partir do pacote DataReplication_Versao_1.
+-->
+<header class="topo">
+<button class="menu" type="button" aria-label="Abrir navegação" onclick="document.body.classList.toggle('nav-aberta')">☰</button>
+<a href="../index.html">DataReplication v1</a><span class="sep">·</span><span>Apresentação ao comitê técnico</span>
+</header>
+<div class="layout">
+<nav class="sidebar" aria-label="Navegação">
+<a class="marca" href="../index.html">DataReplication v1<span>Comitê técnico</span></a>
+<a class="nav-inicio" href="../index.html">Resumo e requisitos</a>
+<details class="grupo"><summary>Success path <span class="qtd">10</span></summary><ul>
+<li><a class="idx" href="../success-path/index.html">Índice da seção</a></li>
+<li><a href="../success-path/C01-visao-geral.html"><b>C01</b> Visão geral da arquitetura</a></li>
+<li><a href="../success-path/C02-dentro-da-celula.html"><b>C02</b> Dentro da célula: apps do cliente e DataReplication</a></li>
+<li><a href="../success-path/C03-escrita-strong.html"><b>C03</b> Caminho feliz: escrita (apply serial depois do gate)</a></li>
+<li><a href="../success-path/C04-escrita-eventual.html"><b>C04</b> Modo Eventual: só de leitura (sem apply paralelo na v1)</a></li>
+<li><a href="../success-path/C05-leitura-strong-e-eventual.html"><b>C05</b> Caminho feliz: leitura Strong e Eventual</a></li>
+<li><a href="../success-path/C06-follower-encaminha.html"><b>C06</b> Requisição chega numa célula que não é a líder</a></li>
+<li><a href="../success-path/C11-transferencia-planejada.html"><b>C11</b> Transferência planejada de liderança (manutenção)</a></li>
+<li><a href="../success-path/C18-partida-e-recuperacao-do-no.html"><b>C18</b> Partida, recuperação e parada limpa do nó</a></li>
+<li><a href="../success-path/C23-batchwriteitem-lote-uma-entrada.html"><b>C23</b> BatchWriteItem: o lote é uma entrada e o apply é por item (antes R15)</a></li>
+<li><a href="../success-path/C31-implantacao-por-cliente-e-identidade.html"><b>C31</b> Uma instalação por cliente e identificação na API (antes R19)</a></li>
+</ul></details>
+<details class="grupo"><summary>Fail path <span class="qtd">24</span></summary><ul>
+<li><a class="idx" href="../fail-path/index.html">Índice da seção</a></li>
+<li><a href="../fail-path/C07-timeout-depois-do-commit.html"><b>C07</b> Prazo estoura depois do commit, antes do ACK (retry do SDK)</a></li>
+<li><a href="../fail-path/C08-queda-de-celula-lider-ou-az-aws.html"><b>C08</b> Queda da célula líder ou de uma AZ na AWS</a></li>
+<li><a href="../fail-path/C09-queda-de-az-azure.html"><b>C09</b> Queda de uma AZ na Azure</a></li>
+<li><a href="../fail-path/C10-celulas-de-app-aws-fora.html"><b>C10</b> Apps da AWS fora, replicação viva: tráfego vai para a Azure</a></li>
+<li><a href="../fail-path/C12-modo-degradado.html"><b>C12</b> Link AWS↔Azure cai ou Azure cai: modo degradado com lease</a></li>
+<li><a href="../fail-path/C13-ressincronizacao-da-azure.html"><b>C13</b> Ressincronização da Azure</a></li>
+<li><a href="../fail-path/C14-aws-cai-sem-degradacao.html"><b>C14</b> AWS cai por inteiro sem degradação prévia</a></li>
+<li><a href="../fail-path/C15-aws-cai-em-degradacao.html"><b>C15</b> AWS cai durante o modo degradado</a></li>
+<li><a href="../fail-path/C16-aws-volta-apos-promocao.html"><b>C16</b> AWS volta depois da promoção da Azure</a></li>
+<li><a href="../fail-path/C17-maquina-de-estados.html"><b>C17</b> Máquina de estados dos modos de operação de um shard</a></li>
+<li><a href="../fail-path/C19-falha-do-datareplication.html"><b>C19</b> O DataReplication da célula cai ou reinicia</a></li>
+<li><a href="../fail-path/C20-bypass-de-escrita-direta.html"><b>C20</b> Aplicação escreve direto no banco (bypass)</a></li>
+<li><a href="../fail-path/C21-disco-fsync-e-reconstrucao.html"><b>C21</b> Falha de fsync, corrupção, disco lento e disco perdido</a></li>
+<li><a href="../fail-path/C22-cliente-com-sdk-nao-suportado.html"><b>C22</b> Cliente com SDK ou versão não suportada</a></li>
+<li><a href="../fail-path/C24-orcamento-de-50ms-e-escrita-no-dynamodb.html"><b>C24</b> Orçamento de 50 ms e a escrita no DynamoDB dentro do ACK (antes R21)</a></li>
+<li><a href="../fail-path/C25-link-lento-faixa-cinzenta.html"><b>C25</b> Link lento ou saturado (faixa cinzenta): só alertar (antes R01)</a></li>
+<li><a href="../fail-path/C26-entrada-venenosa.html"><b>C26</b> Entrada venenosa: um item que o banco recusa para sempre (antes R02)</a></li>
+<li><a href="../fail-path/C27-encaminhamento-sem-lider-conhecida.html"><b>C27</b> Loop de encaminhamento e espera pela líder durante a eleição (antes R05)</a></li>
+<li><a href="../fail-path/C28-leitura-eventual-na-azure-defasada.html"><b>C28</b> Leitura eventual na Azure durante a degradação (antes R04)</a></li>
+<li><a href="../fail-path/C29-disco-do-log-em-degradacao-longa.html"><b>C29</b> Disco do log esgota durante uma degradação longa (antes R08)</a></li>
+<li><a href="../fail-path/C30-aws-que-volta-boot-cercado.html"><b>C30</b> Fencing: o DynamoDB e o applier da AWS que voltam depois da promoção (antes R14)</a></li>
+<li><a href="../fail-path/C32-particao-e-lease-do-modo-degradado.html"><b>C32</b> Partição entre AWS e Azure: lease do modo degradado e promoção da Azure</a></li>
+<li><a href="../fail-path/C33-reconstrucao-em-tabela-sombra.html"><b>C33</b> Reconstrução do banco de uma célula em tabela sombra</a></li>
+<li><a href="../fail-path/C34-autorizacao-por-aplicacao.html"><b>C34</b> Autorização por aplicação: mTLS e lista de permissões por identidade</a></li>
+</ul></details>
+<details class="grupo"><summary>Complex path <span class="qtd">6</span></summary><ul>
+<li><a class="idx" href="../complex-path/index.html">Índice da seção</a></li>
+<li><a href="../complex-path/X01-gate-e-troca-de-lider.html"><b>X01</b> Gate: definição, monotonicidade e troca de líder</a></li>
+<li><a href="../complex-path/X02-modo-degradado.html"><b>X02</b> Modo degradado: entrada, permanência, lease e saída</a></li>
+<li><a href="../complex-path/X03-desastre-e-promocao-da-azure.html"><b>X03</b> Desastre: promoção da Azure, fencing e reconciliação</a></li>
+<li><a href="../complex-path/X04-partida-recuperacao-e-dois-logs.html"><b>X04</b> Partida, recuperação e coerência entre os dois logs</a></li>
+<li><a href="../complex-path/X05-timeouts-e-idempotencia.html"><b>X05</b> Timeouts em cascata e idempotência do retry</a></li>
+<li><a href="../complex-path/X06-delete-ttl-gsi.html"><b>X06</b> DELETE, TTL, Scan e GSI</a></li>
+</ul></details>
+<details class="grupo" open><summary>Parking lot <span class="qtd">14</span></summary><ul>
+<li><a class="idx" href="index.html">Índice da seção</a></li>
+<li><a href="R03-backlog-de-apply-no-cosmos.html"><b>R03</b> Backlog de apply no Cosmos (429 e RU insuficiente)</a></li>
+<li><a href="R06-duas-azs-aws-caem.html"><b>R06</b> Duas AZs da AWS caem com a Azure saudável</a></li>
+<li><a href="R07-link-oscilando.html"><b>R07</b> Link oscilando (flapping)</a></li>
+<li><a href="R09-resincronizacao-lenta-ou-bloqueada.html"><b>R09</b> Ressincronização da Azure lenta ou que nunca termina</a></li>
+<li><a href="R10-operador-lento-no-desastre.html"><b>R10</b> Tempo de decisão humana no desastre</a></li>
+<li><a href="R11-api-de-promocao-depende-da-aws.html"><b>R11</b> A API de promoção depende de algo que estava na AWS</a></li>
+<li><a href="R12-promocao-com-aws-viva.html"><b>R12</b> Promoção da Azure com a AWS viva (split-brain, PEND-01)</a></li>
+<li><a href="R13-escritas-orfas-reconciliacao.html"><b>R13</b> Escritas órfãs: reconciliação depois da promoção (PEND-03)</a></li>
+<li><a href="R16-leitura-forte-em-celulas-follower.html"><b>R16</b> Leitura forte em células follower (ReadIndex e gate)</a></li>
+<li><a href="R17-atributo-de-versao-e-limite-400kb.html"><b>R17</b> Atributo de versão: limite de 400 KB e ausência nas respostas</a></li>
+<li><a href="R18-rto-nao-quantificado.html"><b>R18</b> RTO (Delta-T) ainda sem número</a></li>
+<li><a href="R20-custo-6x.html"><b>R20</b> Custo: cada escrita lógica vira seis gravações</a></li>
+<li><a href="R22-memoria-da-janela-de-dedupe.html"><b>R22</b> Memória da janela de dedupe</a></li>
+<li><a class="atual" aria-current="page" href="R23-hipoteses-gerais.html"><b>R23</b> Hipóteses gerais em aberto</a></li>
+</ul></details>
+</nav>
+<main>
+<div class="migalhas"><a href="../index.html">Início</a> / <a href="index.html">Parking lot</a> / R23</div>
+<h1>R23 — Hipóteses gerais em aberto</h1>
+<div class="meta"><span class="selo parking-lot">Parking lot</span><div><b>Status na fonte:</b> ❓ A rever · sem resolução</div><div><b>Relacionados:</b> <a href="../fail-path/C12-modo-degradado.html">C12</a>, <a href="../fail-path/C32-particao-e-lease-do-modo-degradado.html">C32</a>, <a href="../complex-path/X02-modo-degradado.html">X02</a>, <a href="../complex-path/X03-desastre-e-promocao-da-azure.html">X03</a></div></div>
+<section id="visao-geral"><h2>1. Visão geral do cenário</h2>
+<p>Este arquivo reúne as hipóteses de falha que <strong>não viraram um cenário próprio</strong>: algumas já têm tratamento parcial, outras seguem sem solução. As que têm cenário dedicado aparecem na tabela com o link.</p>
+<p class="aviso">Cenário <b>a rever</b>: o conteúdo abaixo traz propostas e riscos ainda <b>não decididos na fonte</b>, salvo quando o texto diz o contrário.</p>
+</section>
+<section id="diagrama"><h2>2. Diagrama</h2>
+<div class="diagrama"><pre class="mermaid">flowchart TD
+    A[&quot;Métricas da líder: P99 de fsync, latência de commit, atraso de apply&quot;] --&gt; B{&quot;Acima do limite por N segundos?&quot;}
+    B --&gt;|&quot;não&quot;| C[&quot;Segue como líder&quot;]
+    B --&gt;|&quot;sim&quot;| D{&quot;Cooldown cumprido e outra célula saudável?&quot;}
+    D --&gt;|&quot;sim&quot;| E[&quot;Transferência planejada de liderança: ADR-013&quot;]
+    D --&gt;|&quot;não&quot;| F[&quot;Alerta e mantém, para não oscilar&quot;]</pre></div>
+<h3>Arquitetura geral relacionada: <a href="../../04_diagramas/D01-visao-do-sistema.md">D01 — Visão do sistema numa página</a></h3><p class="nota">Diagrama de <code>04_diagramas/</code> escolhido pelo site como contexto; o cenário fonte não faz essa associação.</p>
+<div class="diagrama"><pre class="mermaid">flowchart LR
+    APP[&quot;Aplicações do cliente&lt;br/&gt;AWS SDK v2 ou superior, mTLS por aplicação&quot;] --&gt; DR[&quot;DataReplication&lt;br/&gt;camada intermediária&quot;]
+    DR --&gt; AWSDB[(&quot;DynamoDB&lt;br/&gt;AWS primária&quot;)]
+    DR ==&gt;|&quot;link dedicado&quot;| AZ[&quot;DataReplication na Azure&lt;br/&gt;learners do consenso&quot;]
+    AZ --&gt; AZDB[(&quot;Cosmos DB&lt;br/&gt;Azure failover&quot;)]
+    ROUTER[&quot;Compass-Router e Agent&lt;br/&gt;externos ao escopo&quot;] -.-&gt; APP</pre></div>
+</section>
+<section id="etapas"><h2>3. Legenda e etapas</h2>
+<p class="nd">A fonte não tem seção de etapas para este cenário; o conteúdo está organizado por hipóteses, reproduzidas no anexo ao final da página.</p>
+</section>
+<section id="pontos"><h2>4. Pontos que precisam ser avaliados</h2>
+<p class="nota">Reescritos a partir das seções “Falhas e tratativas” e “Pontos em aberto” (e de outras seções de risco, quando existem). Em cada ponto, <b>O que a fonte define</b> vem da documentação; <b>Sugestão de encaminhamento</b> é <b>inferência do arquiteto</b>, não decisão registrada.</p>
+<article class="ponto">
+<h3><span class="num">1</span>RPO &gt; 0 sem teto aprovado no modo degradado <span class="origem">H2 / PEND-02. RPO &gt; 0 sem teto no modo degradado (bloqueante)</span></h3>
+<dl>
+<dt>Contexto</dt><dd>Com a opção B (<a href="../../03_adr/ADR-014-modo-degradado-opcao-b.md">ADR-014</a>), a perda possível cresce com a duração da degradação, e o header <code>x-dr-mode: degraded</code> informa o cliente sem limitar a perda. Desde 13/10 o teto existe no desenho, o lease D (<a href="../../03_adr/ADR-044-lease-do-modo-degradado-e-promocao-da-azure.md">ADR-044</a>), mas o valor de D e de M não foi aprovado. Sem D definido o modo degradado não pode ser ligado, e se a AWS morrer em modo degradado o RTO é pelo menos D + M.</dd>
+<dt>O que a fonte define</dt><dd class="">A fonte decide o mecanismo (lease D, <a href="../../03_adr/ADR-044-lease-do-modo-degradado-e-promocao-da-azure.md">ADR-044</a>) e a política por instalação <code>accept</code> ou <code>reject</code> (<a href="../../03_adr/ADR-045-politica-de-degradacao-por-instalacao.md">ADR-045</a>); a aprovação de D, M e da política por cliente é bloqueante e está pendente (PEND-02). Caminhos adicionais propostos: segundo circuito privado por outra operadora e exportação periódica do log degradado.</dd>
+<dt class="sug">Sugestão de encaminhamento <small>(inferência, não decidida)</small></dt><dd class="sug">Levar ao Bruno e ao negócio um pacote de decisão que mostre, para cada D candidato, o volume máximo de órfãs, o RTO mínimo do desastre e o tamanho do volume do log de replicação. Avaliar o segundo circuito como alternativa que reduz a frequência de degradação, já que reduzir a causa vale mais que limitar o efeito.</dd>
+</dl>
+</article>
+<article class="ponto">
+<h3><span class="num">2</span>Líder lenta, mas viva <span class="origem">H4 / PEND-11. Líder lenta, mas viva</span></h3>
+<dl>
+<dt>Contexto</dt><dd>Uma líder com disco ou rede degradados continua mandando heartbeat e não perde a eleição, mas deixa todas as escritas do shard lentas. Como não há disparo automático, a latência de escrita fica degradada até alguém intervir. Isso afeta diretamente o SLO de latência e pode ser confundido com problema de link.</dd>
+<dt>O que a fonte define</dt><dd class="nd-fonte">Não decidido na fonte. Proposta na fonte: critério de saúde além do heartbeat (P99 de fsync, latência de commit, atraso de apply), com histerese e cooldown, disparando a transferência planejada do <a href="../../03_adr/ADR-013-transferencia-planejada-de-lideranca.md">ADR-013</a>; falha de fsync continua fatal (<a href="../../03_adr/ADR-034-fsync-fatal-e-identidade-nova.md">ADR-034</a>).</dd>
+<dt class="sug">Sugestão de encaminhamento <small>(inferência, não decidida)</small></dt><dd class="sug">Separar no critério a lentidão causada pela líder da causada pelo link Azure, porque transferir liderança não resolve a faixa cinzenta (<a href="../fail-path/C25-link-lento-faixa-cinzenta.html">C25</a>) e pode gerar oscilação inútil. Testar com injeção de latência de disco só na líder e validar que a transferência ocorre uma vez, com limiares a definir.</dd>
+</dl>
+</article>
+<article class="ponto">
+<h3><span class="num">3</span>Corrupção lógica ou bug replicado <span class="origem">H7. Corrupção lógica ou bug replicado</span></h3>
+<dl>
+<dt>Contexto</dt><dd>RPO 0 replica tudo, inclusive erros: um deploy com bug que grava dado errado é replicado imediatamente para as duas clouds. Nesse caso o failover não ajuda, e a recuperação exige voltar o estado a um ponto anterior ao erro. É um risco de integridade que a arquitetura de replicação não cobre por desenho.</dd>
+<dt>O que a fonte define</dt><dd class="nd-fonte">Não decidido na fonte. Proposta na fonte: backup contínuo dos dois bancos (PITR no DynamoDB, backup contínuo no Cosmos), retenção do log suficiente para reconstruir até um índice anterior ao erro e validação de esquema e capacidades antes do commit (<a href="../fail-path/C26-entrada-venenosa.html">C26</a>).</dd>
+<dt class="sug">Sugestão de encaminhamento <small>(inferência, não decidida)</small></dt><dd class="sug">Definir e ensaiar um runbook de restauração a um ponto no tempo que mantenha as seis réplicas coerentes entre si, já que restaurar só um banco quebra a convergência. Verificar a compatibilidade entre a retenção do log de replicação e o tempo típico para detectar um bug de dado.</dd>
+</dl>
+</article>
+<article class="ponto">
+<h3><span class="num">4</span>Bug no consenso customizado <span class="origem">H8. Bug no consenso customizado</span></h3>
+<dl>
+<dt>Contexto</dt><dd>A regra de eleição só na AWS com gate de maioria Azure e modo degradado não é Raft padrão. Um erro sutil nessa composição pode perder dado ou causar split-brain sem nenhuma falha de infraestrutura. É o risco de maior impacto em RPO, porque passa despercebido até o momento da falha.</dd>
+<dt>O que a fonte define</dt><dd class="">A fonte decide modelar em TLA+ antes do código do gate, ampliado com lease, promoção entre nuvens, troca de membros, dedupe, resultado desconhecido, I-DEL e a barreira da leitura forte (<a href="../../03_adr/ADR-030-verificacao-formal-tla.md">ADR-030</a>, <a href="../../03_adr/ADR-046-gate-so-conta-progresso-validado-pelo-raft.md">ADR-046</a>, <a href="../complex-path/X01-gate-e-troca-de-lider.html">X01</a>), com testes tipo Jepsen; o Raft em si é o <code>etcd-io/raft</code>.</dd>
+<dt class="sug">Sugestão de encaminhamento <small>(inferência, não decidida)</small></dt><dd class="sug">Exigir rastreabilidade entre cada propriedade do TLA+ e um teste Jepsen correspondente sobre a implementação, porque o modelo prova o desenho e não o código. Incluir no Jepsen as falhas de relógio e pausas que o lease do modo degradado assume limitadas.</dd>
+</dl>
+</article>
+<article class="ponto">
+<h3><span class="num">5</span>Dependência de relógio nas leituras fortes <span class="origem">H9. Dependência de relógio nas leituras fortes</span></h3>
+<dl>
+<dt>Contexto</dt><dd>Leituras por lease confiam que o relógio dos nós não deriva além de um limite, o que poderia devolver dado antigo em leitura forte. A leitura forte foi desenhada com ReadIndex para evitar isso. Porém o lease do modo degradado é outro mecanismo e depende de relógio limitado, então a premissa de relógio continua presente no sistema.</dd>
+<dt>O que a fonte define</dt><dd class="">A fonte decide usar ReadIndex com barreira <code>min(ReadIndex, gate)</code> e não lease para leitura (<a href="R16-leitura-forte-em-celulas-follower.html">R16</a>, <a href="../../03_adr/ADR-049-barreira-da-leitura-forte-e-o-gate.md">ADR-049</a>); a deriva máxima faz parte de M no lease do modo degradado (<a href="../../03_adr/ADR-044-lease-do-modo-degradado-e-promocao-da-azure.md">ADR-044</a>).</dd>
+<dt class="sug">Sugestão de encaminhamento <small>(inferência, não decidida)</small></dt><dd class="sug">Monitorar a deriva de relógio entre nós e entre clouds com alerta, mesmo sem leitura por lease, porque M depende dela. Registrar como decisão que ligar leitura por lease exige nova análise e teste de deriva, para evitar que vire configuração de desempenho sem revisão.</dd>
+</dl>
+</article>
+<article class="ponto">
+<h3><span class="num">6</span>Plano de controle e identidade dos provedores <span class="origem">H10. Plano de controle e identidade dos provedores</span></h3>
+<dl>
+<dt>Contexto</dt><dd>Incidentes globais costumam ser de identidade ou DNS, não de dados. Se o acesso ao Cosmos ou ao DynamoDB depender de emitir um token no momento da escrita, o caminho de dados para mesmo com os bancos de pé. Isso afeta disponibilidade das duas clouds e pode impedir a promoção.</dd>
+<dt>O que a fonte define</dt><dd class="nd-fonte">Não decidido na fonte. Proposta na fonte: credenciais com rotação controlada e tokens de validade longa em cache, e teste da camada com o serviço de identidade do provedor indisponível (<a href="R11-api-de-promocao-depende-da-aws.html">R11</a>, <a href="../success-path/C31-implantacao-por-cliente-e-identidade.html">C31</a>).</dd>
+<dt class="sug">Sugestão de encaminhamento <small>(inferência, não decidida)</small></dt><dd class="sug">Incluir um teste de caos que bloqueia o endpoint de identidade de cada provedor por tempo maior que a validade do token em cache, medindo o comportamento. Avaliar o tradeoff de segurança de tokens longos com o time de segurança e registrar a decisão.</dd>
+</dl>
+</article>
+<article class="ponto">
+<h3><span class="num">7</span>Shard além da capacidade de um log <span class="origem">H11. Crescimento de um shard além da capacidade de um log</span></h3>
+<dl>
+<dt>Contexto</dt><dd>Com ordenação por shard, cada shard tem uma líder e um log. Se um segmento crescer muito além de 3.000 TPS, não há procedimento para dividir o shard. O resultado seria saturação da líder e aumento da latência de escrita sem saída operacional.</dd>
+<dt>O que a fonte define</dt><dd class="nd-fonte">Não decidido na fonte. Proposta na fonte: desenhar o split de shard (novo grupo de consenso, cópia, troca de roteamento) ou evoluir para ordenação por chave de partição com apply paralelo por chave.</dd>
+<dt class="sug">Sugestão de encaminhamento <small>(inferência, não decidida)</small></dt><dd class="sug">Medir no teste de carga a capacidade máxima de um shard e definir alerta de ocupação com limiar a definir. Registrar como limite conhecido da v1 e exigir, no onboarding, a projeção de crescimento de cada cliente.</dd>
+</dl>
+</article>
+<article class="ponto">
+<h3><span class="num">8</span>Reconstrução automática de réplica <span class="origem">H-DR1. Reconstrução automática de réplica</span></h3>
+<dl>
+<dt>Contexto</dt><dd>Quando uma réplica perde o disco ou sai da janela de retenção, a v1 usa <code>drctl rebuild</code>, manual assistido. Isso torna a reconstrução dependente de pessoa e é exceção à meta de recuperar sem humano. Enquanto a réplica não volta, a redundância fica reduzida e o RTO de uma nova falha aumenta.</dd>
+<dt>O que a fonte define</dt><dd class="">A fonte decide reconstrução manual assistida na v1 com o protocolo de tabela sombra (<a href="../../03_adr/ADR-047-delete-real-invariante-e-reconstrucao-em-tabela-sombra.md">ADR-047</a>, <a href="../fail-path/C21-disco-fsync-e-reconstrucao.html">C21</a>, <a href="../fail-path/C33-reconstrucao-em-tabela-sombra.html">C33</a>); a automação completa fica em aberto.</dd>
+<dt class="sug">Sugestão de encaminhamento <small>(inferência, não decidida)</small></dt><dd class="sug">Medir o tempo de reconstrução completa por tamanho de tabela nos exercícios de falha e incluir no <code>Delta-T</code> de perda de disco. Definir um alerta que avise quando o shard estiver operando com redundância reduzida por mais que um prazo a definir.</dd>
+</dl>
+</article>
+<article class="ponto">
+<h3><span class="num">9</span>Chave quente <span class="origem">H-DR4. Chave quente</span></h3>
+<dl>
+<dt>Contexto</dt><dd>Muitas escritas à mesma chave serializam na fila por chave do applier e podem estourar throttling por partição no DynamoDB. Isso atrasa o apply, aumenta a espera de leituras fortes e pode afetar outras chaves do mesmo shard. O impacto é de latência e, no limite, de disponibilidade.</dd>
+<dt>O que a fonte define</dt><dd class="nd-fonte">Não decidido na fonte. Proposta na fonte: backpressure por chave e por cliente com os erros do DynamoDB que o SDK já entende (<a href="../../03_adr/ADR-025-escopo-da-api-v1-e-sdks.md">ADR-025</a>), e medição no teste de carga.</dd>
+<dt class="sug">Sugestão de encaminhamento <small>(inferência, não decidida)</small></dt><dd class="sug">Incluir no teste de carga um cenário de chave quente medindo o efeito sobre as demais chaves do shard e sobre <code>apply_wait</code>. Avaliar também o efeito no Cosmos, cujo particionamento é diferente e pode saturar em ponto distinto.</dd>
+</dl>
+</article>
+<article class="ponto">
+<h3><span class="num">10</span>Parse completo do JSON no caminho quente <span class="origem">H-DR6. Parse completo do JSON (aceita)</span></h3>
+<dl>
+<dt>Contexto</dt><dd>A camada faz parse completo do JSON da requisição no caminho quente, com custo de CPU e alocação. Se esse custo afetar o heartbeat ou o P99, pode provocar eleições espúrias ou violar o SLO de escrita.</dd>
+<dt>O que a fonte define</dt><dd class="">A fonte registra a decisão do Bruno de 12/10: custo conhecido e aceito (<a href="../../03_adr/ADR-032-parse-json-completo-e-rust.md">ADR-032</a>), com medição no spike S2 e revisão se heartbeat ou P99 forem afetados.</dd>
+<dt class="sug">Sugestão de encaminhamento <small>(inferência, não decidida)</small></dt><dd class="sug">Definir no spike S2 o critério objetivo de revisão (impacto no P99 e nos atrasos de heartbeat, limiares a definir) para que a revisão não dependa de impressão. Isolar o processamento do Raft do processamento de requisições para que picos de parse não atrasem heartbeat.</dd>
+</dl>
+</article>
+<article class="ponto">
+<h3><span class="num">11</span>Prorrogação do lease x promoção da Azure <span class="origem">H-DR13. Prorrogação do lease x promoção da Azure</span></h3>
+<dl>
+<dt>Contexto</dt><dd>Prorrogar o lease (<code>RENEW</code>) depois de D + M passados pode reabrir o risco de as duas pontas aceitarem escrita. A prorrogação é humana e replicada no Raft da AWS, mas a Azure não vê esse Raft. Sem regra, o split-brain que o lease deveria eliminar volta a ser possível.</dd>
+<dt>O que a fonte define</dt><dd class="nd-fonte">Não decidido na fonte. Proposta na fonte: regra no modelo TLA+, por exemplo marcar a Azure como <code>promotion_blocked</code> antes de prorrogar ou recusar a prorrogação depois de um limite, provada em P12 do <a href="../complex-path/X01-gate-e-troca-de-lider.html">X01</a> antes de a PEND-01 fechar.</dd>
+<dt class="sug">Sugestão de encaminhamento <small>(inferência, não decidida)</small></dt><dd class="sug">Favorecer a opção de recusar <code>RENEW</code> com base no relógio local da AWS, já que marcar <code>promotion_blocked</code> exige o link que pode estar fora. Modelar no TLA+ a combinação de <code>RENEW</code> com partição assimétrica (H-DR14), que é o caso mais provável de quebrar a regra.</dd>
+</dl>
+</article>
+<article class="ponto">
+<h3><span class="num">12</span>Partição assimétrica <span class="origem">H-DR14. Partição assimétrica</span></h3>
+<dl>
+<dt>Contexto</dt><dd>Quando um sentido do link funciona e o outro não, o último contato visto pela Azure e o gate visto pela AWS divergem. Por exemplo, a AWS não recebe as respostas da Azure e degrada, mas a Azure ainda recebe heartbeats e continua renovando o último contato. Também não está definido se contato da AWS é qualquer votante ou só a líder (<a href="R06-duas-azs-aws-caem.html">R06</a>).</dd>
+<dt>O que a fonte define</dt><dd class="nd-fonte">Não decidido na fonte. Proposta na fonte: modelar partições simétricas e assimétricas no TLA+ (<a href="../fail-path/C32-particao-e-lease-do-modo-degradado.html">C32</a>) e confirmar que o prazo D + M, medido no relógio da Azure, continua seguro.</dd>
+<dt class="sug">Sugestão de encaminhamento <small>(inferência, não decidida)</small></dt><dd class="sug">Definir "contato da AWS" como mensagem que comprova que a AWS ainda recebe da Azure (por exemplo um eco de confirmação), e não apenas heartbeat recebido, para que a assimetria não esconda a degradação. Criar um teste de caos com bloqueio de um único sentido do link em cada direção.</dd>
+</dl>
+</article>
+<article class="ponto">
+<h3><span class="num">13</span>Semântica do Cosmos depois do failover <span class="origem">H-DR15. Semântica do Cosmos depois do failover</span></h3>
+<dl>
+<dt>Contexto</dt><dd>Depois do failover a aplicação fala com o Cosmos pelo Cloud-Adapter. Diferenças de tamanho de item, precisão de <code>Number</code>, índices consistentes por padrão e TTL podem mudar o comportamento que a aplicação via no DynamoDB. A aplicação pode quebrar justamente no desastre, quando o RTO já está correndo.</dd>
+<dt>O que a fonte define</dt><dd class="nd-fonte">Não decidido na fonte. Proposta na fonte: a suíte de conformidade roda a mesma sequência contra DynamoDB, camada e Cosmos (PEND-16), e a aplicação não deve depender da consistência do índice (<a href="../../03_adr/ADR-050-gsi-nao-tem-leitura-forte.md">ADR-050</a>, <a href="../../03_adr/ADR-051-compatibilidade-dynamodb-inventario-conformidade-e-idempotencia.md">ADR-051</a>).</dd>
+<dt class="sug">Sugestão de encaminhamento <small>(inferência, não decidida)</small></dt><dd class="sug">Rodar os testes de integração de cada cliente contra o Cosmos pelo Cloud-Adapter antes do onboarding, não só a suíte genérica. Dar atenção especial ao TTL, cujas expirações podem divergir entre os bancos e gerar diferenças de dado após a promoção.</dd>
+</dl>
+</article>
+<article class="ponto">
+<h3><span class="num">14</span>Decisões pendentes do Bruno <span class="origem">Pontos em aberto</span></h3>
+<dl>
+<dt>Contexto</dt><dd>O aceite formal do valor de D e do RPO &gt; 0 (PEND-02) é bloqueante, e a aprovação de D e M também é necessária para fechar a PEND-01, cujo desenho está decidido (<a href="../../03_adr/ADR-044-lease-do-modo-degradado-e-promocao-da-azure.md">ADR-044</a>) mas falta prova no TLA+. Sem essas decisões, o modo degradado não pode ser ligado e a segurança contra split-brain fica sem prova.</dd>
+<dt>O que a fonte define</dt><dd class="">A fonte registra que as decisões dependem do Bruno e que a promoção automática segue com os outros arquitetos e não é reaberta.</dd>
+<dt class="sug">Sugestão de encaminhamento <small>(inferência, não decidida)</small></dt><dd class="sug">Agendar uma única sessão de decisão com o Bruno cobrindo D, M, política por cliente, prazo de decisão humana (<a href="R10-operador-lento-no-desastre.html">R10</a>) e dono das órfãs (<a href="R13-escritas-orfas-reconciliacao.html">R13</a>), já que todas dependem de D. Tratar a prova no TLA+ como pré-condição para ligar <code>accept</code> em produção, mesmo com D aprovado.</dd>
+</dl>
+</article>
+</section>
+<section id="adrs"><h2>5. ADRs relacionados</h2>
+<div class="tabela"><table><thead><tr><th>ADR</th><th>Título</th><th>Decisão resumida</th><th>Arquivo</th></tr></thead><tbody>
+<tr><td class="nw"><a href="../../03_adr/ADR-030-verificacao-formal-tla.md">ADR-030</a></td><td>Modelo TLA+ do gate antes do código do gate</td><td>Modelo TLA+ do gate, DEGRADE/RESTORE e troca de líder verificado antes de implementar o gate.</td><td><a href="../../03_adr/ADR-030-verificacao-formal-tla.md">ADR-030-verificacao-formal-tla.md</a></td></tr>
+<tr><td class="nw"><a href="../../03_adr/ADR-033-promocao-da-azure-humana.md">ADR-033</a></td><td>Promoção da Azure sempre humana, só depois de D + M</td><td>Promoção da Azure (ForcePromote) sempre humana, com checklist e só depois de D + M.</td><td><a href="../../03_adr/ADR-033-promocao-da-azure-humana.md">ADR-033-promocao-da-azure-humana.md</a></td></tr>
+<tr><td class="nw"><a href="../../03_adr/ADR-014-modo-degradado-opcao-b.md">ADR-014</a></td><td>Modo degradado: a AWS segue quando a Azure fica inalcançável (opção B)</td><td>Opção B: com a Azure inalcançável, após DEGRADE_AFTER a AWS segue só com a maioria AWS (RPO &gt; 0) até RESTORE.</td><td><a href="../../03_adr/ADR-014-modo-degradado-opcao-b.md">ADR-014-modo-degradado-opcao-b.md</a></td></tr>
+<tr><td class="nw"><a href="../../03_adr/ADR-032-parse-json-completo-e-rust.md">ADR-032</a></td><td>Parse completo do JSON na v1; Rust como alternativa registrada</td><td>Parse completo do JSON na v1 (H-DR6 aceita); Rust registrado como alternativa.</td><td><a href="../../03_adr/ADR-032-parse-json-completo-e-rust.md">ADR-032-parse-json-completo-e-rust.md</a></td></tr>
+<tr><td class="nw"><a href="../../03_adr/ADR-044-lease-do-modo-degradado-e-promocao-da-azure.md">ADR-044</a></td><td>Modo degradado com lease: a AWS para sozinha e a Azure só promove depois de D mais margem</td><td>Modo degradado com lease D contado desde t_c; a AWS para sozinha e a Azure só promove depois de D + M.</td><td><a href="../../03_adr/ADR-044-lease-do-modo-degradado-e-promocao-da-azure.md">ADR-044-lease-do-modo-degradado-e-promocao-da-azure.md</a></td></tr>
+<tr><td class="nw"><a href="../../03_adr/ADR-045-politica-de-degradacao-por-instalacao.md">ADR-045</a></td><td><code>DEGRADED_POLICY</code> obrigatória por instalação</td><td>DEGRADED_POLICY obrigatória por instalação: accept (degradado com lease) ou reject (RPO 0 sempre).</td><td><a href="../../03_adr/ADR-045-politica-de-degradacao-por-instalacao.md">ADR-045-politica-de-degradacao-por-instalacao.md</a></td></tr>
+<tr><td class="nw"><a href="../../03_adr/ADR-046-gate-so-conta-progresso-validado-pelo-raft.md">ADR-046</a></td><td>O gate só conta progresso validado pelo Raft no termo atual</td><td>O gate só conta progresso da Azure confirmado pelo AppendEntries no termo atual.</td><td><a href="../../03_adr/ADR-046-gate-so-conta-progresso-validado-pelo-raft.md">ADR-046-gate-so-conta-progresso-validado-pelo-raft.md</a></td></tr>
+<tr><td class="nw"><a href="../../03_adr/ADR-049-barreira-da-leitura-forte-e-o-gate.md">ADR-049</a></td><td>A leitura forte espera <code>min(ReadIndex, gate)</code></td><td>A leitura forte espera min(ReadIndex, gate), obtidos da líder na mesma resposta.</td><td><a href="../../03_adr/ADR-049-barreira-da-leitura-forte-e-o-gate.md">ADR-049-barreira-da-leitura-forte-e-o-gate.md</a></td></tr>
+</tbody></table></div>
+<p class="nota">Lista extraída do cabeçalho “ADRs” do arquivo fonte. A decisão resumida condensa a seção “Decisão” de cada ADR.</p>
+</section>
+<section id="anexo"><h2>Anexo: texto original da fonte</h2><p class="nota">Seções do .md fonte reproduzidas sem reescrita, para conferência.</p>
+<details class="anexo"><summary>Índice das hipóteses</summary><div class="tabela"><table>
+<thead>
+<tr>
+<th>Id</th>
+<th>Hipótese</th>
+<th>Tratada em</th>
+<th>Situação</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>H1 / PEND-01</td>
+<td>Split-brain na promoção com a AWS viva</td>
+<td><a href="R12-promocao-com-aws-viva.html">R12</a></td>
+<td>Desenho decidido (lease, ADR-044); fecha com D e M aprovados e prova no TLA+. Promoção automática: não reabrir</td>
+</tr>
+<tr>
+<td>H2 / PEND-02</td>
+<td>RPO &gt; 0 no modo degradado: aprovar o valor de D (teto do lease)</td>
+<td>abaixo</td>
+<td><strong>Bloqueante</strong> (falta aprovar D e M)</td>
+</tr>
+<tr>
+<td>H3 / PEND-03</td>
+<td>Reconciliação de órfãs</td>
+<td><a href="R13-escritas-orfas-reconciliacao.html">R13</a></td>
+<td>Parcial: janela limitada por D; falta dono e política</td>
+</tr>
+<tr>
+<td>H4 / PEND-11</td>
+<td>Líder lenta, mas viva</td>
+<td>abaixo</td>
+<td>Proposta</td>
+</tr>
+<tr>
+<td>H5</td>
+<td>Duas AZs da AWS caem</td>
+<td><a href="R06-duas-azs-aws-caem.html">R06</a></td>
+<td>Desenho decidido (lease); falta D e prova no TLA+</td>
+</tr>
+<tr>
+<td>H6</td>
+<td>Tempo de decisão humana</td>
+<td><a href="R10-operador-lento-no-desastre.html">R10</a></td>
+<td>Sem resolução</td>
+</tr>
+<tr>
+<td>H7</td>
+<td>Corrupção lógica ou bug replicado</td>
+<td>abaixo</td>
+<td>Proposta</td>
+</tr>
+<tr>
+<td>H8</td>
+<td>Bug no consenso customizado</td>
+<td>abaixo</td>
+<td>Mitigado por ADR-030 e ADR-046 (TLA+ ampliado)</td>
+</tr>
+<tr>
+<td>H9</td>
+<td>Dependência de relógio nas leituras fortes</td>
+<td>abaixo</td>
+<td>Mitigado: ReadIndex com barreira <code>min(ReadIndex, gate)</code>. O lease do modo degradado é outro mecanismo e depende de relógio limitado (ADR-044)</td>
+</tr>
+<tr>
+<td>H10</td>
+<td>Plano de controle e identidade dos provedores</td>
+<td>abaixo</td>
+<td>Aberta</td>
+</tr>
+<tr>
+<td>H11</td>
+<td>Shard maior que a capacidade de um log</td>
+<td>abaixo</td>
+<td>Aberta</td>
+</tr>
+<tr>
+<td>H-DR1</td>
+<td>Reconstrução automática de réplica</td>
+<td>abaixo</td>
+<td>Manual assistida na v1, com protocolo de tabela sombra (ADR-047)</td>
+</tr>
+<tr>
+<td>H-DR2</td>
+<td>Desvio automático de entrada venenosa</td>
+<td><a href="../fail-path/C26-entrada-venenosa.html">C26</a></td>
+<td>Decidido: humano (ADR-038)</td>
+</tr>
+<tr>
+<td>H-DR3</td>
+<td>Nome do atributo de versão</td>
+<td><a href="R17-atributo-de-versao-e-limite-400kb.html">R17</a></td>
+<td>Aberta</td>
+</tr>
+<tr>
+<td>H-DR4</td>
+<td>Chave quente que satura um shard</td>
+<td>abaixo</td>
+<td>Medir</td>
+</tr>
+<tr>
+<td>H-DR5</td>
+<td>Learner Azure lento, mas vivo</td>
+<td><a href="../fail-path/C25-link-lento-faixa-cinzenta.html">C25</a></td>
+<td>Só alerta (ADR-037)</td>
+</tr>
+<tr>
+<td>H-DR6</td>
+<td>Parse completo do JSON no caminho quente</td>
+<td>abaixo</td>
+<td><strong>Aceita</strong> pelo Bruno</td>
+</tr>
+<tr>
+<td>H-DR13</td>
+<td>Prorrogação do lease x promoção da Azure</td>
+<td>abaixo</td>
+<td>Aberta: regra a fechar no TLA+</td>
+</tr>
+<tr>
+<td>H-DR14</td>
+<td>Partição assimétrica entre AWS e Azure</td>
+<td>abaixo</td>
+<td>Aberta: modelar no TLA+</td>
+</tr>
+<tr>
+<td>H-DR15</td>
+<td>Semântica do Cosmos depois do failover</td>
+<td>abaixo</td>
+<td>Aberta: entra na suíte de conformidade</td>
+</tr>
+</tbody>
+</table></div></details>
+<details class="anexo"><summary>H2 / PEND-02. RPO &gt; 0 sem teto no modo degradado (bloqueante)</summary><p><strong>Explicação.</strong> A perda possível cresce com a duração da degradação. O header <code>x-dr-mode: degraded</code> informa o cliente, mas não limita a perda. O Bruno decidiu pela opção B (<a href="../../03_adr/ADR-014-modo-degradado-opcao-b.md">ADR-014</a>). Desde 13/10 o teto existe no desenho: a entrada <code>DEGRADE</code> carrega um lease de duração <strong>D</strong> (<code>DEGRADED_LEASE</code>), e ao fim dele a AWS para de aceitar escrita (<a href="../../03_adr/ADR-044-lease-do-modo-degradado-e-promocao-da-azure.md">ADR-044</a>). D é o teto de duração do RPO &gt; 0. O que continua bloqueante é o <strong>aceite formal do negócio</strong>: aprovar o valor de D (e de M, a margem de promoção) e aceitar o custo de que, se a AWS morrer em modo degradado, o RTO é pelo menos D + M. A política por instalação (<code>DEGRADED_POLICY</code>, <a href="../../03_adr/ADR-045-politica-de-degradacao-por-instalacao.md">ADR-045</a>) deixa o cliente escolher <code>reject</code> (RPO 0 sempre, menos disponibilidade).</p>
+<p><strong>Caminhos:</strong>
+- Aprovar <strong>D, M e a política por cliente</strong> (<code>accept</code> ou <code>reject</code>); passado D, uma pessoa decide entre prorrogar (<code>RENEW</code>) ou parar. Valores ainda <strong>a definir</strong>.
+- Segundo circuito privado por outra operadora, para degradar menos (<a href="../fail-path/C25-link-lento-faixa-cinzenta.html">C25</a>).
+- Exportação periódica do log degradado para um armazenamento que a Azure consiga ler depois (reduz a perda, não elimina; <a href="R13-escritas-orfas-reconciliacao.html">R13</a>).</p></details>
+<details class="anexo"><summary>H4 / PEND-11. Líder lenta, mas viva</summary><p><strong>Explicação.</strong> Uma líder com disco ou rede degradados continua mandando heartbeat e não perde a eleição, mas deixa todas as escritas lentas.</p>
+<div class="diagrama"><pre class="mermaid">flowchart TD
+    A[&quot;Métricas da líder: P99 de fsync, latência de commit, atraso de apply&quot;] --&gt; B{&quot;Acima do limite por N segundos?&quot;}
+    B --&gt;|&quot;não&quot;| C[&quot;Segue como líder&quot;]
+    B --&gt;|&quot;sim&quot;| D{&quot;Cooldown cumprido e outra célula saudável?&quot;}
+    D --&gt;|&quot;sim&quot;| E[&quot;Transferência planejada de liderança: ADR-013&quot;]
+    D --&gt;|&quot;não&quot;| F[&quot;Alerta e mantém, para não oscilar&quot;]</pre></div>
+<p><strong>Caminho:</strong> critério de saúde além do heartbeat, com histerese e cooldown, disparando a transferência planejada (<a href="../../03_adr/ADR-013-transferencia-planejada-de-lideranca.md">ADR-013</a>). Falha de fsync continua sendo fatal (<a href="../../03_adr/ADR-034-fsync-fatal-e-identidade-nova.md">ADR-034</a>); o watchdog cobre a lentidão sem erro.</p></details>
+<details class="anexo"><summary>H7. Corrupção lógica ou bug replicado</summary><p><strong>Explicação.</strong> RPO 0 replica tudo, inclusive erros. Um deploy com bug que grava dado errado é replicado na hora para as duas clouds.</p>
+<p><strong>Caminhos:</strong> backup contínuo dos dois bancos (PITR no DynamoDB, backup contínuo no Cosmos); retenção do log suficiente para reconstruir o estado até um índice anterior ao erro; validação de esquema e de capacidades antes do commit (<a href="../fail-path/C26-entrada-venenosa.html">C26</a>).</p></details>
+<details class="anexo"><summary>H8. Bug no consenso customizado</summary><p><strong>Explicação.</strong> A regra "eleição só na AWS + gate com maioria Azure + degradação" não é Raft padrão. Um erro sutil pode perder dado ou causar split-brain sem falha de infraestrutura.</p>
+<p><strong>Tratamento:</strong> modelo TLA+ <strong>antes</strong> do código do gate, ampliado com lease, promoção entre nuvens, troca de membros, dedupe, resultado desconhecido, I-DEL e a barreira da leitura forte (<a href="../../03_adr/ADR-030-verificacao-formal-tla.md">ADR-030</a>, <a href="../../03_adr/ADR-046-gate-so-conta-progresso-validado-pelo-raft.md">ADR-046</a>, <a href="../complex-path/X01-gate-e-troca-de-lider.html">X01</a>) e testes tipo Jepsen (partições, pausas, relógios defasados). O Raft em si é o <code>etcd-io/raft</code>, mantido fora do código nosso.</p></details>
+<details class="anexo"><summary>H9. Dependência de relógio nas leituras fortes</summary><p><strong>Explicação.</strong> Leituras por lease confiam que o relógio dos nós não deriva além de um limite.</p>
+<p><strong>Tratamento:</strong> a leitura forte usa <strong>ReadIndex</strong> com a barreira <code>min(ReadIndex, gate)</code>, não lease (<a href="R16-leitura-forte-em-celulas-follower.html">R16</a>, <a href="../../03_adr/ADR-049-barreira-da-leitura-forte-e-o-gate.md">ADR-049</a>). Se um dia lease for usado para leitura, monitorar o desvio de relógio e desligar acima de um limite. O <strong>lease do modo degradado</strong> é outra coisa e depende de relógio limitado: a deriva máxima faz parte de M (<a href="../../03_adr/ADR-044-lease-do-modo-degradado-e-promocao-da-azure.md">ADR-044</a>).</p></details>
+<details class="anexo"><summary>H10. Plano de controle e identidade dos provedores</summary><p><strong>Explicação.</strong> Incidentes globais costumam ser de identidade ou DNS, não de dados. Se o acesso ao Cosmos ou ao DynamoDB depender de emitir um token no momento da escrita, o caminho de dados para com os bancos de pé.</p>
+<p><strong>Caminhos:</strong> credenciais com rotação controlada e tokens de validade longa em cache; testar a camada com o serviço de identidade do provedor indisponível (<a href="R11-api-de-promocao-depende-da-aws.html">R11</a>, <a href="../success-path/C31-implantacao-por-cliente-e-identidade.html">C31</a>).</p></details>
+<details class="anexo"><summary>H11. Crescimento de um shard além da capacidade de um log</summary><p><strong>Explicação.</strong> Com ordenação por shard, cada shard tem uma líder e um log. Se um segmento crescer muito além de 3.000 TPS, não há procedimento de divisão de shard.</p>
+<p><strong>Caminhos:</strong> desenhar o split de shard (novo grupo de consenso, cópia, troca de roteamento) ou evoluir para ordenação por chave de partição com apply paralelo por chave.</p></details>
+<details class="anexo"><summary>H-DR1. Reconstrução automática de réplica</summary><p><strong>Explicação.</strong> Quando uma réplica perde o disco ou fica fora da janela de retenção, a v1 usa <code>drctl rebuild</code>, <strong>manual assistido</strong> (<a href="../fail-path/C21-disco-fsync-e-reconstrucao.html">C21</a>). O protocolo de reconstrução em tabela sombra (<a href="../../03_adr/ADR-047-delete-real-invariante-e-reconstrucao-em-tabela-sombra.md">ADR-047</a>, <a href="../fail-path/C33-reconstrucao-em-tabela-sombra.html">C33</a>) define os passos; a automação completa (copiar de outra célula, validar, entrar como learner) fica em aberto e é a exceção à meta "recupera sem humano" (junto com PEND-01).</p></details>
+<details class="anexo"><summary>H-DR4. Chave quente</summary><p><strong>Explicação.</strong> Muitas escritas à mesma chave serializam na fila por chave do applier e podem estourar throttling por partição no DynamoDB.</p>
+<p><strong>Caminhos:</strong> backpressure por chave e por cliente com os erros do DynamoDB que o SDK já entende (<a href="../../03_adr/ADR-025-escopo-da-api-v1-e-sdks.md">ADR-025</a>); medir no teste de carga.</p></details>
+<details class="anexo"><summary>H-DR6. Parse completo do JSON (aceita)</summary><p><strong>Decisão do Bruno (12/10):</strong> o custo de CPU e alocação do parse completo é <strong>conhecido e aceito</strong> (<a href="../../03_adr/ADR-032-parse-json-completo-e-rust.md">ADR-032</a>). Medir no spike S2; revisitar se heartbeat ou P99 forem afetados. Ideia adiada: guardar o corpo em bytes no log e varrer só o nome da tabela.</p></details>
+<details class="anexo"><summary>H-DR13. Prorrogação do lease x promoção da Azure</summary><p><strong>Explicação.</strong> Prorrogar o lease (<code>RENEW</code>) depois de a Azure já poder ser promovida (D + M passados) reabre o risco de duas pontas aceitarem escrita. A prorrogação é humana e replicada no Raft da AWS, mas a Azure não vê esse Raft.</p>
+<p><strong>Caminho:</strong> regra no modelo TLA+, por exemplo marcar a Azure como <code>promotion_blocked</code> antes de prorrogar, ou recusar a prorrogação depois de um limite. A regra precisa ser provada (P12 em <a href="../complex-path/X01-gate-e-troca-de-lider.html">X01</a>) antes de a PEND-01 fechar (<a href="../../03_adr/ADR-044-lease-do-modo-degradado-e-promocao-da-azure.md">ADR-044</a>, <a href="../complex-path/X02-modo-degradado.html">X02</a>).</p></details>
+<details class="anexo"><summary>H-DR14. Partição assimétrica</summary><p><strong>Explicação.</strong> Quando um sentido do link funciona e o outro não, o "último contato" visto pela Azure e o gate visto pela AWS divergem: por exemplo, a AWS não recebe as respostas da Azure e degrada, mas a Azure ainda recebe os heartbeats da AWS, ou o contrário. Também é preciso definir o que conta como "contato da AWS" (qualquer votante ou só a líder, <a href="R06-duas-azs-aws-caem.html">R06</a>).</p>
+<p><strong>Caminho:</strong> modelar partições simétricas e assimétricas no TLA+ (<a href="../fail-path/C32-particao-e-lease-do-modo-degradado.html">C32</a>) e confirmar que o prazo D + M, medido no relógio da Azure, continua seguro.</p></details>
+<details class="anexo"><summary>H-DR15. Semântica do Cosmos depois do failover</summary><p><strong>Explicação.</strong> Depois do failover a aplicação passa a falar com o Cosmos pelo Cloud-Adapter. Diferenças de tamanho de item, precisão de <code>Number</code>, índices consistentes por padrão (o do DynamoDB não é) e TTL podem mudar o comportamento que a aplicação via no DynamoDB (<a href="../../03_adr/ADR-050-gsi-nao-tem-leitura-forte.md">ADR-050</a>, <a href="../../03_adr/ADR-051-compatibilidade-dynamodb-inventario-conformidade-e-idempotencia.md">ADR-051</a>).</p>
+<p><strong>Caminho:</strong> a suíte de conformidade roda a mesma sequência contra o DynamoDB real, a camada e o Cosmos pelo Cloud-Adapter e compara os resultados (PEND-16); a aplicação não deve depender da consistência do índice em nenhuma das duas nuvens.</p></details>
+<details class="anexo"><summary>Pontos em aberto</summary><ul>
+<li>Decisões que dependem do Bruno: PEND-02 (aceite formal do valor de D e do RPO &gt; 0, <strong>bloqueante</strong>) e a aprovação de D e M para fechar a PEND-01, cujo desenho está decidido (ADR-044) e falta a prova no TLA+. A promoção automática segue com os outros arquitetos e não é reaberta.</li>
+</ul></details>
+</section>
+<footer class="rodape">
+Gerado em 13/10/2026 a partir de <code>DataReplication_Versao_1/</code>. O conteúdo vem dos arquivos .md citados no código-fonte desta página;
+textos marcados como <em>sugestão</em> são inferência do arquiteto e não decisões registradas.
+</footer>
+</main>
+</div>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@11.4.1/dist/mermaid.min.js"></script>
+<script>mermaid.initialize({startOnLoad: true, theme: "neutral", securityLevel: "strict", flowchart: {htmlLabels: true, useMaxWidth: true}, sequence: {useMaxWidth: true}});</script>
+</body>
+</html>

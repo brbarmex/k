@@ -1,0 +1,19 @@
+{
+ "id": "C16",
+ "pontos": [
+  {
+   "titulo": "AWS volta antes de a Azure poder ser promovida",
+   "origem": "Falhas e tratativas",
+   "contexto": "Se a AWS volta antes de D + M, não houve promoção. A decisão é ressincronizar a Azure e voltar ao normal, mas o operador precisa saber em qual caso está.",
+   "na_fonte": "A decisão é ressincronizar e propor `RESTORE` (C13); `ForcePromote` recusa nesse intervalo.",
+   "sugestao": "Incluir no runbook um passo de verificação de epoch e estado do lease ao retorno da AWS, e testar o retorno da AWS em instantes diferentes (antes de D, entre D e D + M e depois)."
+  },
+  {
+   "titulo": "Banco da AWS que volta contém órfãs e o fencing por item não barra",
+   "origem": "Falhas e tratativas",
+   "contexto": "Os DynamoDBs da AWS guardam órfãs, e um applier antigo na epoch E pode aplicar o restante do log local, porque a condição de versão não conhece a epoch. Cada célula AWS tem seu banco, então cada um pode divergir.",
+   "na_fonte": "Boot cercado, revogação de credenciais e recriação da célula (C30, ADR-042).",
+   "sugestao": "Testar o boot cercado com a epoch antiga e confirmar que nenhum applier escreve antes da extração das órfãs. Ordenar no runbook: cercar, extrair órfãs, PITR, recriar."
+  }
+ ]
+}

@@ -1,0 +1,238 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>C26 — Entrada venenosa: um item que o banco recusa para sempre (antes R02) · DataReplication v1</title>
+<link rel="stylesheet" href="../assets/site.css">
+</head>
+<body>
+<!--
+Fonte(s) usada(s) nesta página (rastreabilidade), relativas à raiz do pacote:
+  02_cenarios/atualizados/C26-entrada-venenosa.md
+  04_diagramas/D08-uma-escrita-seis-bancos.md
+Gerado em 13/10/2026 a partir do pacote DataReplication_Versao_1.
+-->
+<header class="topo">
+<button class="menu" type="button" aria-label="Abrir navegação" onclick="document.body.classList.toggle('nav-aberta')">☰</button>
+<a href="../index.html">DataReplication v1</a><span class="sep">·</span><span>Apresentação ao comitê técnico</span>
+</header>
+<div class="layout">
+<nav class="sidebar" aria-label="Navegação">
+<a class="marca" href="../index.html">DataReplication v1<span>Comitê técnico</span></a>
+<a class="nav-inicio" href="../index.html">Resumo e requisitos</a>
+<details class="grupo"><summary>Success path <span class="qtd">10</span></summary><ul>
+<li><a class="idx" href="../success-path/index.html">Índice da seção</a></li>
+<li><a href="../success-path/C01-visao-geral.html"><b>C01</b> Visão geral da arquitetura</a></li>
+<li><a href="../success-path/C02-dentro-da-celula.html"><b>C02</b> Dentro da célula: apps do cliente e DataReplication</a></li>
+<li><a href="../success-path/C03-escrita-strong.html"><b>C03</b> Caminho feliz: escrita (apply serial depois do gate)</a></li>
+<li><a href="../success-path/C04-escrita-eventual.html"><b>C04</b> Modo Eventual: só de leitura (sem apply paralelo na v1)</a></li>
+<li><a href="../success-path/C05-leitura-strong-e-eventual.html"><b>C05</b> Caminho feliz: leitura Strong e Eventual</a></li>
+<li><a href="../success-path/C06-follower-encaminha.html"><b>C06</b> Requisição chega numa célula que não é a líder</a></li>
+<li><a href="../success-path/C11-transferencia-planejada.html"><b>C11</b> Transferência planejada de liderança (manutenção)</a></li>
+<li><a href="../success-path/C18-partida-e-recuperacao-do-no.html"><b>C18</b> Partida, recuperação e parada limpa do nó</a></li>
+<li><a href="../success-path/C23-batchwriteitem-lote-uma-entrada.html"><b>C23</b> BatchWriteItem: o lote é uma entrada e o apply é por item (antes R15)</a></li>
+<li><a href="../success-path/C31-implantacao-por-cliente-e-identidade.html"><b>C31</b> Uma instalação por cliente e identificação na API (antes R19)</a></li>
+</ul></details>
+<details class="grupo" open><summary>Fail path <span class="qtd">24</span></summary><ul>
+<li><a class="idx" href="index.html">Índice da seção</a></li>
+<li><a href="C07-timeout-depois-do-commit.html"><b>C07</b> Prazo estoura depois do commit, antes do ACK (retry do SDK)</a></li>
+<li><a href="C08-queda-de-celula-lider-ou-az-aws.html"><b>C08</b> Queda da célula líder ou de uma AZ na AWS</a></li>
+<li><a href="C09-queda-de-az-azure.html"><b>C09</b> Queda de uma AZ na Azure</a></li>
+<li><a href="C10-celulas-de-app-aws-fora.html"><b>C10</b> Apps da AWS fora, replicação viva: tráfego vai para a Azure</a></li>
+<li><a href="C12-modo-degradado.html"><b>C12</b> Link AWS↔Azure cai ou Azure cai: modo degradado com lease</a></li>
+<li><a href="C13-ressincronizacao-da-azure.html"><b>C13</b> Ressincronização da Azure</a></li>
+<li><a href="C14-aws-cai-sem-degradacao.html"><b>C14</b> AWS cai por inteiro sem degradação prévia</a></li>
+<li><a href="C15-aws-cai-em-degradacao.html"><b>C15</b> AWS cai durante o modo degradado</a></li>
+<li><a href="C16-aws-volta-apos-promocao.html"><b>C16</b> AWS volta depois da promoção da Azure</a></li>
+<li><a href="C17-maquina-de-estados.html"><b>C17</b> Máquina de estados dos modos de operação de um shard</a></li>
+<li><a href="C19-falha-do-datareplication.html"><b>C19</b> O DataReplication da célula cai ou reinicia</a></li>
+<li><a href="C20-bypass-de-escrita-direta.html"><b>C20</b> Aplicação escreve direto no banco (bypass)</a></li>
+<li><a href="C21-disco-fsync-e-reconstrucao.html"><b>C21</b> Falha de fsync, corrupção, disco lento e disco perdido</a></li>
+<li><a href="C22-cliente-com-sdk-nao-suportado.html"><b>C22</b> Cliente com SDK ou versão não suportada</a></li>
+<li><a href="C24-orcamento-de-50ms-e-escrita-no-dynamodb.html"><b>C24</b> Orçamento de 50 ms e a escrita no DynamoDB dentro do ACK (antes R21)</a></li>
+<li><a href="C25-link-lento-faixa-cinzenta.html"><b>C25</b> Link lento ou saturado (faixa cinzenta): só alertar (antes R01)</a></li>
+<li><a class="atual" aria-current="page" href="C26-entrada-venenosa.html"><b>C26</b> Entrada venenosa: um item que o banco recusa para sempre (antes R02)</a></li>
+<li><a href="C27-encaminhamento-sem-lider-conhecida.html"><b>C27</b> Loop de encaminhamento e espera pela líder durante a eleição (antes R05)</a></li>
+<li><a href="C28-leitura-eventual-na-azure-defasada.html"><b>C28</b> Leitura eventual na Azure durante a degradação (antes R04)</a></li>
+<li><a href="C29-disco-do-log-em-degradacao-longa.html"><b>C29</b> Disco do log esgota durante uma degradação longa (antes R08)</a></li>
+<li><a href="C30-aws-que-volta-boot-cercado.html"><b>C30</b> Fencing: o DynamoDB e o applier da AWS que voltam depois da promoção (antes R14)</a></li>
+<li><a href="C32-particao-e-lease-do-modo-degradado.html"><b>C32</b> Partição entre AWS e Azure: lease do modo degradado e promoção da Azure</a></li>
+<li><a href="C33-reconstrucao-em-tabela-sombra.html"><b>C33</b> Reconstrução do banco de uma célula em tabela sombra</a></li>
+<li><a href="C34-autorizacao-por-aplicacao.html"><b>C34</b> Autorização por aplicação: mTLS e lista de permissões por identidade</a></li>
+</ul></details>
+<details class="grupo"><summary>Complex path <span class="qtd">6</span></summary><ul>
+<li><a class="idx" href="../complex-path/index.html">Índice da seção</a></li>
+<li><a href="../complex-path/X01-gate-e-troca-de-lider.html"><b>X01</b> Gate: definição, monotonicidade e troca de líder</a></li>
+<li><a href="../complex-path/X02-modo-degradado.html"><b>X02</b> Modo degradado: entrada, permanência, lease e saída</a></li>
+<li><a href="../complex-path/X03-desastre-e-promocao-da-azure.html"><b>X03</b> Desastre: promoção da Azure, fencing e reconciliação</a></li>
+<li><a href="../complex-path/X04-partida-recuperacao-e-dois-logs.html"><b>X04</b> Partida, recuperação e coerência entre os dois logs</a></li>
+<li><a href="../complex-path/X05-timeouts-e-idempotencia.html"><b>X05</b> Timeouts em cascata e idempotência do retry</a></li>
+<li><a href="../complex-path/X06-delete-ttl-gsi.html"><b>X06</b> DELETE, TTL, Scan e GSI</a></li>
+</ul></details>
+<details class="grupo"><summary>Parking lot <span class="qtd">14</span></summary><ul>
+<li><a class="idx" href="../parking-lot/index.html">Índice da seção</a></li>
+<li><a href="../parking-lot/R03-backlog-de-apply-no-cosmos.html"><b>R03</b> Backlog de apply no Cosmos (429 e RU insuficiente)</a></li>
+<li><a href="../parking-lot/R06-duas-azs-aws-caem.html"><b>R06</b> Duas AZs da AWS caem com a Azure saudável</a></li>
+<li><a href="../parking-lot/R07-link-oscilando.html"><b>R07</b> Link oscilando (flapping)</a></li>
+<li><a href="../parking-lot/R09-resincronizacao-lenta-ou-bloqueada.html"><b>R09</b> Ressincronização da Azure lenta ou que nunca termina</a></li>
+<li><a href="../parking-lot/R10-operador-lento-no-desastre.html"><b>R10</b> Tempo de decisão humana no desastre</a></li>
+<li><a href="../parking-lot/R11-api-de-promocao-depende-da-aws.html"><b>R11</b> A API de promoção depende de algo que estava na AWS</a></li>
+<li><a href="../parking-lot/R12-promocao-com-aws-viva.html"><b>R12</b> Promoção da Azure com a AWS viva (split-brain, PEND-01)</a></li>
+<li><a href="../parking-lot/R13-escritas-orfas-reconciliacao.html"><b>R13</b> Escritas órfãs: reconciliação depois da promoção (PEND-03)</a></li>
+<li><a href="../parking-lot/R16-leitura-forte-em-celulas-follower.html"><b>R16</b> Leitura forte em células follower (ReadIndex e gate)</a></li>
+<li><a href="../parking-lot/R17-atributo-de-versao-e-limite-400kb.html"><b>R17</b> Atributo de versão: limite de 400 KB e ausência nas respostas</a></li>
+<li><a href="../parking-lot/R18-rto-nao-quantificado.html"><b>R18</b> RTO (Delta-T) ainda sem número</a></li>
+<li><a href="../parking-lot/R20-custo-6x.html"><b>R20</b> Custo: cada escrita lógica vira seis gravações</a></li>
+<li><a href="../parking-lot/R22-memoria-da-janela-de-dedupe.html"><b>R22</b> Memória da janela de dedupe</a></li>
+<li><a href="../parking-lot/R23-hipoteses-gerais.html"><b>R23</b> Hipóteses gerais em aberto</a></li>
+</ul></details>
+</nav>
+<main>
+<div class="migalhas"><a href="../index.html">Início</a> / <a href="index.html">Fail path</a> / C26</div>
+<h1>C26 — Entrada venenosa: um item que o banco recusa para sempre (antes R02)</h1>
+<div class="meta"><span class="selo fail-path">Fail path</span><div><b>Status na fonte:</b> ✅ Atualizado (decidido pelo Bruno em 13/10/2026; SKIP por item na revisão crítica)</div><div><b>Relacionados:</b> <a href="../success-path/C03-escrita-strong.html">C03</a>, <a href="../success-path/C23-batchwriteitem-lote-uma-entrada.html">C23</a>, <a href="../complex-path/X01-gate-e-troca-de-lider.html">X01</a>, <a href="../../03_adr/ADR-005-ack-exige-gate.md">ADR-005</a>, <a href="../parking-lot/R17-atributo-de-versao-e-limite-400kb.html">R17</a></div></div>
+<section id="visao-geral"><h2>1. Visão geral do cenário</h2>
+<p>Com apply <strong>serial por shard</strong> (sempre, depois do gate), o applier não pode pular um item sem decisão. Se um item de uma entrada <strong>já commitada</strong> é recusado de forma <strong>permanente</strong> pelo banco (item acima do limite, tipo sem tradução no Cloud-Adapter, nome de atributo inválido no Cosmos), o <code>appliedIndex</code> para: as escritas seguintes ficam <code>PENDING</code> e as leituras fortes do shard não chegam ao alvo. <strong>Um item trava o shard.</strong> Como o apply é determinístico, todas as células aplicam os mesmos itens anteriores e param no mesmo item ruim: não há divergência entre réplicas, mas a semântica de pular a entrada inteira era ruim.</p>
+<p>Variante silenciosa: a recusa acontece só no Cosmos. A AWS segue normal e o atraso da Azure cresce até o failover.</p>
+<p>O ACK só sai depois do apply na célula da líder (6.9). Logo, uma recusa permanente na líder aparece <strong>antes do ACK</strong>: o cliente recebe erro. O problema real é que a entrada <strong>já está no log</strong> e todas as células tropeçam nela.</p>
+<div class="caixa decisao"><h3>Decisão registrada na fonte</h3><p>O <code>SKIP</code> de um item venenoso é <strong>sempre decidido por uma pessoa</strong>, identifica o item por <strong><code>(índice, ordem)</code></strong> e pula <strong>só esse item</strong>. O applier persiste o progresso por item (<a href="../../03_adr/ADR-048-skip-por-item.md">ADR-048</a>). Não há SKIP automático.</p></div>
+</section>
+<section id="diagrama"><h2>2. Diagrama</h2>
+<h3>Defesa em camadas</h3>
+<div class="diagrama"><pre class="mermaid">flowchart TD
+    A[&quot;Requisição chega à API&quot;] --&gt; B[&quot;Validação 1: tamanho, tipos, nomes, atributo reservado dr_v&quot;]
+    B --&gt; C{&quot;Passa nas regras do DynamoDB e do Cosmos?&quot;}
+    C --&gt;|&quot;não&quot;| D[&quot;Rejeita com erro 4xx definido antes do commit&quot;]
+    C --&gt;|&quot;sim&quot;| E[&quot;Commit no log&quot;]
+    E --&gt; F[&quot;Applier grava item a item e persiste o progresso: índice e ordem&quot;]
+    F --&gt; G{&quot;Erro no apply de um item&quot;}
+    G --&gt;|&quot;transitório&quot;| H[&quot;Retry com backoff, ver C03&quot;]
+    G --&gt;|&quot;permanente&quot;| I[&quot;Applier para nesse item e marca o shard: parada explícita&quot;]
+    I --&gt; I2[&quot;Leitura forte do shard falha rápido com 503&quot;]
+    I --&gt; J[&quot;Alerta e marcador visível: índice e ordem da entrada venenosa&quot;]
+    J --&gt; K[&quot;Pessoa registra SKIP auditado de índice e ordem como entrada replicada&quot;]
+    K --&gt; L[&quot;Todas as células pulam o mesmo item, os demais itens seguem aplicados&quot;]</pre></div>
+<h3>Arquitetura geral relacionada: <a href="../../04_diagramas/D08-uma-escrita-seis-bancos.md">D08 — Uma escrita lógica, seis bancos</a></h3><p class="nota">Diagrama de <code>04_diagramas/</code> escolhido pelo site como contexto; o cenário fonte não faz essa associação.</p>
+<div class="diagrama"><pre class="mermaid">flowchart TD
+    W[&quot;Escrita lógica commitada e dentro do gate&quot;] --&gt; L[&quot;Célula líder: apply no banco depois do gate, o ACK espera&quot;]
+    W --&gt; F1[&quot;Célula AWS 2: apply a partir do log&quot;]
+    W --&gt; F2[&quot;Célula AWS 3: apply a partir do log&quot;]
+    W --&gt; Z1[&quot;Célula Azure 1: apply no Cosmos&quot;]
+    W --&gt; Z2[&quot;Célula Azure 2: apply no Cosmos&quot;]
+    W --&gt; Z3[&quot;Célula Azure 3: apply no Cosmos&quot;]
+    L --&gt; ACK[&quot;ACK ao cliente&quot;]
+    Z1 -.-&gt;|&quot;atraso de apply: ver R03 e PEND-18&quot;| RTO[&quot;Pode crescer e afetar o RTO&quot;]
+    ISO[&quot;Isolamento lógico por banco: cada applier só escreve na própria célula, e o rebuild é por célula&quot;] -.-&gt; W</pre></div>
+</section>
+<section id="etapas"><h2>3. Legenda e etapas</h2>
+<div class="etapas"><ol>
+<li><strong>Validar antes do commit.</strong> A líder valida contra as regras dos <strong>dois</strong> bancos (<code>ValidateCapabilities</code> do Cloud-Adapter inclui as regras do Cosmos). O que nenhum banco aceita nunca vira entrada do log.</li>
+<li><strong>Classificar o erro do apply.</strong> Throttling, 5xx e timeout são transitórios. <code>ValidationException</code>, item grande demais e restrição são permanentes.</li>
+<li><strong>Parada explícita.</strong> Erro permanente para o applier no item, expõe <code>poison_entry_index</code> (com a ordem do item) e gera alerta. O shard fica visivelmente parado, em vez de lento sem explicação. Com o applier parado, a leitura forte do shard <strong>falha rápido</strong> com <code>503</code>, em vez de esperar até o timeout (<a href="../../03_adr/ADR-049-barreira-da-leitura-forte-e-o-gate.md">ADR-049</a>).</li>
+<li><strong><code>SKIP</code> auditado, por uma pessoa.</strong> O operador propõe uma entrada replicada <code>SKIP(index, ordem, motivo, autor)</code>. Como passa pelo Raft, <strong>todas as células pulam o mesmo item</strong>; a divergência entre bancos é registrada, não escondida. A entrada original nunca é apagada. Pular a entrada inteira exige listar todas as ordens e continua sendo decisão humana.</li>
+<li><strong>Replay.</strong> Um replay reaplica os itens anteriores de forma idempotente (condição <code>v &lt; índice</code>) e pula só o item marcado.</li>
+</ol></div>
+</section>
+<section id="pontos"><h2>4. Pontos que precisam ser avaliados</h2>
+<p class="nota">Reescritos a partir das seções “Falhas e tratativas” e “Pontos em aberto” (e de outras seções de risco, quando existem). Em cada ponto, <b>O que a fonte define</b> vem da documentação; <b>Sugestão de encaminhamento</b> é <b>inferência do arquiteto</b>, não decisão registrada.</p>
+<article class="ponto">
+<h3><span class="num">1</span>Recusa só no Cosmos <span class="origem">Falhas e tratativas</span></h3>
+<dl>
+<dt>Contexto</dt><dd>Se a validação pré-commit não conhece uma regra do Cosmos, a AWS aplica o item e a Azure para nele. O desvio é silencioso até o failover: a AWS segue normal e o atraso de apply na Azure cresce. No failover, a Azure promovida estaria atrás, o que afeta RPO efetivo e RTO.</dd>
+<dt>O que a fonte define</dt><dd class="">A fonte propõe como mitigação a métrica <code>applied_lag</code> por cloud, teste de contrato do Cloud-Adapter com itens reais e a suíte de conformidade (<a href="../../03_adr/ADR-051-compatibilidade-dynamodb-inventario-conformidade-e-idempotencia.md">ADR-051</a>); o limite de lag do Cosmos para elegibilidade ao failover (PEND-18) também cobre o caso.</dd>
+<dt class="sug">Sugestão de encaminhamento <small>(inferência, não decidida)</small></dt><dd class="sug">Alertar quando o <code>applied_lag</code> da Azure crescer enquanto o da AWS se mantém, com o <code>poison_entry_index</code> exposto também nas células Azure. Incluir no teste de contrato itens dos inventários de clientes (PEND-15) e fechar o PEND-18 antes do go-live.</dd>
+</dl>
+</article>
+<article class="ponto">
+<h3><span class="num">2</span>Raio de impacto: o shard inteiro para <span class="origem">Falhas e tratativas</span></h3>
+<dl>
+<dt>Contexto</dt><dd>Um item venenoso para o applier do shard inteiro até uma pessoa decidir. Com prazo de 7,5 s, todas as escritas do shard viram <code>503 PENDING</code> em segundos e as filas enchem. É indisponibilidade de escrita e de leitura forte do shard.</dd>
+<dt>O que a fonte define</dt><dd class="">A fonte propõe um circuito de proteção que rejeita rápido enquanto o shard está parado; a leitura forte falha rápido com <code>503</code> (<a href="../../03_adr/ADR-049-barreira-da-leitura-forte-e-o-gate.md">ADR-049</a>).</dd>
+<dt class="sug">Sugestão de encaminhamento <small>(inferência, não decidida)</small></dt><dd class="sug">Implementar o circuito com métrica e teste de caos que injeta um item venenoso e verifica que as filas não crescem e que os outros shards não são afetados.</dd>
+</dl>
+</article>
+<article class="ponto">
+<h3><span class="num">3</span>Tempo de resposta humana <span class="origem">Falhas e tratativas</span></h3>
+<dl>
+<dt>Contexto</dt><dd>Sem SKIP automático, o tempo de parada do shard é o tempo do plantão. Isso entra no RTO de escrita do shard e depende de alertas, acesso e treinamento. Fora do horário comercial pode ser longo.</dd>
+<dt>O que a fonte define</dt><dd class="">Decidido no <a href="../../03_adr/ADR-038-skip-de-entrada-venenosa-sempre-humano.md">ADR-038</a>: o SKIP é sempre humano; o tempo de resposta entra no desenho do plantão e nos game days (<a href="../parking-lot/R10-operador-lento-no-desastre.html">R10</a>).</dd>
+<dt class="sug">Sugestão de encaminhamento <small>(inferência, não decidida)</small></dt><dd class="sug">Medir em game day o tempo do alerta até o SKIP, com metas por severidade (limiar a definir), e manter um runbook com o comando de SKIP pronto e as checagens antes de aplicá-lo.</dd>
+</dl>
+</article>
+<article class="ponto">
+<h3><span class="num">4</span>Divergência e resultado desconhecido depois do SKIP <span class="origem">Falhas e tratativas</span></h3>
+<dl>
+<dt>Contexto</dt><dd>Pular o item em todas as células mantém os bancos iguais entre si, mas o cliente que recebeu <code>PENDING</code> pode ficar com essa escrita como desconhecida para sempre. Sem uma resposta clara, o cliente pode retentar ou assumir sucesso.</dd>
+<dt>O que a fonte define</dt><dd class="">A fonte decide que a consulta por identificador devolve o resultado por item: <code>REJECTED</code> para o item pulado, <code>APPLIED</code> para os demais e <code>PENDING</code> para os não aplicados (<a href="../../03_adr/ADR-048-skip-por-item.md">ADR-048</a>).</dd>
+<dt class="sug">Sugestão de encaminhamento <small>(inferência, não decidida)</small></dt><dd class="sug">Definir o formato da consulta e testar que o retry do cliente com o mesmo identificador, após o SKIP, devolve o mesmo resultado por item. Notificar o time do cliente com o registro auditado do SKIP.</dd>
+</dl>
+</article>
+<article class="ponto">
+<h3><span class="num">5</span>Lote com item venenoso <span class="origem">Falhas e tratativas</span></h3>
+<dl>
+<dt>Contexto</dt><dd>O lote é uma entrada, mas o item ruim pode estar no meio dele. Pular a entrada inteira descartaria itens bons; pular só o item mantém o sucesso parcial como no DynamoDB.</dd>
+<dt>O que a fonte define</dt><dd class="">Decidido no <a href="../../03_adr/ADR-048-skip-por-item.md">ADR-048</a>: o SKIP age no item, mantendo os itens bons do lote; a validação pré-commit continua sendo a defesa principal.</dd>
+<dt class="sug">Sugestão de encaminhamento <small>(inferência, não decidida)</small></dt><dd class="sug">Incluir no teste de propriedade lotes com item venenoso em posições diferentes e queda no meio, verificando que todas as células convergem e que a consulta por item é consistente.</dd>
+</dl>
+</article>
+<article class="ponto">
+<h3><span class="num">6</span>Lista final de regras de validação <span class="origem">Pontos em aberto</span></h3>
+<dl>
+<dt>Contexto</dt><dd>A validação pré-commit só protege se conhece as regras dos dois bancos, e a lista final ainda não existe. Cada regra faltante é uma entrada venenosa em potencial que trava um shard.</dd>
+<dt>O que a fonte define</dt><dd class="nd-fonte">Não decidido na fonte. O tema está ligado ao <a href="../parking-lot/R17-atributo-de-versao-e-limite-400kb.html">R17</a> (atributo de versão e limite de item).</dd>
+<dt class="sug">Sugestão de encaminhamento <small>(inferência, não decidida)</small></dt><dd class="sug">Montar a lista a partir da documentação dos dois bancos e de fuzzing contra o DynamoDB real e o Cosmos, com cada regra coberta por caso na suíte de conformidade.</dd>
+</dl>
+</article>
+<article class="ponto">
+<h3><span class="num">7</span>Formato da consulta por item e checkpoint por item <span class="origem">Pontos em aberto</span></h3>
+<dl>
+<dt>Contexto</dt><dd>A consulta por identificador e o checkpoint por item no volume do log ainda não têm formato definido. Sem isso, o cliente não tem como saber o destino de cada item depois de um SKIP ou de um <code>PENDING</code>.</dd>
+<dt>O que a fonte define</dt><dd class="nd-fonte">Não decidido na fonte. Fica a detalhar na implementação.</dd>
+<dt class="sug">Sugestão de encaminhamento <small>(inferência, não decidida)</small></dt><dd class="sug">Especificar os campos e códigos da consulta antes da implementação e incluí-los na suíte de compatibilidade, e testar a durabilidade do checkpoint por item com queda entre o apply e o fsync do progresso.</dd>
+</dl>
+</article>
+<article class="ponto">
+<h3><span class="num">8</span>SKIP automático (H-DR2) fora da v1 <span class="origem">Pontos em aberto</span></h3>
+<dl>
+<dt>Contexto</dt><dd>O SKIP automático reduziria o tempo de parada do shard, mas pularia dados sem decisão humana. A fonte o deixa fora da v1.</dd>
+<dt>O que a fonte define</dt><dd class="">Decidido na fonte que H-DR2 fica fora da v1 e só volta se o plantão se mostrar gargalo.</dd>
+<dt class="sug">Sugestão de encaminhamento <small>(inferência, não decidida)</small></dt><dd class="sug">Definir desde já a métrica que reabriria a hipótese, como o tempo de parada por item venenoso ao longo dos game days e incidentes, e um limiar a definir para revisão.</dd>
+</dl>
+</article>
+</section>
+<section id="adrs"><h2>5. ADRs relacionados</h2>
+<div class="tabela"><table><thead><tr><th>ADR</th><th>Título</th><th>Decisão resumida</th><th>Arquivo</th></tr></thead><tbody>
+<tr><td class="nw"><a href="../../03_adr/ADR-038-skip-de-entrada-venenosa-sempre-humano.md">ADR-038</a></td><td>O SKIP de uma entrada venenosa é sempre aprovado por uma pessoa</td><td>SKIP de entrada venenosa é sempre decidido por uma pessoa, como entrada replicada e auditada.</td><td><a href="../../03_adr/ADR-038-skip-de-entrada-venenosa-sempre-humano.md">ADR-038-skip-de-entrada-venenosa-sempre-humano.md</a></td></tr>
+<tr><td class="nw"><a href="../../03_adr/ADR-048-skip-por-item.md">ADR-048</a></td><td>O SKIP identifica o item: (índice, ordem)</td><td>O SKIP identifica o item por (índice, ordem) e o applier persiste o progresso por item.</td><td><a href="../../03_adr/ADR-048-skip-por-item.md">ADR-048-skip-por-item.md</a></td></tr>
+<tr><td class="nw"><a href="../../03_adr/ADR-049-barreira-da-leitura-forte-e-o-gate.md">ADR-049</a></td><td>A leitura forte espera <code>min(ReadIndex, gate)</code></td><td>A leitura forte espera min(ReadIndex, gate), obtidos da líder na mesma resposta.</td><td><a href="../../03_adr/ADR-049-barreira-da-leitura-forte-e-o-gate.md">ADR-049-barreira-da-leitura-forte-e-o-gate.md</a></td></tr>
+<tr><td class="nw"><a href="../../03_adr/ADR-023-modos-de-escrita-e-leitura.md">ADR-023</a></td><td>Modos de escrita (Strong serial, Eventual paralelo) e de leitura (padrão forte)</td><td>READ_MODE_DEFAULT obrigatória (padrão strong); a parte de escrita (WRITE_MODE) foi substituída pelo <a href="../../03_adr/ADR-053-eventual-sem-apply-paralelo-na-v1.md">ADR-053</a>.</td><td><a href="../../03_adr/ADR-023-modos-de-escrita-e-leitura.md">ADR-023-modos-de-escrita-e-leitura.md</a></td></tr>
+<tr><td class="nw"><a href="../../03_adr/ADR-024-delete-real-ttl-local-gsi.md">ADR-024</a></td><td>DELETE real com ordem por chave; TTL local; GSI</td><td>DELETE real com ordem por chave; TTL expira local em cada célula; leitura em GSI sempre eventual.</td><td><a href="../../03_adr/ADR-024-delete-real-ttl-local-gsi.md">ADR-024-delete-real-ttl-local-gsi.md</a></td></tr>
+<tr><td class="nw"><a href="../../03_adr/ADR-015-wal-post-image-e-versao.md">ADR-015</a></td><td>O log guarda a post-image e a versão do item</td><td>Cada entrada guarda a post-image e a versão (= índice Raft); o applier grava com condição v &lt; índice.</td><td><a href="../../03_adr/ADR-015-wal-post-image-e-versao.md">ADR-015-wal-post-image-e-versao.md</a></td></tr>
+</tbody></table></div>
+<p class="nota">Lista extraída do cabeçalho “ADRs” do arquivo fonte. A decisão resumida condensa a seção “Decisão” de cada ADR.</p>
+</section>
+<section id="anexo"><h2>Anexo: texto original da fonte</h2><p class="nota">Seções do .md fonte reproduzidas sem reescrita, para conferência.</p>
+<details class="anexo"><summary>Falhas e tratativas</summary><ul>
+<li><strong>Recusa só no Cosmos.</strong> Se a validação não conhece uma regra do Cosmos, a AWS aplica e a Azure para. O desvio é silencioso até o failover. Mitigação: métrica <code>applied_lag</code> por cloud, teste de contrato do Cloud-Adapter com itens reais dos clientes e a suíte de conformidade contra o Cloud-Adapter (<a href="../../03_adr/ADR-051-compatibilidade-dynamodb-inventario-conformidade-e-idempotencia.md">ADR-051</a>). O limite de lag de apply do Cosmos para a elegibilidade ao failover (PEND-18) também cobre esse caso.</li>
+<li><strong>Raio de impacto.</strong> A parada vale para o shard inteiro e dura até uma pessoa decidir. Com 7,5 s de prazo, todas as escritas do shard viram <code>503 PENDING</code> em segundos. Um circuito de proteção (rejeitar rápido enquanto o shard está parado) evita encher as filas.</li>
+<li><strong>Tempo de resposta humana.</strong> Sem SKIP automático, o tempo parado é o tempo do plantão. Isso entra no desenho do plantão e nos game days (<a href="../parking-lot/R10-operador-lento-no-desastre.html">R10</a>).</li>
+<li><strong>Divergência por SKIP.</strong> Pular em todas as células mantém os bancos iguais entre si, mas o cliente que recebeu <code>PENDING</code> pode ter essa escrita como "desconhecida" para sempre. O SKIP precisa devolver o resultado <strong>por item</strong> na consulta por identificador: <code>REJECTED</code> para o item pulado, <code>APPLIED</code> para os demais, <code>PENDING</code> para os que ainda não foram aplicados.</li>
+<li><strong>Lote com item venenoso.</strong> O lote é uma entrada (<a href="../success-path/C23-batchwriteitem-lote-uma-entrada.html">C23</a>), mas o <code>SKIP</code> age no item: os itens bons são mantidos, como no sucesso parcial do <code>BatchWriteItem</code> do DynamoDB. A validação pré-commit continua sendo a defesa principal.</li>
+</ul></details>
+<details class="anexo"><summary>Pontos em aberto</summary><ul>
+<li>Lista final de regras de validação do Cosmos e do DynamoDB no caminho de commit (junto com <a href="../parking-lot/R17-atributo-de-versao-e-limite-400kb.html">R17</a>).</li>
+<li>Formato da consulta por item (campos e códigos de erro) e o checkpoint por item no volume do log: a detalhar na implementação.</li>
+<li>H-DR2 (SKIP automático) fica fora da v1 e só volta se o plantão se mostrar um gargalo.</li>
+</ul></details>
+</section>
+<footer class="rodape">
+Gerado em 13/10/2026 a partir de <code>DataReplication_Versao_1/</code>. O conteúdo vem dos arquivos .md citados no código-fonte desta página;
+textos marcados como <em>sugestão</em> são inferência do arquiteto e não decisões registradas.
+</footer>
+</main>
+</div>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@11.4.1/dist/mermaid.min.js"></script>
+<script>mermaid.initialize({startOnLoad: true, theme: "neutral", securityLevel: "strict", flowchart: {htmlLabels: true, useMaxWidth: true}, sequence: {useMaxWidth: true}});</script>
+</body>
+</html>

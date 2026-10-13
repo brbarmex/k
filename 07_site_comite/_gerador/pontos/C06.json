@@ -1,0 +1,26 @@
+{
+ "id": "C06",
+ "pontos": [
+  {
+   "titulo": "Líder inalcançável e sem eleição concluída",
+   "origem": "Falhas e tratativas",
+   "contexto": "A follower recebe uma escrita mas não alcança a líder, e ainda não há nova líder eleita. Se gravasse localmente, quebraria a ordem e o RPO. A indisponibilidade de escrita dura até a eleição terminar.",
+   "na_fonte": "A follower devolve erro recuperável com `retryAfter` e nunca grava localmente (ADR-010); a espera pela líder é de até 1 s, depois `503` (C27, ADR-039).",
+   "sugestao": "Medir nos exercícios de falha da líder (C08) o tempo entre o primeiro erro recuperável e a primeira escrita aceita, e checar se o `retryAfter` sugerido é compatível com o tempo de eleição medido."
+  },
+  {
+   "titulo": "Gateway mal configurado gera salto persistente",
+   "origem": "Falhas e tratativas",
+   "contexto": "Se o roteamento manda sempre as escritas para uma follower, toda escrita paga um salto extra de 1 a 2 ms e carrega a follower. Isso não afeta RPO, mas consome orçamento de latência e pode esconder um defeito de roteamento.",
+   "na_fonte": "Métrica `forwarded_writes_ratio` com alerta.",
+   "sugestao": "Definir o limiar do alerta (a definir) e o dono da correção, já que o roteamento é do Compass-Router, externo. Diferenciar no painel o encaminhamento esperado logo após uma transferência de liderança do salto persistente."
+  },
+  {
+   "titulo": "Loop de encaminhamento durante a eleição",
+   "origem": "Falhas e tratativas",
+   "contexto": "Durante a eleição, células diferentes podem achar que outras são a líder e encaminhar a requisição em círculo. Sem limite, a requisição gasta o prazo inteiro rodando e carrega as células.",
+   "na_fonte": "Decidido: limite de 1 salto e espera de até 1 s pela líder, depois `503` (C27, ADR-039).",
+   "sugestao": "Incluir no teste de eleição com partições parciais a verificação de que nenhuma requisição dá mais de um salto, e medir quantos `503` saem durante uma eleição típica."
+  }
+ ]
+}

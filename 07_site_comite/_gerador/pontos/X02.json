@@ -1,0 +1,82 @@
+{
+ "id": "X02",
+ "pontos": [
+  {
+   "titulo": "Disco do log enche em degradação longa",
+   "origem": "Falhas e tratativas",
+   "contexto": "Em modo degradado a AWS precisa reter o log para a Azure alcançar depois. Se a degradação durar muito, o volume do log enche e pode derrubar o nó da AWS, afetando a disponibilidade do lado que está atendendo. A troca adotada é perder a elegibilidade da Azure em vez de derrubar a AWS, o que torna a volta à normalidade bem mais cara (reconstrução completa).",
+   "na_fonte": "Retenção com teto de 70% do volume; passado o teto, a Azure vira fora da janela e exige reconstrução (ADR-041, C29, 04_wal_e_fsync 6.5). Não há descarga para S3 na v1.",
+   "sugestao": "Dimensionar o volume em função de D, de forma que o teto de 70% nunca seja atingido antes do fim do lease, e ter alerta com projeção de tempo até o teto. Se D e o volume forem coerentes, o cenário só ocorre com `RENEW`, e então o `RENEW` deveria mostrar ao operador o tempo restante até a Azure sair da janela."
+  },
+  {
+   "titulo": "Fim de D com a Azure ainda inalcançável",
+   "origem": "Falhas e tratativas",
+   "contexto": "Ao fim do lease as escritas param com `503 LEASE_EXPIRED` mesmo sem desastre, só porque o link ou a Azure continua fora. A disponibilidade em modo degradado passa a ser finita e depende de uma decisão humana para continuar. É o preço de ter autoridade única sem terceiro domínio, e precisa ser explicado aos clientes.",
+   "na_fonte": "Decidido (ADR-044): ao fim de D a AWS recusa escrita; a decisão humana é prorrogar com `RENEW` ou esperar a Azure voltar.",
+   "sugestao": "Criar alerta antecipado (limiar a definir antes do fim de D) com página para o plantão, e um runbook com critérios objetivos de quando prorrogar. Medir em game day o tempo entre o alerta e o `RENEW` efetivo, porque esse tempo humano é parte da indisponibilidade."
+  },
+  {
+   "titulo": "Pausa longa do processo da líder",
+   "origem": "Falhas e tratativas",
+   "contexto": "Uma pausa de GC ou VM congelada pode atravessar o fim do lease sem que o temporizador dispare. Se a líder confirmasse uma escrita na volta, haveria ACK depois de D, possivelmente em paralelo com uma Azure já promovida. É um risco direto de escrita nas duas pontas.",
+   "na_fonte": "A líder confere o lease a cada ACK, depois do fsync e antes de responder; salto de tempo detectado conta como lease expirado (ADR-044, P10).",
+   "sugestao": "Teste de caos com SIGSTOP na líder por tempo maior que D e com ajuste de relógio de parede, confirmando `503 LEASE_EXPIRED`. Medir também a pausa máxima real de processo em produção (métrica de GC e de steal de VM), que alimenta o valor de M."
+  },
+  {
+   "titulo": "Partição assimétrica",
+   "origem": "Falhas e tratativas",
+   "contexto": "Quando só um sentido do link funciona, o último contato visto pela Azure e o gate visto pela AWS divergem. A AWS pode achar que perdeu a Azure enquanto a Azure ainda ouve a AWS, ou o contrário, e a conta de D + M deixa de ter a simetria que sustenta a segurança. A análise antiga de que a Azure ter dados a mais não causa dano deixou de ser suficiente.",
+   "na_fonte": "Não decidido na fonte. Proposta na fonte: hipótese H-DR14, a modelar no TLA+ (R23).",
+   "sugestao": "Definir com precisão o que conta como contato em cada lado (heartbeat recebido, resposta confirmada) e modelar os dois sentidos como canais independentes no TLA+. Reproduzir em laboratório com regras de firewall de um só sentido e verificar que `ForcePromote` continua recusada enquanto a AWS pode ACKar."
+  },
+  {
+   "titulo": "Valor de D, valor de M e aceite formal do RPO > 0",
+   "origem": "Pontos em aberto",
+   "contexto": "Sem D e M não há como ligar o modo degradado nem calcular o RTO do desastre, que passa a ser pelo menos D + M. O aceite do RPO > 0 pelo negócio é bloqueante para instalações `accept`. D ao mesmo tempo limita a janela de perda e a disponibilidade em degradação, então não é escolha puramente técnica.",
+   "na_fonte": "Não decidido na fonte. PEND-02 é bloqueante e está com Bruno, negócio e risco; sem D definido o modo degradado não pode ser ligado (R23, ADR-044, ADR-045).",
+   "sugestao": "Levar ao negócio uma tabela com dois ou três valores candidatos de D mostrando, para cada um, a perda máxima de escritas estimada, o RTO mínimo de desastre (D + M) e o tamanho de volume necessário. Medir M antes (deriva de relógio e pausa máxima) para que a conversa use números reais."
+  },
+  {
+   "titulo": "Prorrogação x promoção (H-DR13)",
+   "origem": "Pontos em aberto",
+   "contexto": "Prorrogar o lease depois que a Azure já pode ser promovida reabre o risco de duas pontas aceitando escrita. O `RENEW` é decidido por uma pessoa do lado AWS, que pode não saber se alguém já iniciou a promoção do outro lado. É um risco de segurança, não só operacional.",
+   "na_fonte": "Não decidido na fonte. Proposta na fonte: marcar a Azure como `promotion_blocked` antes de prorrogar, a fechar no TLA+ (H-DR13, R23).",
+   "sugestao": "Exigir no runbook que `RENEW` e `ForcePromote` sejam operados pelo mesmo papel com um registro único de decisão, além da regra técnica. Verificar P12 no modelo com `RENEW` e `ForcePromote` concorrentes."
+  },
+  {
+   "titulo": "Lease quando a Azure volta depois do fim de D",
+   "origem": "Pontos em aberto",
+   "contexto": "Se a Azure volta depois que o lease já expirou, não está definido se o `RESTORE` pode ser proposto com o lease vencido. Se puder, o shard volta ao normal sem intervenção; se não, fica parado até um `RENEW`. Há ainda o caso em que a Azure foi promovida nesse intervalo, e um `RESTORE` da AWS seria incorreto.",
+   "na_fonte": "Não decidido na fonte. A fonte registra que a permissão de `RESTORE` com lease expirado está a confirmar no modelo.",
+   "sugestao": "Propor que o `RESTORE` com lease expirado só seja permitido se a maioria Azure ainda estiver na mesma epoch (sem promoção), o que é verificável pela resposta do `AppendEntries`. Incluir esse caminho no TLA+ e um teste de integração que reconecta a Azure após D."
+  },
+  {
+   "titulo": "Link oscilando e histerese",
+   "origem": "Pontos em aberto",
+   "contexto": "Um link que cai e volta repetidamente faz o shard entrar e sair do modo degradado, abrindo várias janelas de RPO > 0 e pausas de escrita. A histerese define o equilíbrio entre estabilidade e janela de risco.",
+   "na_fonte": "Tratado em R07, com proposta de histerese, episódio de degradação e contador de transições, ainda não aprovada.",
+   "sugestao": "Fechar R07 junto com D, porque a histerese precisa caber no lease. Ver os pontos de R07."
+  },
+  {
+   "titulo": "Link lento que nunca expira o timeout",
+   "origem": "Pontos em aberto",
+   "contexto": "Um link degradado mas não cortado pode fazer o gate avançar devagar, sem disparar `DEGRADE_AFTER`. A latência de escrita sobe e pode estourar o prazo do cliente sem que o modo degradado entre.",
+   "na_fonte": "Tratado em C25 (faixa cinzenta); o X02 só aponta para lá.",
+   "sugestao": "Garantir que C25 tenha um teste com latência injetada perto de `DEGRADE_AFTER` e métrica de percentil do tempo de gate, para observar a faixa cinzenta antes de ela virar estouro de prazo."
+  },
+  {
+   "titulo": "Disco do log sem descarga para S3 na v1",
+   "origem": "Pontos em aberto",
+   "contexto": "Sem descarga para armazenamento externo, o tempo que a Azure pode ficar fora sem exigir reconstrução é limitado pelo volume local. Isso acopla o dimensionamento de disco ao valor de D.",
+   "na_fonte": "Decidido em ADR-041 e C29: teto de 70%, sem S3 na v1.",
+   "sugestao": "Registrar como critério de aceite que o volume cubra D com folga a 70%, e reavaliar a descarga para S3 se o negócio pedir D maior que o que o volume suporta."
+  },
+  {
+   "titulo": "Limiares de lag de catch-up, tempo estável e teto de permanência",
+   "origem": "Pontos em aberto",
+   "contexto": "Os limiares que definem quando sair do modo degradado (lag, tempo estável) e quanto tempo ficar ainda não têm valor. Valores errados geram oscilação ou janelas longas de RPO > 0.",
+   "na_fonte": "Não decidido na fonte. PEND-12, a calibrar no POC.",
+   "sugestao": "Definir no POC um experimento com perfis de link (corte, oscilação, latência alta) e escolher os limiares pelo número de transições e pelo tempo total em degradado. Registrar os valores junto com D, porque precisam caber no lease."
+  }
+ ]
+}

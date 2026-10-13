@@ -1,0 +1,19 @@
+{
+ "id": "C18",
+ "pontos": [
+  {
+   "titulo": "Tempo de recuperação longo",
+   "origem": "Falhas e tratativas",
+   "contexto": "Na partida o nó valida a configuração, verifica o CRC dos logs, completa o log de replicação a partir do Raft e retoma o applier pelo progresso por item até o high-water mark anterior antes de abrir a porta de API. Cada uma dessas etapas tem duração proporcional ao atraso acumulado, e enquanto ela não termina o nó não atende tráfego nem leitura forte. Se o nó era a líder, o tempo de recuperação se soma ao da eleição e da reconstrução do gate, e por isso entra diretamente no RTO, que continua sem número.",
+   "na_fonte": "Não decidido na fonte. O C18 registra que o tempo de recuperação não está quantificado e remete ao R18; a `startupProbe` cobre a recuperação para o Kubernetes não matar o pod durante essa fase.",
+   "sugestao": "Instrumentar cada etapa da partida (validação, CRC, catch-up do log de replicação, retomada do applier) como métricas separadas e medir em teste de falha com backlogs de tamanhos crescentes, para alimentar o R18 com uma curva tempo de partida versus atraso. Definir um critério de aceite para o `startupProbe` (limiar a definir) e um teste de caos que mata o mesmo nó repetidamente durante a recuperação para verificar que ela é retomável e não regride."
+  },
+  {
+   "titulo": "Reinício durante o modo degradado perde o contador do lease",
+   "origem": "Falhas e tratativas",
+   "contexto": "O instante `t_c`, a partir do qual a validade D do lease do modo degradado é contada, vive em memória no relógio monotônico do nó e se perde quando o processo reinicia. Se o nó voltasse e reiniciasse a contagem, o lease seria estendido além do instante em que a Azure já pode ser promovida, abrindo a porta para escrita nas duas pontas. O tratamento conservador, em contrapartida, deixa a AWS sem aceitar escrita até reestabelecer contato, o que reduz a disponibilidade no degradado.",
+   "na_fonte": "Decidido no ADR-044 e no C32: um nó que volta e encontra `DEGRADE` sem `RESTORE` não herda `t_c` e trata o lease como expirado até obter contato com a Azure ou um `RENEW` humano.",
+   "sugestao": "Incluir no modelo TLA+ do lease uma ação de reinício de nó e de troca de líder que descarta `t_c`, com a propriedade de que nunca há ACK de escrita na AWS depois de a Azure estar apta a promover. Complementar com um teste de caos que reinicia a líder dentro do degradado e verifica que a primeira resposta a escrita é `503 LEASE_EXPIRED`, e com um alerta específico para que o plantão saiba que a perda de escrita veio do reinício e não do fim natural de D."
+  }
+ ]
+}

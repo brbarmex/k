@@ -1,0 +1,189 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>R13 — Escritas órfãs: reconciliação depois da promoção (PEND-03) · DataReplication v1</title>
+<link rel="stylesheet" href="../assets/site.css">
+</head>
+<body>
+<!--
+Fonte(s) usada(s) nesta página (rastreabilidade), relativas à raiz do pacote:
+  02_cenarios/a_rever/R13-escritas-orfas-reconciliacao.md
+Gerado em 13/10/2026 a partir do pacote DataReplication_Versao_1.
+-->
+<header class="topo">
+<button class="menu" type="button" aria-label="Abrir navegação" onclick="document.body.classList.toggle('nav-aberta')">☰</button>
+<a href="../index.html">DataReplication v1</a><span class="sep">·</span><span>Apresentação ao comitê técnico</span>
+</header>
+<div class="layout">
+<nav class="sidebar" aria-label="Navegação">
+<a class="marca" href="../index.html">DataReplication v1<span>Comitê técnico</span></a>
+<a class="nav-inicio" href="../index.html">Resumo e requisitos</a>
+<details class="grupo"><summary>Success path <span class="qtd">10</span></summary><ul>
+<li><a class="idx" href="../success-path/index.html">Índice da seção</a></li>
+<li><a href="../success-path/C01-visao-geral.html"><b>C01</b> Visão geral da arquitetura</a></li>
+<li><a href="../success-path/C02-dentro-da-celula.html"><b>C02</b> Dentro da célula: apps do cliente e DataReplication</a></li>
+<li><a href="../success-path/C03-escrita-strong.html"><b>C03</b> Caminho feliz: escrita (apply serial depois do gate)</a></li>
+<li><a href="../success-path/C04-escrita-eventual.html"><b>C04</b> Modo Eventual: só de leitura (sem apply paralelo na v1)</a></li>
+<li><a href="../success-path/C05-leitura-strong-e-eventual.html"><b>C05</b> Caminho feliz: leitura Strong e Eventual</a></li>
+<li><a href="../success-path/C06-follower-encaminha.html"><b>C06</b> Requisição chega numa célula que não é a líder</a></li>
+<li><a href="../success-path/C11-transferencia-planejada.html"><b>C11</b> Transferência planejada de liderança (manutenção)</a></li>
+<li><a href="../success-path/C18-partida-e-recuperacao-do-no.html"><b>C18</b> Partida, recuperação e parada limpa do nó</a></li>
+<li><a href="../success-path/C23-batchwriteitem-lote-uma-entrada.html"><b>C23</b> BatchWriteItem: o lote é uma entrada e o apply é por item (antes R15)</a></li>
+<li><a href="../success-path/C31-implantacao-por-cliente-e-identidade.html"><b>C31</b> Uma instalação por cliente e identificação na API (antes R19)</a></li>
+</ul></details>
+<details class="grupo"><summary>Fail path <span class="qtd">24</span></summary><ul>
+<li><a class="idx" href="../fail-path/index.html">Índice da seção</a></li>
+<li><a href="../fail-path/C07-timeout-depois-do-commit.html"><b>C07</b> Prazo estoura depois do commit, antes do ACK (retry do SDK)</a></li>
+<li><a href="../fail-path/C08-queda-de-celula-lider-ou-az-aws.html"><b>C08</b> Queda da célula líder ou de uma AZ na AWS</a></li>
+<li><a href="../fail-path/C09-queda-de-az-azure.html"><b>C09</b> Queda de uma AZ na Azure</a></li>
+<li><a href="../fail-path/C10-celulas-de-app-aws-fora.html"><b>C10</b> Apps da AWS fora, replicação viva: tráfego vai para a Azure</a></li>
+<li><a href="../fail-path/C12-modo-degradado.html"><b>C12</b> Link AWS↔Azure cai ou Azure cai: modo degradado com lease</a></li>
+<li><a href="../fail-path/C13-ressincronizacao-da-azure.html"><b>C13</b> Ressincronização da Azure</a></li>
+<li><a href="../fail-path/C14-aws-cai-sem-degradacao.html"><b>C14</b> AWS cai por inteiro sem degradação prévia</a></li>
+<li><a href="../fail-path/C15-aws-cai-em-degradacao.html"><b>C15</b> AWS cai durante o modo degradado</a></li>
+<li><a href="../fail-path/C16-aws-volta-apos-promocao.html"><b>C16</b> AWS volta depois da promoção da Azure</a></li>
+<li><a href="../fail-path/C17-maquina-de-estados.html"><b>C17</b> Máquina de estados dos modos de operação de um shard</a></li>
+<li><a href="../fail-path/C19-falha-do-datareplication.html"><b>C19</b> O DataReplication da célula cai ou reinicia</a></li>
+<li><a href="../fail-path/C20-bypass-de-escrita-direta.html"><b>C20</b> Aplicação escreve direto no banco (bypass)</a></li>
+<li><a href="../fail-path/C21-disco-fsync-e-reconstrucao.html"><b>C21</b> Falha de fsync, corrupção, disco lento e disco perdido</a></li>
+<li><a href="../fail-path/C22-cliente-com-sdk-nao-suportado.html"><b>C22</b> Cliente com SDK ou versão não suportada</a></li>
+<li><a href="../fail-path/C24-orcamento-de-50ms-e-escrita-no-dynamodb.html"><b>C24</b> Orçamento de 50 ms e a escrita no DynamoDB dentro do ACK (antes R21)</a></li>
+<li><a href="../fail-path/C25-link-lento-faixa-cinzenta.html"><b>C25</b> Link lento ou saturado (faixa cinzenta): só alertar (antes R01)</a></li>
+<li><a href="../fail-path/C26-entrada-venenosa.html"><b>C26</b> Entrada venenosa: um item que o banco recusa para sempre (antes R02)</a></li>
+<li><a href="../fail-path/C27-encaminhamento-sem-lider-conhecida.html"><b>C27</b> Loop de encaminhamento e espera pela líder durante a eleição (antes R05)</a></li>
+<li><a href="../fail-path/C28-leitura-eventual-na-azure-defasada.html"><b>C28</b> Leitura eventual na Azure durante a degradação (antes R04)</a></li>
+<li><a href="../fail-path/C29-disco-do-log-em-degradacao-longa.html"><b>C29</b> Disco do log esgota durante uma degradação longa (antes R08)</a></li>
+<li><a href="../fail-path/C30-aws-que-volta-boot-cercado.html"><b>C30</b> Fencing: o DynamoDB e o applier da AWS que voltam depois da promoção (antes R14)</a></li>
+<li><a href="../fail-path/C32-particao-e-lease-do-modo-degradado.html"><b>C32</b> Partição entre AWS e Azure: lease do modo degradado e promoção da Azure</a></li>
+<li><a href="../fail-path/C33-reconstrucao-em-tabela-sombra.html"><b>C33</b> Reconstrução do banco de uma célula em tabela sombra</a></li>
+<li><a href="../fail-path/C34-autorizacao-por-aplicacao.html"><b>C34</b> Autorização por aplicação: mTLS e lista de permissões por identidade</a></li>
+</ul></details>
+<details class="grupo"><summary>Complex path <span class="qtd">6</span></summary><ul>
+<li><a class="idx" href="../complex-path/index.html">Índice da seção</a></li>
+<li><a href="../complex-path/X01-gate-e-troca-de-lider.html"><b>X01</b> Gate: definição, monotonicidade e troca de líder</a></li>
+<li><a href="../complex-path/X02-modo-degradado.html"><b>X02</b> Modo degradado: entrada, permanência, lease e saída</a></li>
+<li><a href="../complex-path/X03-desastre-e-promocao-da-azure.html"><b>X03</b> Desastre: promoção da Azure, fencing e reconciliação</a></li>
+<li><a href="../complex-path/X04-partida-recuperacao-e-dois-logs.html"><b>X04</b> Partida, recuperação e coerência entre os dois logs</a></li>
+<li><a href="../complex-path/X05-timeouts-e-idempotencia.html"><b>X05</b> Timeouts em cascata e idempotência do retry</a></li>
+<li><a href="../complex-path/X06-delete-ttl-gsi.html"><b>X06</b> DELETE, TTL, Scan e GSI</a></li>
+</ul></details>
+<details class="grupo" open><summary>Parking lot <span class="qtd">14</span></summary><ul>
+<li><a class="idx" href="index.html">Índice da seção</a></li>
+<li><a href="R03-backlog-de-apply-no-cosmos.html"><b>R03</b> Backlog de apply no Cosmos (429 e RU insuficiente)</a></li>
+<li><a href="R06-duas-azs-aws-caem.html"><b>R06</b> Duas AZs da AWS caem com a Azure saudável</a></li>
+<li><a href="R07-link-oscilando.html"><b>R07</b> Link oscilando (flapping)</a></li>
+<li><a href="R09-resincronizacao-lenta-ou-bloqueada.html"><b>R09</b> Ressincronização da Azure lenta ou que nunca termina</a></li>
+<li><a href="R10-operador-lento-no-desastre.html"><b>R10</b> Tempo de decisão humana no desastre</a></li>
+<li><a href="R11-api-de-promocao-depende-da-aws.html"><b>R11</b> A API de promoção depende de algo que estava na AWS</a></li>
+<li><a href="R12-promocao-com-aws-viva.html"><b>R12</b> Promoção da Azure com a AWS viva (split-brain, PEND-01)</a></li>
+<li><a class="atual" aria-current="page" href="R13-escritas-orfas-reconciliacao.html"><b>R13</b> Escritas órfãs: reconciliação depois da promoção (PEND-03)</a></li>
+<li><a href="R16-leitura-forte-em-celulas-follower.html"><b>R16</b> Leitura forte em células follower (ReadIndex e gate)</a></li>
+<li><a href="R17-atributo-de-versao-e-limite-400kb.html"><b>R17</b> Atributo de versão: limite de 400 KB e ausência nas respostas</a></li>
+<li><a href="R18-rto-nao-quantificado.html"><b>R18</b> RTO (Delta-T) ainda sem número</a></li>
+<li><a href="R20-custo-6x.html"><b>R20</b> Custo: cada escrita lógica vira seis gravações</a></li>
+<li><a href="R22-memoria-da-janela-de-dedupe.html"><b>R22</b> Memória da janela de dedupe</a></li>
+<li><a href="R23-hipoteses-gerais.html"><b>R23</b> Hipóteses gerais em aberto</a></li>
+</ul></details>
+</nav>
+<main>
+<div class="migalhas"><a href="../index.html">Início</a> / <a href="index.html">Parking lot</a> / R13</div>
+<h1>R13 — Escritas órfãs: reconciliação depois da promoção (PEND-03)</h1>
+<div class="meta"><span class="selo parking-lot">Parking lot</span><div><b>Status na fonte:</b> 🟡 A rever · janela das órfãs agora limitada por D (<a href="../../03_adr/ADR-044-lease-do-modo-degradado-e-promocao-da-azure.md">ADR-044</a>) e ordem fixada com a recriação do banco (<a href="../../03_adr/ADR-042-aws-que-volta-boot-cercado-e-recriacao-da-celula.md">ADR-042</a>, <a href="../fail-path/C33-reconstrucao-em-tabela-sombra.html">C33</a>); falta dono do processo, política com o cliente e o aceite do negócio</div><div><b>Relacionados:</b> <a href="../fail-path/C15-aws-cai-em-degradacao.html">C15</a>, <a href="../fail-path/C16-aws-volta-apos-promocao.html">C16</a>, <a href="../fail-path/C30-aws-que-volta-boot-cercado.html">C30</a>, <a href="../fail-path/C33-reconstrucao-em-tabela-sombra.html">C33</a>, <a href="../complex-path/X03-desastre-e-promocao-da-azure.html">X03</a></div></div>
+<section id="visao-geral"><h2>1. Visão geral do cenário</h2>
+<p>Se a AWS cai <strong>durante o modo degradado</strong>, as escritas que ela confirmou ao cliente desde <code>fromIndex</code> e que não chegaram à Azure se perdem na promoção. Se a AWS volta, essas escritas "reaparecem" no log e no DynamoDB local, e alguém precisa decidir o que fazer com elas. Não há processo definido de decisão.</p>
+<p>Elas <strong>não</strong> são perdidas pelo sistema de forma silenciosa: ficam no log da AWS (quando o disco sobrevive) e foram ACKadas com <code>x-dr-mode: degraded</code>, ou seja, o cliente foi avisado de que aquele ACK não tinha a garantia de RPO 0.</p>
+<p><strong>O que mudou em 13/10.</strong> O modo degradado tem lease: a AWS só ACKa escrita sem a Azure enquanto o lease D vale, e só uma pessoa o prorroga (<code>RENEW</code>). O conjunto de órfãs de um episódio fica, portanto, limitado em duração por D mais as prorrogações aprovadas, e o negócio aprova esse teto de forma explícita (PEND-02). Em instalações com <code>DEGRADED_POLICY=reject</code> não há órfãs: nada é ACKado sem a Azure.</p>
+<p><strong>Ordem que importa.</strong> Na volta da AWS, o DynamoDB da célula é recriado a partir da réplica (<a href="../../03_adr/ADR-042-aws-que-volta-boot-cercado-e-recriacao-da-celula.md">ADR-042</a>, recriação em tabela sombra pelo protocolo do <a href="../fail-path/C33-reconstrucao-em-tabela-sombra.html">C33</a>), e <strong>recriar o banco apaga as órfãs</strong>. A extração do log e do banco local tem de acontecer <strong>antes</strong> do cutover, com aprovação humana e o PITR como rede de segurança.</p>
+<p class="aviso">Cenário <b>a rever</b>: o conteúdo abaixo traz propostas e riscos ainda <b>não decididos na fonte</b>, salvo quando o texto diz o contrário.</p>
+</section>
+<section id="diagrama"><h2>2. Diagrama</h2>
+<h3>Do episódio degradado ao relatório</h3>
+<div class="diagrama"><pre class="mermaid">flowchart TD
+    A[&quot;Episódio degradado: fromIndex registrado, lease D&quot;] --&gt; B[&quot;AWS cai, Azure é promovida depois de D + M&quot;]
+    B --&gt; C[&quot;AWS volta cercada como learner com identidade nova&quot;]
+    C --&gt; D[&quot;Extrai do log local e do DynamoDB local as entradas de fromIndex em diante&quot;]
+    D --&gt; E[&quot;Relatório por cliente, tabela e chave&quot;]
+    E --&gt; R[&quot;Só depois: recria o banco da célula pela tabela sombra&quot;]
+    E --&gt; F{&quot;A chave foi escrita de novo na Azure depois da promoção?&quot;}
+    F --&gt;|&quot;não&quot;| G[&quot;Candidata a reaplicação com aprovação&quot;]
+    F --&gt;|&quot;sim&quot;| H[&quot;Conflito: decisão de negócio caso a caso&quot;]
+    G --&gt; I[&quot;Reaplica como transação compensatória aprovada&quot;]
+    H --&gt; I
+    I --&gt; J[&quot;Comunica o cliente quando não for possível reaplicar&quot;]</pre></div>
+</section>
+<section id="etapas"><h2>3. Legenda e etapas</h2>
+<p class="nota">A fonte chama esta seção de <b>Fluxo proposto</b>: é proposta, não decisão fechada.</p>
+<div class="etapas"><ol>
+<li>Ferramenta <code>drctl orphans export</code> lê o log local da AWS a partir do <code>fromIndex</code> do <strong>último episódio</strong> (<a href="R07-link-oscilando.html">R07</a>: o <code>fromIndex</code> é estável durante o episódio) e gera relatório com chave, valor e índice. Roda com a célula cercada (appliers desligados, <a href="../fail-path/C30-aws-que-volta-boot-cercado.html">C30</a>) e <strong>antes</strong> da recriação do banco.</li>
+<li>Comparar com o estado atual da Azure por chave para separar "sem conflito" de "conflito".</li>
+<li>A reaplicação é <strong>sempre decidida por pessoa</strong>, nunca automática, e entra no log como escrita nova e auditada.</li>
+<li>Os clientes podem ajudar: cada ACK degradado vem com cabeçalho, então a aplicação pode registrar esses ACKs para cruzar depois.</li>
+<li>A reconciliação dirigida das chaves órfãs (sem recriar o banco inteiro) fica fora da v1 (<a href="../../03_adr/ADR-042-aws-que-volta-boot-cercado-e-recriacao-da-celula.md">ADR-042</a>).</li>
+</ol></div>
+</section>
+<section id="pontos"><h2>4. Pontos que precisam ser avaliados</h2>
+<p class="nota">Reescritos a partir das seções “Falhas e tratativas” e “Pontos em aberto” (e de outras seções de risco, quando existem). Em cada ponto, <b>O que a fonte define</b> vem da documentação; <b>Sugestão de encaminhamento</b> é <b>inferência do arquiteto</b>, não decisão registrada.</p>
+<article class="ponto">
+<h3><span class="num">1</span>Disco da AWS perdido <span class="origem">Falhas e tratativas</span></h3>
+<dl>
+<dt>Contexto</dt><dd>As escritas órfãs só podem ser extraídas do log local da AWS; se o volume do log não sobrevive à falha, elas são irrecuperáveis. Essas escritas foram ACKadas ao cliente com <code>x-dr-mode: degraded</code>, então há perda real de dado confirmado (RPO &gt; 0) sem possibilidade de relatório. O impacto é maior quanto maior o tempo em degradação, limitado por D e pelas prorrogações.</dd>
+<dt>O que a fonte define</dt><dd class="nd-fonte">Não decidido na fonte. Proposta na fonte: avaliar cópia periódica do log degradado para fora do volume (<a href="../fail-path/C29-disco-do-log-em-degradacao-longa.html">C29</a>), que reduz a perda mas não a elimina; H2 também cita exportação para um armazenamento que a Azure consiga ler.</dd>
+<dt class="sug">Sugestão de encaminhamento <small>(inferência, não decidida)</small></dt><dd class="sug">Decidir com o negócio se a cópia periódica entra na v1, considerando que o <a href="../../03_adr/ADR-041-disco-do-log-teto-de-70-por-cento-sem-s3-na-v1.md">ADR-041</a> fixou o disco do log sem S3 na v1. Se não entrar, registrar explicitamente no aceite da PEND-02 que a perda das órfãs com disco perdido é total e não apenas não reconciliada.</dd>
+</dl>
+</article>
+<article class="ponto">
+<h3><span class="num">2</span>DynamoDB com órfãs apagadas pela recriação <span class="origem">Falhas e tratativas</span></h3>
+<dl>
+<dt>Contexto</dt><dd>Mesmo sem o log, o DynamoDB local da AWS contém o resultado das órfãs aplicadas antes da queda. Na volta da AWS, a célula é recriada a partir da réplica (<a href="../../03_adr/ADR-042-aws-que-volta-boot-cercado-e-recriacao-da-celula.md">ADR-042</a>, <a href="../fail-path/C33-reconstrucao-em-tabela-sombra.html">C33</a>), e recriar o banco apaga essas órfãs. Se a ordem for invertida por erro operacional, a única fonte restante das órfãs desaparece.</dd>
+<dt>O que a fonte define</dt><dd class="">A fonte decide a ordem: a extração do log e do banco local acontece antes do cutover da recriação, com a célula cercada, aprovação humana e PITR como rede de segurança (<a href="../../03_adr/ADR-042-aws-que-volta-boot-cercado-e-recriacao-da-celula.md">ADR-042</a>, <a href="../fail-path/C33-reconstrucao-em-tabela-sombra.html">C33</a>, <a href="../fail-path/C30-aws-que-volta-boot-cercado.html">C30</a>).</dd>
+<dt class="sug">Sugestão de encaminhamento <small>(inferência, não decidida)</small></dt><dd class="sug">Transformar a ordem em pré-condição técnica, fazendo a recriação recusar o cutover enquanto não houver um relatório de órfãs assinado para o episódio. Verificar também que o PITR do DynamoDB está habilitado e cobre o período desde <code>fromIndex</code>, com alerta caso esteja desligado em alguma tabela.</dd>
+</dl>
+</article>
+<article class="ponto">
+<h3><span class="num">3</span>Órfã que a Azure já substituiu <span class="origem">Falhas e tratativas</span></h3>
+<dl>
+<dt>Contexto</dt><dd>Se a mesma chave foi escrita de novo na Azure depois da promoção, reaplicar a órfã sobrescreveria um dado mais novo. A versão do apply (<code>v &lt; índice</code>) não resolve isso, porque os índices vêm de logs diferentes após a troca de epoch. O conflito é de negócio e não pode ser resolvido de forma automática sem risco de corrupção.</dd>
+<dt>O que a fonte define</dt><dd class="">A fonte decide que a reaplicação é sempre decidida por pessoa, nunca automática, entrando no log como escrita nova e auditada (transação compensatória aprovada).</dd>
+<dt class="sug">Sugestão de encaminhamento <small>(inferência, não decidida)</small></dt><dd class="sug">Definir no <code>drctl orphans export</code> uma classificação explícita (sem conflito, conflito por escrita posterior, conflito por delete) e um formato de relatório que o dono do processo consiga revisar por cliente. Pensar no caso de órfãs em itens dependentes (por exemplo saldo e extrato), em que reaplicar uma chave sem a outra deixa estado inconsistente, e exigir revisão por grupo de chaves relacionadas.</dd>
+</dl>
+</article>
+<article class="ponto">
+<h3><span class="num">4</span>Dono do processo e política de comunicação ao cliente <span class="origem">Pontos em aberto</span></h3>
+<dl>
+<dt>Contexto</dt><dd>Não há dono definido para a reconciliação (negócio ou plataforma) nem política de como e quando avisar o cliente sobre escritas que não puderam ser reaplicadas. Sem isso, após um desastre em modo degradado, as órfãs ficam em um relatório sem decisão, e o cliente não sabe que dado confirmado se perdeu. O assunto liga com o aceite do RPO &gt; 0 e do valor de D (PEND-02).</dd>
+<dt>O que a fonte define</dt><dd class="nd-fonte">Não decidido na fonte. Proposta na fonte: extrair do log e decidir caso a caso (PEND-03), com os clientes podendo registrar os ACKs degradados para cruzar depois.</dd>
+<dt class="sug">Sugestão de encaminhamento <small>(inferência, não decidida)</small></dt><dd class="sug">Levar a definição do dono e da política de comunicação junto com o aceite da PEND-02, já que ambos tratam do mesmo risco. Recomendar aos clientes <code>accept</code> que registrem os ACKs com <code>x-dr-mode: degraded</code> como requisito de entrada, pois sem esse registro a reconciliação depende só do disco da AWS.</dd>
+</dl>
+</article>
+</section>
+<section id="adrs"><h2>5. ADRs relacionados</h2>
+<div class="tabela"><table><thead><tr><th>ADR</th><th>Título</th><th>Decisão resumida</th><th>Arquivo</th></tr></thead><tbody>
+<tr><td class="nw"><a href="../../03_adr/ADR-014-modo-degradado-opcao-b.md">ADR-014</a></td><td>Modo degradado: a AWS segue quando a Azure fica inalcançável (opção B)</td><td>Opção B: com a Azure inalcançável, após DEGRADE_AFTER a AWS segue só com a maioria AWS (RPO &gt; 0) até RESTORE.</td><td><a href="../../03_adr/ADR-014-modo-degradado-opcao-b.md">ADR-014-modo-degradado-opcao-b.md</a></td></tr>
+<tr><td class="nw"><a href="../../03_adr/ADR-033-promocao-da-azure-humana.md">ADR-033</a></td><td>Promoção da Azure sempre humana, só depois de D + M</td><td>Promoção da Azure (ForcePromote) sempre humana, com checklist e só depois de D + M.</td><td><a href="../../03_adr/ADR-033-promocao-da-azure-humana.md">ADR-033-promocao-da-azure-humana.md</a></td></tr>
+<tr><td class="nw"><a href="../../03_adr/ADR-042-aws-que-volta-boot-cercado-e-recriacao-da-celula.md">ADR-042</a></td><td>AWS que volta depois da promoção: boot cercado, credenciais revogadas e célula recriada</td><td>AWS que volta após a promoção: boot cercado, credenciais revogadas e célula recriada como learner.</td><td><a href="../../03_adr/ADR-042-aws-que-volta-boot-cercado-e-recriacao-da-celula.md">ADR-042-aws-que-volta-boot-cercado-e-recriacao-da-celula.md</a></td></tr>
+<tr><td class="nw"><a href="../../03_adr/ADR-044-lease-do-modo-degradado-e-promocao-da-azure.md">ADR-044</a></td><td>Modo degradado com lease: a AWS para sozinha e a Azure só promove depois de D mais margem</td><td>Modo degradado com lease D contado desde t_c; a AWS para sozinha e a Azure só promove depois de D + M.</td><td><a href="../../03_adr/ADR-044-lease-do-modo-degradado-e-promocao-da-azure.md">ADR-044-lease-do-modo-degradado-e-promocao-da-azure.md</a></td></tr>
+</tbody></table></div>
+<p class="nota">Lista extraída do cabeçalho “ADRs” do arquivo fonte. A decisão resumida condensa a seção “Decisão” de cada ADR.</p>
+</section>
+<section id="anexo"><h2>Anexo: texto original da fonte</h2><p class="nota">Seções do .md fonte reproduzidas sem reescrita, para conferência.</p>
+<details class="anexo"><summary>Falhas e tratativas</summary><ul>
+<li><strong>Disco da AWS perdido.</strong> Se o volume do log da AWS não sobrevive, as órfãs são irrecuperáveis. O relatório depende do disco; vale a pena avaliar cópia periódica do log degradado para fora do volume (<a href="../fail-path/C29-disco-do-log-em-degradacao-longa.html">C29</a>). Isso reduz a perda, não elimina.</li>
+<li><strong>DynamoDB com órfãs.</strong> Mesmo sem o log, o DynamoDB local contém o resultado das órfãs aplicadas antes da queda (<a href="../fail-path/C30-aws-que-volta-boot-cercado.html">C30</a>); por isso a recriação do banco só acontece depois da extração e do PITR.</li>
+<li><strong>Órfã que a Azure já substituiu.</strong> Se a chave foi escrita de novo depois da promoção, vira conflito de negócio; a versão do apply (<code>v &lt; índice</code>) não decide isso, e reaplicar uma órfã por cima do dado novo exige a decisão humana.</li>
+</ul></details>
+<details class="anexo"><summary>Pontos em aberto</summary><ul>
+<li>Dono do processo (negócio ou plataforma) e política de comunicação ao cliente. Liga com o aceite do RPO &gt; 0 e do valor de D (PEND-02, <a href="R23-hipoteses-gerais.html">R23</a>).</li>
+</ul></details>
+</section>
+<footer class="rodape">
+Gerado em 13/10/2026 a partir de <code>DataReplication_Versao_1/</code>. O conteúdo vem dos arquivos .md citados no código-fonte desta página;
+textos marcados como <em>sugestão</em> são inferência do arquiteto e não decisões registradas.
+</footer>
+</main>
+</div>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@11.4.1/dist/mermaid.min.js"></script>
+<script>mermaid.initialize({startOnLoad: true, theme: "neutral", securityLevel: "strict", flowchart: {htmlLabels: true, useMaxWidth: true}, sequence: {useMaxWidth: true}});</script>
+</body>
+</html>

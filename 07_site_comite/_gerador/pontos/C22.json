@@ -1,0 +1,12 @@
+{
+ "id": "C22",
+ "pontos": [
+  {
+   "titulo": "Suíte de compatibilidade com os três SDKs e inventário do cliente",
+   "origem": "Pontos em aberto",
+   "contexto": "Só são aceitos AWS SDK Java 2.x, Go v2 e .NET v4, e o `DataReplication` precisa se comportar como o DynamoDB para eles, inclusive com o cliente HTTP apresentando certificado de cliente (mTLS). A premissa de só trocar o endpoint deixou de valer, e sem o inventário real de chamadas e parâmetros um cliente pode entrar usando algo fora da API da v1. Uma incompatibilidade descoberta em produção vira erro ou, pior, comportamento divergente silencioso.",
+   "na_fonte": "A fonte define a suíte X3 contra o `DataReplication`, o DynamoDB real e o Cosmos pelo Cloud-Adapter, e exige o inventário do cliente antes de ele entrar (PEND-15, ADR-051); o `User-Agent` é usado só como proteção contra configuração errada, com período só de alerta antes de rejeitar com 400.",
+   "sugestao": "Tornar a suíte X3 bloqueante no pipeline de release e por cliente, comparando respostas e códigos de erro com o DynamoDB real, e incluir casos de `User-Agent` alterado por frameworks. Usar a métrica `rejected_client_version` durante o período de alerta como critério objetivo para ativar a rejeição."
+  }
+ ]
+}

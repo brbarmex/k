@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Complex path · DataReplication v1</title>
+<link rel="stylesheet" href="../assets/site.css">
+</head>
+<body>
+<!--
+Fonte(s) usada(s) nesta página (rastreabilidade), relativas à raiz do pacote:
+  02_cenarios/complexos/X01-gate-e-troca-de-lider.md
+  02_cenarios/complexos/X02-modo-degradado.md
+  02_cenarios/complexos/X03-desastre-e-promocao-da-azure.md
+  02_cenarios/complexos/X04-partida-recuperacao-e-dois-logs.md
+  02_cenarios/complexos/X05-timeouts-e-idempotencia.md
+  02_cenarios/complexos/X06-delete-ttl-gsi.md
+Gerado em 13/10/2026 a partir do pacote DataReplication_Versao_1.
+-->
+<header class="topo">
+<button class="menu" type="button" aria-label="Abrir navegação" onclick="document.body.classList.toggle('nav-aberta')">☰</button>
+<a href="../index.html">DataReplication v1</a><span class="sep">·</span><span>Apresentação ao comitê técnico</span>
+</header>
+<div class="layout">
+<nav class="sidebar" aria-label="Navegação">
+<a class="marca" href="../index.html">DataReplication v1<span>Comitê técnico</span></a>
+<a class="nav-inicio" href="../index.html">Resumo e requisitos</a>
+<details class="grupo"><summary>Success path <span class="qtd">10</span></summary><ul>
+<li><a class="idx" href="../success-path/index.html">Índice da seção</a></li>
+<li><a href="../success-path/C01-visao-geral.html"><b>C01</b> Visão geral da arquitetura</a></li>
+<li><a href="../success-path/C02-dentro-da-celula.html"><b>C02</b> Dentro da célula: apps do cliente e DataReplication</a></li>
+<li><a href="../success-path/C03-escrita-strong.html"><b>C03</b> Caminho feliz: escrita (apply serial depois do gate)</a></li>
+<li><a href="../success-path/C04-escrita-eventual.html"><b>C04</b> Modo Eventual: só de leitura (sem apply paralelo na v1)</a></li>
+<li><a href="../success-path/C05-leitura-strong-e-eventual.html"><b>C05</b> Caminho feliz: leitura Strong e Eventual</a></li>
+<li><a href="../success-path/C06-follower-encaminha.html"><b>C06</b> Requisição chega numa célula que não é a líder</a></li>
+<li><a href="../success-path/C11-transferencia-planejada.html"><b>C11</b> Transferência planejada de liderança (manutenção)</a></li>
+<li><a href="../success-path/C18-partida-e-recuperacao-do-no.html"><b>C18</b> Partida, recuperação e parada limpa do nó</a></li>
+<li><a href="../success-path/C23-batchwriteitem-lote-uma-entrada.html"><b>C23</b> BatchWriteItem: o lote é uma entrada e o apply é por item (antes R15)</a></li>
+<li><a href="../success-path/C31-implantacao-por-cliente-e-identidade.html"><b>C31</b> Uma instalação por cliente e identificação na API (antes R19)</a></li>
+</ul></details>
+<details class="grupo"><summary>Fail path <span class="qtd">24</span></summary><ul>
+<li><a class="idx" href="../fail-path/index.html">Índice da seção</a></li>
+<li><a href="../fail-path/C07-timeout-depois-do-commit.html"><b>C07</b> Prazo estoura depois do commit, antes do ACK (retry do SDK)</a></li>
+<li><a href="../fail-path/C08-queda-de-celula-lider-ou-az-aws.html"><b>C08</b> Queda da célula líder ou de uma AZ na AWS</a></li>
+<li><a href="../fail-path/C09-queda-de-az-azure.html"><b>C09</b> Queda de uma AZ na Azure</a></li>
+<li><a href="../fail-path/C10-celulas-de-app-aws-fora.html"><b>C10</b> Apps da AWS fora, replicação viva: tráfego vai para a Azure</a></li>
+<li><a href="../fail-path/C12-modo-degradado.html"><b>C12</b> Link AWS↔Azure cai ou Azure cai: modo degradado com lease</a></li>
+<li><a href="../fail-path/C13-ressincronizacao-da-azure.html"><b>C13</b> Ressincronização da Azure</a></li>
+<li><a href="../fail-path/C14-aws-cai-sem-degradacao.html"><b>C14</b> AWS cai por inteiro sem degradação prévia</a></li>
+<li><a href="../fail-path/C15-aws-cai-em-degradacao.html"><b>C15</b> AWS cai durante o modo degradado</a></li>
+<li><a href="../fail-path/C16-aws-volta-apos-promocao.html"><b>C16</b> AWS volta depois da promoção da Azure</a></li>
+<li><a href="../fail-path/C17-maquina-de-estados.html"><b>C17</b> Máquina de estados dos modos de operação de um shard</a></li>
+<li><a href="../fail-path/C19-falha-do-datareplication.html"><b>C19</b> O DataReplication da célula cai ou reinicia</a></li>
+<li><a href="../fail-path/C20-bypass-de-escrita-direta.html"><b>C20</b> Aplicação escreve direto no banco (bypass)</a></li>
+<li><a href="../fail-path/C21-disco-fsync-e-reconstrucao.html"><b>C21</b> Falha de fsync, corrupção, disco lento e disco perdido</a></li>
+<li><a href="../fail-path/C22-cliente-com-sdk-nao-suportado.html"><b>C22</b> Cliente com SDK ou versão não suportada</a></li>
+<li><a href="../fail-path/C24-orcamento-de-50ms-e-escrita-no-dynamodb.html"><b>C24</b> Orçamento de 50 ms e a escrita no DynamoDB dentro do ACK (antes R21)</a></li>
+<li><a href="../fail-path/C25-link-lento-faixa-cinzenta.html"><b>C25</b> Link lento ou saturado (faixa cinzenta): só alertar (antes R01)</a></li>
+<li><a href="../fail-path/C26-entrada-venenosa.html"><b>C26</b> Entrada venenosa: um item que o banco recusa para sempre (antes R02)</a></li>
+<li><a href="../fail-path/C27-encaminhamento-sem-lider-conhecida.html"><b>C27</b> Loop de encaminhamento e espera pela líder durante a eleição (antes R05)</a></li>
+<li><a href="../fail-path/C28-leitura-eventual-na-azure-defasada.html"><b>C28</b> Leitura eventual na Azure durante a degradação (antes R04)</a></li>
+<li><a href="../fail-path/C29-disco-do-log-em-degradacao-longa.html"><b>C29</b> Disco do log esgota durante uma degradação longa (antes R08)</a></li>
+<li><a href="../fail-path/C30-aws-que-volta-boot-cercado.html"><b>C30</b> Fencing: o DynamoDB e o applier da AWS que voltam depois da promoção (antes R14)</a></li>
+<li><a href="../fail-path/C32-particao-e-lease-do-modo-degradado.html"><b>C32</b> Partição entre AWS e Azure: lease do modo degradado e promoção da Azure</a></li>
+<li><a href="../fail-path/C33-reconstrucao-em-tabela-sombra.html"><b>C33</b> Reconstrução do banco de uma célula em tabela sombra</a></li>
+<li><a href="../fail-path/C34-autorizacao-por-aplicacao.html"><b>C34</b> Autorização por aplicação: mTLS e lista de permissões por identidade</a></li>
+</ul></details>
+<details class="grupo" open><summary>Complex path <span class="qtd">6</span></summary><ul>
+<li><a class="idx atual" href="index.html">Índice da seção</a></li>
+<li><a href="X01-gate-e-troca-de-lider.html"><b>X01</b> Gate: definição, monotonicidade e troca de líder</a></li>
+<li><a href="X02-modo-degradado.html"><b>X02</b> Modo degradado: entrada, permanência, lease e saída</a></li>
+<li><a href="X03-desastre-e-promocao-da-azure.html"><b>X03</b> Desastre: promoção da Azure, fencing e reconciliação</a></li>
+<li><a href="X04-partida-recuperacao-e-dois-logs.html"><b>X04</b> Partida, recuperação e coerência entre os dois logs</a></li>
+<li><a href="X05-timeouts-e-idempotencia.html"><b>X05</b> Timeouts em cascata e idempotência do retry</a></li>
+<li><a href="X06-delete-ttl-gsi.html"><b>X06</b> DELETE, TTL, Scan e GSI</a></li>
+</ul></details>
+<details class="grupo"><summary>Parking lot <span class="qtd">14</span></summary><ul>
+<li><a class="idx" href="../parking-lot/index.html">Índice da seção</a></li>
+<li><a href="../parking-lot/R03-backlog-de-apply-no-cosmos.html"><b>R03</b> Backlog de apply no Cosmos (429 e RU insuficiente)</a></li>
+<li><a href="../parking-lot/R06-duas-azs-aws-caem.html"><b>R06</b> Duas AZs da AWS caem com a Azure saudável</a></li>
+<li><a href="../parking-lot/R07-link-oscilando.html"><b>R07</b> Link oscilando (flapping)</a></li>
+<li><a href="../parking-lot/R09-resincronizacao-lenta-ou-bloqueada.html"><b>R09</b> Ressincronização da Azure lenta ou que nunca termina</a></li>
+<li><a href="../parking-lot/R10-operador-lento-no-desastre.html"><b>R10</b> Tempo de decisão humana no desastre</a></li>
+<li><a href="../parking-lot/R11-api-de-promocao-depende-da-aws.html"><b>R11</b> A API de promoção depende de algo que estava na AWS</a></li>
+<li><a href="../parking-lot/R12-promocao-com-aws-viva.html"><b>R12</b> Promoção da Azure com a AWS viva (split-brain, PEND-01)</a></li>
+<li><a href="../parking-lot/R13-escritas-orfas-reconciliacao.html"><b>R13</b> Escritas órfãs: reconciliação depois da promoção (PEND-03)</a></li>
+<li><a href="../parking-lot/R16-leitura-forte-em-celulas-follower.html"><b>R16</b> Leitura forte em células follower (ReadIndex e gate)</a></li>
+<li><a href="../parking-lot/R17-atributo-de-versao-e-limite-400kb.html"><b>R17</b> Atributo de versão: limite de 400 KB e ausência nas respostas</a></li>
+<li><a href="../parking-lot/R18-rto-nao-quantificado.html"><b>R18</b> RTO (Delta-T) ainda sem número</a></li>
+<li><a href="../parking-lot/R20-custo-6x.html"><b>R20</b> Custo: cada escrita lógica vira seis gravações</a></li>
+<li><a href="../parking-lot/R22-memoria-da-janela-de-dedupe.html"><b>R22</b> Memória da janela de dedupe</a></li>
+<li><a href="../parking-lot/R23-hipoteses-gerais.html"><b>R23</b> Hipóteses gerais em aberto</a></li>
+</ul></details>
+</nav>
+<main>
+<div class="migalhas"><a href="../index.html">Início</a> / Complex path</div>
+<h1>Complex path</h1><p class="lead">Cenários compostos e aprofundados.</p><div class="cartoes"><a class="cartao" href="X01-gate-e-troca-de-lider.html"><span class="id">X01</span><span class="t">Gate: definição, monotonicidade e troca de líder</span><span class="st">Decidido (D9, D12; revisado em 13/10 pelo <a href="../../03_adr/ADR-046-gate-so-conta-progresso-validado-pelo-raft.md">ADR-046</a>); falta o modelo TLA+, que agora nasce junto da fase 1</span><span class="r">O gate é a regra que une o Raft (decisão só da AWS) à exigência de durabilidade na Azure. É lógica nossa, fora de uma prova conhecida, e por isso é o ponto de maior risco do consenso da v1. Este documento detalha a regra, o que muda na troca de líder e as propriedades que o modelo TLA+ deve provar.</span></a><a class="cartao" href="X02-modo-degradado.html"><span class="id">X02</span><span class="t">Modo degradado: entrada, permanência, lease e saída</span><span class="st">Decidido (opção B, <a href="../../03_adr/ADR-014-modo-degradado-opcao-b.md">ADR-014</a>; lease e política em 13/10, <a href="../../03_adr/ADR-044-lease-do-modo-degradado-e-promocao-da-azure.md">ADR-044</a> e <a href="../../03_adr/ADR-045-politica-de-degradacao-por-instalacao.md">ADR-045</a>); falta o valor de D (PEND-02) e a prova no TLA+; saída e limiares em revisão</span><span class="r">Quando a Azure ou o link fica inalcançável, a AWS pode seguir escrevendo com RPO &gt; 0 (opção B, decisão do Bruno), mas <strong>só por um tempo finito e só nas instalações que escolheram <code>DEGRADED_POLICY=accept</code></strong>. A entrada <code>DEGRADE</code> carrega uma validade (lease) de duração D; no fim dela a AWS para de aceitar escrita sozinha. É isso que impede que a AWS e a Azure (promovida por uma pessoa) aceitem escrita ao mesmo tempo, sem terceiro domínio de desempate (ADR-008). Este documento reúne a mecânica de entrada, permanência, prorrogação e saída, a sinalização ao cliente e o que ainda está em aberto.</span></a><a class="cartao" href="X03-desastre-e-promocao-da-azure.html"><span class="id">X03</span><span class="t">Desastre: promoção da Azure, fencing e reconciliação</span><span class="st">Desenho decidido em 13/10 (<a href="../../03_adr/ADR-044-lease-do-modo-degradado-e-promocao-da-azure.md">ADR-044</a>); PEND-01 fecha quando D e M forem aprovados e o TLA+ provar a ausência de escrita nas duas pontas; procedimento humano</span><span class="r">Quando a AWS é perdida, só uma pessoa promove a Azure (<code>ForcePromote</code>). Este documento junta os cenários C14, C15 e C16 com a mecânica de espera (lease), epoch, escolha do log e tratamento de escritas órfãs. A promoção continua humana (ADR-033); a decisão de promoção automática está com os outros arquitetos e <strong>não deve ser reaberta</strong> sem a resposta do Bruno.</span></a><a class="cartao" href="X04-partida-recuperacao-e-dois-logs.html"><span class="id">X04</span><span class="t">Partida, recuperação e coerência entre os dois logs</span><span class="st">Decidido (<a href="../../03_adr/ADR-018-dois-logs-raft-e-replicacao.md">ADR-018</a>; progresso por item em 13/10, <a href="../../03_adr/ADR-048-skip-por-item.md">ADR-048</a>; log de replicação segmentado sem fsync e checkpoint durável em 13/10, <a href="../../03_adr/ADR-055-log-de-replicacao-segmentado-derivado-do-raft.md">ADR-055</a>); casos de queda a cobrir nos testes</span><span class="r">Há dois logs por réplica, cada um no seu volume: o do Raft (WAL do etcd, fsync antes do ACK) e o de replicação (log segmentado próprio, gravado depois do commit <strong>sem fsync</strong>, com um fsync de checkpoint a cada <code>REPLOG_SYNC_INTERVAL</code>). Uma queda pode acontecer entre as gravações. Este documento lista cada janela de queda e o que a partida faz.</span></a><a class="cartao" href="X05-timeouts-e-idempotencia.html"><span class="id">X05</span><span class="t">Timeouts em cascata e idempotência do retry</span><span class="st">Decidido (D11, D13; limite da idempotência documentado em 13/10, <a href="../../03_adr/ADR-051-compatibilidade-dynamodb-inventario-conformidade-e-idempotencia.md">ADR-051</a>); valores a validar</span><span class="r">O SDK desiste em 30 s por tentativa, com no máximo 3 tentativas. O <code>DataReplication</code> responde (sucesso ou erro definido) bem antes disso e garante que o retry <strong>dentro da janela</strong> não duplica a escrita. Este documento reúne a cascata de prazos, o cálculo da janela de dedupe e o limite honesto dessa garantia.</span></a><a class="cartao" href="X06-delete-ttl-gsi.html"><span class="id">X06</span><span class="t">DELETE, TTL, Scan e GSI</span><span class="st">Decidido (<a href="../../03_adr/ADR-024-delete-real-ttl-local-gsi.md">ADR-024</a>; invariante I-DEL, tabela sombra e GSI em 13/10: <a href="../../03_adr/ADR-047-delete-real-invariante-e-reconstrucao-em-tabela-sombra.md">ADR-047</a> e <a href="../../03_adr/ADR-050-gsi-nao-tem-leitura-forte.md">ADR-050</a>); falta a prova no TLA+ e o teste de propriedade</span><span class="r">Alguns clientes usam TTL na tabela, poucos usam Scan e algumas Query usam GSI. A escolha foi por DELETE real com ordem por chave no applier, sem tombstone na v1. A segurança disso não é intuitiva, então ela é escrita como invariante (I-DEL) e coberta por prova e teste. O detalhe completo (opções A a D e o raciocínio) está em 05_dados_versao_delete_ttl_gsi_e_banco_por_celula.</span></a></div>
+<footer class="rodape">
+Gerado em 13/10/2026 a partir de <code>DataReplication_Versao_1/</code>. O conteúdo vem dos arquivos .md citados no código-fonte desta página;
+textos marcados como <em>sugestão</em> são inferência do arquiteto e não decisões registradas.
+</footer>
+</main>
+</div>
+
+</body>
+</html>

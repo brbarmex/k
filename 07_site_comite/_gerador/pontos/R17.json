@@ -1,0 +1,33 @@
+{
+ "id": "R17",
+ "pontos": [
+  {
+   "titulo": "Item que já existe no limite",
+   "origem": "Falhas e tratativas",
+   "contexto": "Um item gravado direto no DynamoDB antes da camada, já com cerca de 399,9 KB, não consegue ser reescrito pela camada, porque o atributo de versão e a reserva o levariam acima de 400 KB. A aplicação passaria a receber erro em escritas que hoje funcionam, o que é uma quebra de compatibilidade visível na migração. Se a validação falhar e o item passar, a entrada commitada vira entrada venenosa (C26) e para o applier.",
+   "na_fonte": "A fonte propõe levantar esse caso nas tabelas dos clientes antes da migração, junto com o inventário de chamadas (PEND-15), e validar o tamanho pela regra do DynamoDB somando `_dr_v` e uma reserva antes do commit.",
+   "sugestao": "Incluir no inventário da PEND-15 uma varredura do tamanho dos itens por tabela, reportando quantos estão acima de 400 KB menos a reserva, e tornar isso critério de entrada do cliente. Para os casos encontrados, decidir com o time cliente entre reduzir o item antes da migração ou aceitar o erro, deixando a decisão registrada."
+  },
+  {
+   "titulo": "Entrada de até 4 MiB não muda o limite do item",
+   "origem": "Falhas e tratativas",
+   "contexto": "O log aceita entradas de até 4 MiB, mas isso é limite do log e não do item, que continua limitado a 400 KB. A confusão entre os dois limites pode levar a validações frouxas que deixam passar itens grandes demais, que depois falham no apply e viram entrada venenosa. Também pode afetar `BatchWriteItem`, que é uma entrada com vários itens.",
+   "na_fonte": "A fonte registra que o limite de 4 MiB é do log e que o item continua limitado a 400 KB, com a validação de tamanho por item antes do commit.",
+   "sugestao": "Garantir na suíte de conformidade (PEND-16) casos de teste de lote com itens individualmente no limite e lote total próximo de 4 MiB, verificando que cada item é validado individualmente. Validar também o tamanho do documento resultante no Cosmos, cujas regras entram na mesma validação."
+  },
+  {
+   "titulo": "Tamanho da resposta e da página",
+   "origem": "Falhas e tratativas",
+   "contexto": "As respostas de `Query` e `Scan` são limitadas em 1 MB no DynamoDB. Como `_dr_v` está gravado no item, a página lida do banco inclui o atributo, e removê-lo depois pode fazer a paginação da camada diferir da que o cliente teria no DynamoDB direto. Diferenças em `LastEvaluatedKey` ou na quantidade de itens por página podem quebrar aplicações que dependem desse comportamento.",
+   "na_fonte": "A fonte decide que `_dr_v` nunca aparece nas respostas (ADR-051) e que a paginação não pode mudar em relação à do DynamoDB, como item da suíte de conformidade.",
+   "sugestao": "Incluir na suíte de conformidade tabelas com itens perto do limite de página, comparando `Count`, `ScannedCount` e `LastEvaluatedKey` entre DynamoDB real, camada e Cosmos. Reconhecer que a paridade exata pode ser impossível, já que o DynamoDB conta o tamanho com o atributo, e levar essa diferença ao inventário da PEND-15 para saber se algum cliente depende dela."
+  },
+  {
+   "titulo": "Nome do atributo, reserva e itens grandes",
+   "origem": "Pontos em aberto",
+   "contexto": "O nome definitivo do atributo de versão (H-DR3) ainda não foi escolhido, o que mantém aberto o risco de colisão com atributos dos clientes. O tamanho da reserva também não está fixado (a fonte só sugere 1 KB), e o levantamento de itens grandes nas tabelas dos clientes não foi feito. Sem esses três itens a validação de escrita não pode ser implementada de forma definitiva.",
+   "na_fonte": "Não decidido na fonte. Proposta na fonte: atributo reservado e documentado com recusa da escrita em caso de colisão, e reserva fixa sugerida de 1 KB.",
+   "sugestao": "Escolher o nome com um prefixo improvável e verificar a ausência dele em todas as tabelas no inventário da PEND-15 antes de fixar. Fixar a reserva como constante versionada, já que mudá-la depois da entrada de clientes pode transformar escritas antes válidas em erro."
+  }
+ ]
+}

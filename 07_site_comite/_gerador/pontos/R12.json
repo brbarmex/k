@@ -1,0 +1,47 @@
+{
+ "id": "R12",
+ "pontos": [
+  {
+   "titulo": "Prorrogação do lease depois de a Azure já poder ser promovida",
+   "origem": "Falhas e tratativas",
+   "contexto": "Se uma pessoa prorrogar o lease (`RENEW`) depois de D + M já terem passado desde o último contato visto pela Azure, a Azure pode estar sendo promovida ao mesmo tempo em que a AWS volta a aceitar escrita. A prorrogação é replicada no Raft da AWS, que a Azure não vê, então os dois lados podem confirmar escritas simultaneamente. Isso quebra a garantia central contra split-brain e geraria perda de dado sem aviso.",
+   "na_fonte": "Não decidido na fonte. Proposta na fonte: uma regra a ser fixada no modelo TLA+ (H-DR13), por exemplo marcar a Azure como `promotion_blocked` antes de prorrogar ou recusar a prorrogação depois de um limite.",
+   "sugestao": "Preferir uma regra que não dependa de comunicação com a Azure, por exemplo recusar `RENEW` quando o tempo desde o último contato com a maioria Azure ultrapassar uma fração de D a definir, porque marcar `promotion_blocked` exige justamente o link que pode estar caído. Incluir essa regra como propriedade P12 no TLA+ e um teste de caos que faz `RENEW` com o link cortado no instante crítico."
+  },
+  {
+   "titulo": "Pausa de processo ou deriva de relógio",
+   "origem": "Falhas e tratativas",
+   "contexto": "O lease é baseado em tempo, então uma pausa longa do processo (por exemplo coleta de lixo) ou deriva de relógio pode fazer a AWS aceitar escrita depois do fim real do lease, enquanto a Azure já se considera livre para promover. Isso reabriria a janela de split-brain. É uma premissa de relógio limitado que precisa valer em produção, não só no desenho.",
+   "na_fonte": "A fonte decide que M inclui a deriva máxima e a pausa máxima de processo, e que a AWS confere o lease a cada ACK (ADR-044).",
+   "sugestao": "Medir em produção e em teste de carga a pausa máxima de processo e a deriva entre clouds, com alerta quando qualquer uma se aproximar da margem embutida em M. Garantir no código que a checagem do lease ocorre imediatamente antes de devolver o ACK, e não antes do commit, e incluir testes tipo Jepsen com pausas e relógios defasados."
+  },
+  {
+   "titulo": "RTO de pelo menos D + M no desastre em modo degradado",
+   "origem": "Falhas e tratativas",
+   "contexto": "Se a AWS morre de verdade enquanto está em modo degradado, a Azure só pode ser promovida depois de D + M, então o RTO desse caso tem piso D + M. Valores grandes de D reduzem a chance de parar escritas por oscilação, mas alongam o RTO do desastre na mesma medida. É um tradeoff direto entre RPO tolerado, disponibilidade em degradação e RTO.",
+   "na_fonte": "A fonte registra o piso D + M e remete a medição e a meta ao R18; o valor depende do aceite do negócio (PEND-02).",
+   "sugestao": "Apresentar ao negócio uma tabela que mostre, para cada valor candidato de D, o RTO mínimo do desastre e o volume máximo de órfãs, para que a escolha seja feita conscientemente. Oferecer `DEGRADED_POLICY=reject` como alternativa explícita para clientes com exigência de RTO menor que D + M."
+  },
+  {
+   "titulo": "Valores de D e M e aceite do negócio",
+   "origem": "Pontos em aberto",
+   "contexto": "D define o teto de duração do RPO > 0 e M a margem de segurança da promoção; sem esses valores aprovados, o modo degradado não pode ser ligado e a PEND-01 não fecha. Os valores afetam ao mesmo tempo o RPO em degradação, o RTO do desastre e o dimensionamento do log de replicação.",
+   "na_fonte": "Não decidido na fonte. Proposta na fonte: aprovação de D e M pelo Bruno com o negócio e risco (PEND-02), que é bloqueante.",
+   "sugestao": "Levar à reunião de aprovação um pacote único com D, M, prazo de decisão humana (R10) e dimensionamento do volume do log de replicação (ADR-055), já que todos dependem de D. Pedir que a aprovação registre também quem pode fazer `RENEW` e o teto acumulado de prorrogações."
+  },
+  {
+   "titulo": "Base do lease em t_c, M sem DEGRADE_AFTER e ausência de break-glass",
+   "origem": "Pontos em aberto",
+   "contexto": "O lease conta desde o último contato com a maioria Azure (`t_c`) e M não inclui `DEGRADE_AFTER`, o que define precisamente quando cada lado considera o prazo vencido. O contorno de emergência (break-glass) da recusa do `ForcePromote` não existe na v1, então mesmo diante de evidência inequívoca de que a AWS morreu, a promoção espera D + M. Isso dá segurança, mas fixa o RTO mínimo sem válvula de escape.",
+   "na_fonte": "A fonte registra a definição de `t_c` e de M no ADR-044 e a decisão de 13/10 (15b) de não ter break-glass na v1.",
+   "sugestao": "Verificar no TLA+ que o relógio da Azure mede a partir de um evento que nunca é posterior ao `t_c` visto pela AWS, inclusive em partição assimétrica (H-DR14). Registrar no runbook que não há break-glass, para que o plantão não perca tempo procurando um, e reavaliar após os game days se o RTO medido for inaceitável."
+  },
+  {
+   "titulo": "Prova no TLA+ de ausência de escrita nas duas pontas",
+   "origem": "Pontos em aberto",
+   "contexto": "A segurança do desenho (nunca haver escrita confirmada na AWS e na Azure ao mesmo tempo) ainda não foi provada formalmente. Sem prova, a interação entre lease, prorrogação, promoção e partição assimétrica pode esconder um caminho de split-brain. A PEND-01 só fecha quando D e M forem aprovados e o modelo provar a propriedade.",
+   "na_fonte": "A fonte decide que a prova é feita no TLA+, nas propriedades P11 e P12 do X01, incluindo H-DR13 e H-DR14.",
+   "sugestao": "Definir como critério de aceite que o modelo rode com pausas, deriva limitada, `RENEW` em qualquer momento e partições simétricas e assimétricas, e que a propriedade seja verificada com parâmetros de D e M simbólicos. Complementar com teste Jepsen sobre a implementação real, porque o TLA+ prova o desenho, não o código."
+  }
+ ]
+}

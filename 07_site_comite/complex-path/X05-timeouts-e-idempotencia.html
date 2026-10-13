@@ -1,0 +1,222 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>X05 — Timeouts em cascata e idempotência do retry · DataReplication v1</title>
+<link rel="stylesheet" href="../assets/site.css">
+</head>
+<body>
+<!--
+Fonte(s) usada(s) nesta página (rastreabilidade), relativas à raiz do pacote:
+  02_cenarios/complexos/X05-timeouts-e-idempotencia.md
+  04_diagramas/D07-prazos-em-cascata.md
+Gerado em 13/10/2026 a partir do pacote DataReplication_Versao_1.
+-->
+<header class="topo">
+<button class="menu" type="button" aria-label="Abrir navegação" onclick="document.body.classList.toggle('nav-aberta')">☰</button>
+<a href="../index.html">DataReplication v1</a><span class="sep">·</span><span>Apresentação ao comitê técnico</span>
+</header>
+<div class="layout">
+<nav class="sidebar" aria-label="Navegação">
+<a class="marca" href="../index.html">DataReplication v1<span>Comitê técnico</span></a>
+<a class="nav-inicio" href="../index.html">Resumo e requisitos</a>
+<details class="grupo"><summary>Success path <span class="qtd">10</span></summary><ul>
+<li><a class="idx" href="../success-path/index.html">Índice da seção</a></li>
+<li><a href="../success-path/C01-visao-geral.html"><b>C01</b> Visão geral da arquitetura</a></li>
+<li><a href="../success-path/C02-dentro-da-celula.html"><b>C02</b> Dentro da célula: apps do cliente e DataReplication</a></li>
+<li><a href="../success-path/C03-escrita-strong.html"><b>C03</b> Caminho feliz: escrita (apply serial depois do gate)</a></li>
+<li><a href="../success-path/C04-escrita-eventual.html"><b>C04</b> Modo Eventual: só de leitura (sem apply paralelo na v1)</a></li>
+<li><a href="../success-path/C05-leitura-strong-e-eventual.html"><b>C05</b> Caminho feliz: leitura Strong e Eventual</a></li>
+<li><a href="../success-path/C06-follower-encaminha.html"><b>C06</b> Requisição chega numa célula que não é a líder</a></li>
+<li><a href="../success-path/C11-transferencia-planejada.html"><b>C11</b> Transferência planejada de liderança (manutenção)</a></li>
+<li><a href="../success-path/C18-partida-e-recuperacao-do-no.html"><b>C18</b> Partida, recuperação e parada limpa do nó</a></li>
+<li><a href="../success-path/C23-batchwriteitem-lote-uma-entrada.html"><b>C23</b> BatchWriteItem: o lote é uma entrada e o apply é por item (antes R15)</a></li>
+<li><a href="../success-path/C31-implantacao-por-cliente-e-identidade.html"><b>C31</b> Uma instalação por cliente e identificação na API (antes R19)</a></li>
+</ul></details>
+<details class="grupo"><summary>Fail path <span class="qtd">24</span></summary><ul>
+<li><a class="idx" href="../fail-path/index.html">Índice da seção</a></li>
+<li><a href="../fail-path/C07-timeout-depois-do-commit.html"><b>C07</b> Prazo estoura depois do commit, antes do ACK (retry do SDK)</a></li>
+<li><a href="../fail-path/C08-queda-de-celula-lider-ou-az-aws.html"><b>C08</b> Queda da célula líder ou de uma AZ na AWS</a></li>
+<li><a href="../fail-path/C09-queda-de-az-azure.html"><b>C09</b> Queda de uma AZ na Azure</a></li>
+<li><a href="../fail-path/C10-celulas-de-app-aws-fora.html"><b>C10</b> Apps da AWS fora, replicação viva: tráfego vai para a Azure</a></li>
+<li><a href="../fail-path/C12-modo-degradado.html"><b>C12</b> Link AWS↔Azure cai ou Azure cai: modo degradado com lease</a></li>
+<li><a href="../fail-path/C13-ressincronizacao-da-azure.html"><b>C13</b> Ressincronização da Azure</a></li>
+<li><a href="../fail-path/C14-aws-cai-sem-degradacao.html"><b>C14</b> AWS cai por inteiro sem degradação prévia</a></li>
+<li><a href="../fail-path/C15-aws-cai-em-degradacao.html"><b>C15</b> AWS cai durante o modo degradado</a></li>
+<li><a href="../fail-path/C16-aws-volta-apos-promocao.html"><b>C16</b> AWS volta depois da promoção da Azure</a></li>
+<li><a href="../fail-path/C17-maquina-de-estados.html"><b>C17</b> Máquina de estados dos modos de operação de um shard</a></li>
+<li><a href="../fail-path/C19-falha-do-datareplication.html"><b>C19</b> O DataReplication da célula cai ou reinicia</a></li>
+<li><a href="../fail-path/C20-bypass-de-escrita-direta.html"><b>C20</b> Aplicação escreve direto no banco (bypass)</a></li>
+<li><a href="../fail-path/C21-disco-fsync-e-reconstrucao.html"><b>C21</b> Falha de fsync, corrupção, disco lento e disco perdido</a></li>
+<li><a href="../fail-path/C22-cliente-com-sdk-nao-suportado.html"><b>C22</b> Cliente com SDK ou versão não suportada</a></li>
+<li><a href="../fail-path/C24-orcamento-de-50ms-e-escrita-no-dynamodb.html"><b>C24</b> Orçamento de 50 ms e a escrita no DynamoDB dentro do ACK (antes R21)</a></li>
+<li><a href="../fail-path/C25-link-lento-faixa-cinzenta.html"><b>C25</b> Link lento ou saturado (faixa cinzenta): só alertar (antes R01)</a></li>
+<li><a href="../fail-path/C26-entrada-venenosa.html"><b>C26</b> Entrada venenosa: um item que o banco recusa para sempre (antes R02)</a></li>
+<li><a href="../fail-path/C27-encaminhamento-sem-lider-conhecida.html"><b>C27</b> Loop de encaminhamento e espera pela líder durante a eleição (antes R05)</a></li>
+<li><a href="../fail-path/C28-leitura-eventual-na-azure-defasada.html"><b>C28</b> Leitura eventual na Azure durante a degradação (antes R04)</a></li>
+<li><a href="../fail-path/C29-disco-do-log-em-degradacao-longa.html"><b>C29</b> Disco do log esgota durante uma degradação longa (antes R08)</a></li>
+<li><a href="../fail-path/C30-aws-que-volta-boot-cercado.html"><b>C30</b> Fencing: o DynamoDB e o applier da AWS que voltam depois da promoção (antes R14)</a></li>
+<li><a href="../fail-path/C32-particao-e-lease-do-modo-degradado.html"><b>C32</b> Partição entre AWS e Azure: lease do modo degradado e promoção da Azure</a></li>
+<li><a href="../fail-path/C33-reconstrucao-em-tabela-sombra.html"><b>C33</b> Reconstrução do banco de uma célula em tabela sombra</a></li>
+<li><a href="../fail-path/C34-autorizacao-por-aplicacao.html"><b>C34</b> Autorização por aplicação: mTLS e lista de permissões por identidade</a></li>
+</ul></details>
+<details class="grupo" open><summary>Complex path <span class="qtd">6</span></summary><ul>
+<li><a class="idx" href="index.html">Índice da seção</a></li>
+<li><a href="X01-gate-e-troca-de-lider.html"><b>X01</b> Gate: definição, monotonicidade e troca de líder</a></li>
+<li><a href="X02-modo-degradado.html"><b>X02</b> Modo degradado: entrada, permanência, lease e saída</a></li>
+<li><a href="X03-desastre-e-promocao-da-azure.html"><b>X03</b> Desastre: promoção da Azure, fencing e reconciliação</a></li>
+<li><a href="X04-partida-recuperacao-e-dois-logs.html"><b>X04</b> Partida, recuperação e coerência entre os dois logs</a></li>
+<li><a class="atual" aria-current="page" href="X05-timeouts-e-idempotencia.html"><b>X05</b> Timeouts em cascata e idempotência do retry</a></li>
+<li><a href="X06-delete-ttl-gsi.html"><b>X06</b> DELETE, TTL, Scan e GSI</a></li>
+</ul></details>
+<details class="grupo"><summary>Parking lot <span class="qtd">14</span></summary><ul>
+<li><a class="idx" href="../parking-lot/index.html">Índice da seção</a></li>
+<li><a href="../parking-lot/R03-backlog-de-apply-no-cosmos.html"><b>R03</b> Backlog de apply no Cosmos (429 e RU insuficiente)</a></li>
+<li><a href="../parking-lot/R06-duas-azs-aws-caem.html"><b>R06</b> Duas AZs da AWS caem com a Azure saudável</a></li>
+<li><a href="../parking-lot/R07-link-oscilando.html"><b>R07</b> Link oscilando (flapping)</a></li>
+<li><a href="../parking-lot/R09-resincronizacao-lenta-ou-bloqueada.html"><b>R09</b> Ressincronização da Azure lenta ou que nunca termina</a></li>
+<li><a href="../parking-lot/R10-operador-lento-no-desastre.html"><b>R10</b> Tempo de decisão humana no desastre</a></li>
+<li><a href="../parking-lot/R11-api-de-promocao-depende-da-aws.html"><b>R11</b> A API de promoção depende de algo que estava na AWS</a></li>
+<li><a href="../parking-lot/R12-promocao-com-aws-viva.html"><b>R12</b> Promoção da Azure com a AWS viva (split-brain, PEND-01)</a></li>
+<li><a href="../parking-lot/R13-escritas-orfas-reconciliacao.html"><b>R13</b> Escritas órfãs: reconciliação depois da promoção (PEND-03)</a></li>
+<li><a href="../parking-lot/R16-leitura-forte-em-celulas-follower.html"><b>R16</b> Leitura forte em células follower (ReadIndex e gate)</a></li>
+<li><a href="../parking-lot/R17-atributo-de-versao-e-limite-400kb.html"><b>R17</b> Atributo de versão: limite de 400 KB e ausência nas respostas</a></li>
+<li><a href="../parking-lot/R18-rto-nao-quantificado.html"><b>R18</b> RTO (Delta-T) ainda sem número</a></li>
+<li><a href="../parking-lot/R20-custo-6x.html"><b>R20</b> Custo: cada escrita lógica vira seis gravações</a></li>
+<li><a href="../parking-lot/R22-memoria-da-janela-de-dedupe.html"><b>R22</b> Memória da janela de dedupe</a></li>
+<li><a href="../parking-lot/R23-hipoteses-gerais.html"><b>R23</b> Hipóteses gerais em aberto</a></li>
+</ul></details>
+</nav>
+<main>
+<div class="migalhas"><a href="../index.html">Início</a> / <a href="index.html">Complex path</a> / X05</div>
+<h1>X05 — Timeouts em cascata e idempotência do retry</h1>
+<div class="meta"><span class="selo complex-path">Complex path</span><div><b>Status na fonte:</b> Decidido (D11, D13; limite da idempotência documentado em 13/10, <a href="../../03_adr/ADR-051-compatibilidade-dynamodb-inventario-conformidade-e-idempotencia.md">ADR-051</a>); valores a validar</div></div>
+<section id="visao-geral"><h2>1. Visão geral do cenário</h2>
+<p>O SDK desiste em 30 s por tentativa, com no máximo 3 tentativas. O <code>DataReplication</code> responde (sucesso ou erro definido) bem antes disso e garante que o retry <strong>dentro da janela</strong> não duplica a escrita. Este documento reúne a cascata de prazos, o cálculo da janela de dedupe e o limite honesto dessa garantia.</p>
+</section>
+<section id="diagrama"><h2>2. Diagrama</h2>
+<div class="diagrama"><pre class="mermaid">flowchart LR
+    S[&quot;SDK 30 s por tentativa&lt;br/&gt;até 3 tentativas&quot;] --&gt; A[&quot;REQUEST_DEADLINE 7,5 s&quot;]
+    A --&gt; F[&quot;Forward até 3 s&quot;]
+    A --&gt; G[&quot;DEGRADE_AFTER 2 s&quot;]
+    A --&gt; P[&quot;Apply: 1 s por tentativa, até 2&quot;]
+    A --&gt; M[&quot;Margem de resposta 500 ms&quot;]</pre></div>
+<h3>Arquitetura geral relacionada: <a href="../../04_diagramas/D07-prazos-em-cascata.md">D07 — Prazos em cascata dentro dos 30 s do SDK</a></h3><p class="nota">Diagrama de <code>04_diagramas/</code> escolhido pelo site como contexto; o cenário fonte não faz essa associação.</p>
+<div class="diagrama"><pre class="mermaid">flowchart TD
+    SDK[&quot;SDK do cliente: 30 s por tentativa, até 3 tentativas&quot;] --&gt; API[&quot;REQUEST_DEADLINE 7,5 s&quot;]
+    API --&gt; FWD[&quot;Forward para a líder: até 3 s&quot;]
+    API --&gt; DEG[&quot;DEGRADE_AFTER 2 s, só com accept&quot;]
+    API --&gt; APPLY[&quot;Cliente do banco: 1 s por tentativa, até 2&quot;]
+    API --&gt; MARGEM[&quot;Margem de resposta: 500 ms ou mais&quot;]
+    API --&gt;|&quot;estourou depois do commit&quot;| PEND[&quot;503 PENDING: não perdeu, o retry é absorvido pelo dedupe&quot;]
+    PEND --&gt; DD[&quot;Dedupe de 5 min por requisição e versão condicional&quot;]
+    DEG --&gt;|&quot;DEGRADE commitado&quot;| LEASE[&quot;Lease D, valor a definir: fora da cascata de 30 s&quot;]
+    LEASE --&gt;|&quot;fim de D, conferido a cada ACK&quot;| LE[&quot;503 LEASE_EXPIRED imediato, dentro do prazo&quot;]
+    LEASE -.-&gt;|&quot;Azure só promove depois de D mais M desde o último contato&quot;| PROM[&quot;ForcePromote recusado antes disso&quot;]</pre></div>
+</section>
+<section id="etapas"><h2>3. Legenda e etapas</h2>
+<div class="etapas"><ol>
+<li><strong>Cascata:</strong> <code>REQUEST_DEADLINE = CLIENT_TIMEOUT / 4</code>; <code>DEGRADE_AFTER</code> e os prazos internos sempre menores que o externo; validado na partida.</li>
+<li><strong>O prazo nasce na borda</strong> (<code>context.WithTimeout</code> no adaptador de entrada) e desce por todas as camadas; ninguém cria prazo maior que o recebido; nenhuma chamada usa <code>context.Background()</code>. O <code>WriteTimeout</code> do servidor HTTP deve ser maior que o <code>REQUEST_DEADLINE</code>, para a resposta de erro definida chegar ao cliente.</li>
+<li><strong>Prazo estourado depois do commit:</strong> <code>503 PENDING</code>. A escrita não se perde; o resultado é desconhecido para o cliente. Sem a Azure e com <code>DEGRADED_POLICY=reject</code>, também <code>503 PENDING</code>. O <code>503 LEASE_EXPIRED</code> (fim do lease do modo degradado, <a href="X02-modo-degradado.html">X02</a>) é outro caso: a escrita não foi confirmada.</li>
+<li><strong>Identificador estável:</strong> os SDKs da AWS enviam o header <code>amz-sdk-invocation-id</code>, igual em todas as tentativas de uma mesma chamada, e <code>amz-sdk-request</code> com <code>attempt</code> e <code>max</code>. É o candidato natural a identificador de dedupe, mas <strong>precisa ser verificado em cada SDK (Java 2.x, Go v2, .NET v4) na suíte de compatibilidade</strong> (<a href="../../03_adr/ADR-051-compatibilidade-dynamodb-inventario-conformidade-e-idempotencia.md">ADR-051</a>). Um retry da própria aplicação gera chamada nova (id novo) e não é coberto.</li>
+<li><strong>Janela de dedupe:</strong> <code>máx. de tentativas × (REQUEST_DEADLINE + backoff máximo) + folga</code>, com 3 tentativas fica em ~25 a 130 s; adotada a janela de <strong>5 min</strong>.</li>
+<li><strong>Memória:</strong> 5 min × 3.000 TPS ≈ 900 mil entradas × ~64 B ≈ 58 MiB (R22).</li>
+<li><strong>Dedupe por requisição:</strong> a chave do dedupe é o identificador da <strong>requisição</strong> (a chamada do SDK), não o item. No <code>BatchWriteItem</code>, o lote vira uma entrada (<a href="../../03_adr/ADR-035-lote-batchwriteitem-uma-entrada-e-apply-condicional.md">ADR-035</a>, <a href="../success-path/C23-batchwriteitem-lote-uma-entrada.html">C23</a>) e o retry do lote inteiro é reconhecido como retry pelo id da chamada, o que evita o falso positivo do hash por conteúdo. Não existe dedupe por item.</li>
+<li><strong>Resultado por item na consulta:</strong> quem recebeu <code>PENDING</code> consulta pelo identificador da requisição e recebe o resultado <strong>por item</strong>: <code>APPLIED</code>, <code>REJECTED</code> ou <code>PENDING</code> (<a href="../../03_adr/ADR-048-skip-por-item.md">ADR-048</a>). Um item pulado por <code>SKIP</code> (índice, ordem) aparece como <code>REJECTED</code> e os demais seguem aplicados, como no sucesso parcial do <code>BatchWriteItem</code> do DynamoDB (<a href="../fail-path/C26-entrada-venenosa.html">C26</a>).</li>
+<li><strong>Limite da idempotência (documentado):</strong> o dedupe vale por requisição e dentro da janela de 5 min. Fora dela vale a semântica do DynamoDB: um <code>PutItem</code> cego repetido depois da janela sobrescreve uma versão mais nova, <strong>também no DynamoDB</strong>; a camada não piora isso. O defeito de fundo é outro: a <strong>escrita condicional está fora da v1</strong> (<a href="../../03_adr/ADR-025-escopo-da-api-v1-e-sdks.md">ADR-025</a>), então uma aplicação com concorrência otimista (versão, saldo) não tem como se proteger pela camada. Por isso há o levantamento do uso real de <code>ConditionExpression</code> em cada cliente antes de ele entrar; se depender, a decisão de antecipar a v1.1 volta ao Bruno. Um identificador durável de operação de negócio seria extensão fora do contrato DynamoDB e não foi adotado.</li>
+</ol></div>
+</section>
+<section id="pontos"><h2>4. Pontos que precisam ser avaliados</h2>
+<p class="nota">Reescritos a partir das seções “Falhas e tratativas” e “Pontos em aberto” (e de outras seções de risco, quando existem). Em cada ponto, <b>O que a fonte define</b> vem da documentação; <b>Sugestão de encaminhamento</b> é <b>inferência do arquiteto</b>, não decisão registrada.</p>
+<article class="ponto">
+<h3><span class="num">1</span>Hash do conteúdo como fallback de dedupe <span class="origem">Falhas e tratativas</span></h3>
+<dl>
+<dt>Contexto</dt><dd>Se o identificador estável não estiver disponível, um fallback por hash do conteúdo confundiria duas escritas legítimas iguais (por exemplo um contador regravado com o mesmo valor) com retry. A segunda escrita seria descartada silenciosamente. Isso viola a semântica esperada pelo cliente.</dd>
+<dt>O que a fonte define</dt><dd class="">A fonte registra o risco e adota o dedupe por identificador da requisição, não por item nem por conteúdo (<a href="../../03_adr/ADR-026-dedupe-de-retry-id-estavel.md">ADR-026</a>, <a href="../../03_adr/ADR-035-lote-batchwriteitem-uma-entrada-e-apply-condicional.md">ADR-035</a>).</dd>
+<dt class="sug">Sugestão de encaminhamento <small>(inferência, não decidida)</small></dt><dd class="sug">Decidir explicitamente que não há fallback por hash: requisição sem <code>amz-sdk-invocation-id</code> não é deduplicada e isso é documentado. Medir em produção a fração de requisições sem o header como métrica.</dd>
+</dl>
+</article>
+<article class="ponto">
+<h3><span class="num">2</span>Aplicação com retry próprio <span class="origem">Falhas e tratativas</span></h3>
+<dl>
+<dt>Contexto</dt><dd>Um retry feito pela aplicação, fora do SDK, gera chamada nova com identificador novo. A camada não reconhece como retry e a escrita pode ser duplicada. Isso fica fora da garantia de idempotência.</dd>
+<dt>O que a fonte define</dt><dd class="">A fonte decide informar os times de aplicação e registrar no inventário do cliente (PEND-15).</dd>
+<dt class="sug">Sugestão de encaminhamento <small>(inferência, não decidida)</small></dt><dd class="sug">Incluir no inventário de cada cliente uma pergunta explícita sobre retry próprio e, se houver, exigir operações idempotentes por natureza ou o uso de escrita condicional quando a v1.1 existir.</dd>
+</dl>
+</article>
+<article class="ponto">
+<h3><span class="num">3</span>Retry depois da troca de líder <span class="origem">Falhas e tratativas</span></h3>
+<dl>
+<dt>Contexto</dt><dd>Se a líder cai entre o commit e a resposta, o SDK repete a chamada para a líder nova. Se a tabela de dedupe estivesse só na líder antiga, a escrita seria duplicada. Isso afeta a correção do resultado desconhecido (<code>503 PENDING</code>).</dd>
+<dt>O que a fonte define</dt><dd class="">A tabela de dedupe é projeção do log e existe em todos os votantes, então a líder nova reconhece o retry (P14 em <a href="X01-gate-e-troca-de-lider.html">X01</a>).</dd>
+<dt class="sug">Sugestão de encaminhamento <small>(inferência, não decidida)</small></dt><dd class="sug">Teste de caos que mata a líder logo após o commit e antes da resposta, repetindo com o mesmo <code>amz-sdk-invocation-id</code>, verificando uma só entrada. Incluir P14 no núcleo do modelo da fase 1.</dd>
+</dl>
+</article>
+<article class="ponto">
+<h3><span class="num">4</span>Verificação do header por SDK <span class="origem">Pontos em aberto</span></h3>
+<dl>
+<dt>Contexto</dt><dd>O <code>amz-sdk-invocation-id</code> é o candidato natural a identificador, mas seu comportamento precisa ser confirmado em cada SDK (Java 2.x, Go v2, .NET v4). Se algum SDK não o mantiver igual entre tentativas, o dedupe não funciona para esse cliente.</dd>
+<dt>O que a fonte define</dt><dd class="nd-fonte">Não decidido na fonte. Proposta na fonte: spike S5 e suíte de conformidade (PEND-16), necessária antes do primeiro cliente (<a href="../../03_adr/ADR-051-compatibilidade-dynamodb-inventario-conformidade-e-idempotencia.md">ADR-051</a>).</dd>
+<dt class="sug">Sugestão de encaminhamento <small>(inferência, não decidida)</small></dt><dd class="sug">Incluir na suíte um teste que force retry em cada SDK e compare o header entre tentativas, rodando a cada atualização de versão do SDK. Registrar o resultado por SDK e versão.</dd>
+</dl>
+</article>
+<article class="ponto">
+<h3><span class="num">5</span>Inventário de chamadas e uso de condicional <span class="origem">Pontos em aberto</span></h3>
+<dl>
+<dt>Contexto</dt><dd>A escrita condicional está fora da v1, então clientes com concorrência otimista (versão, saldo) não têm proteção pela camada. Sem inventário, um cliente pode entrar dependendo de <code>ConditionExpression</code> sem saber. Isso é risco de correção de dados, não de replicação.</dd>
+<dt>O que a fonte define</dt><dd class="">PEND-15: nenhum cliente entra sem o inventário; se depender de condicional, a decisão de antecipar a v1.1 volta ao Bruno (<a href="../../03_adr/ADR-025-escopo-da-api-v1-e-sdks.md">ADR-025</a>, <a href="../../03_adr/ADR-051-compatibilidade-dynamodb-inventario-conformidade-e-idempotencia.md">ADR-051</a>).</dd>
+<dt class="sug">Sugestão de encaminhamento <small>(inferência, não decidida)</small></dt><dd class="sug">Complementar o inventário declarado com captura de tráfego real (amostra de chamadas) para detectar uso de condicional que o time não declarou. A camada deveria recusar explicitamente <code>ConditionExpression</code> na v1, em vez de ignorar.</dd>
+</dl>
+</article>
+<article class="ponto">
+<h3><span class="num">6</span>Memória da janela de dedupe <span class="origem">Pontos em aberto</span></h3>
+<dl>
+<dt>Contexto</dt><dd>A janela de 5 min a 3.000 TPS gera cerca de 900 mil entradas e 58 MiB por votante. Picos acima do previsto ou janela maior aumentam a memória proporcionalmente. Como a tabela existe em todos os votantes e é reconstruída na partida, ela também pesa no tempo de volta do nó.</dd>
+<dt>O que a fonte define</dt><dd class="">Tratado em <a href="../parking-lot/R22-memoria-da-janela-de-dedupe.html">R22</a>.</dd>
+<dt class="sug">Sugestão de encaminhamento <small>(inferência, não decidida)</small></dt><dd class="sug">Ver <a href="../parking-lot/R22-memoria-da-janela-de-dedupe.html">R22</a>; adicionar métrica do tamanho da tabela de dedupe e alerta com limiar a definir.</dd>
+</dl>
+</article>
+<article class="ponto">
+<h3><span class="num">7</span>Lote do <code>BatchWriteItem</code> <span class="origem">Pontos em aberto</span></h3>
+<dl>
+<dt>Contexto</dt><dd>O lote vira uma única entrada e o dedupe é pelo id da chamada. Isso afeta como o retry e o resultado por item são tratados, porque um item pulado por <code>SKIP</code> aparece como <code>REJECTED</code> enquanto os demais seguem aplicados. Um erro aqui gera duplicidade ou resultado inconsistente na consulta após <code>503 PENDING</code>.</dd>
+<dt>O que a fonte define</dt><dd class="">Tratado em <a href="../success-path/C23-batchwriteitem-lote-uma-entrada.html">C23</a> e <a href="../../03_adr/ADR-035-lote-batchwriteitem-uma-entrada-e-apply-condicional.md">ADR-035</a>.</dd>
+<dt class="sug">Sugestão de encaminhamento <small>(inferência, não decidida)</small></dt><dd class="sug">Ver <a href="../success-path/C23-batchwriteitem-lote-uma-entrada.html">C23</a>; garantir teste de retry de lote com sucesso parcial (um item <code>REJECTED</code> por <code>SKIP</code>) e consulta por identificador.</dd>
+</dl>
+</article>
+</section>
+<section id="adrs"><h2>5. ADRs relacionados</h2>
+<div class="tabela"><table><thead><tr><th>ADR</th><th>Título</th><th>Decisão resumida</th><th>Arquivo</th></tr></thead><tbody>
+<tr><td class="nw"><a href="../../03_adr/ADR-026-dedupe-de-retry-id-estavel.md">ADR-026</a></td><td>Dedupe de retry na líder por identificador estável</td><td>Dedupe de retry na líder por identificador estável do SDK, hash como último recurso, janela de 5 min.</td><td><a href="../../03_adr/ADR-026-dedupe-de-retry-id-estavel.md">ADR-026-dedupe-de-retry-id-estavel.md</a></td></tr>
+<tr><td class="nw"><a href="../../03_adr/ADR-028-timeouts-em-cascata.md">ADR-028</a></td><td>Prazos em cascata dentro do timeout do SDK</td><td>Prazos em cascata: REQUEST_DEADLINE 7,5 s, DEGRADE_AFTER 2 s, forward até 3 s; valores a validar.</td><td><a href="../../03_adr/ADR-028-timeouts-em-cascata.md">ADR-028-timeouts-em-cascata.md</a></td></tr>
+<tr><td class="nw"><a href="../../03_adr/ADR-035-lote-batchwriteitem-uma-entrada-e-apply-condicional.md">ADR-035</a></td><td>BatchWriteItem vira uma entrada; o apply é por item e condicional</td><td>BatchWriteItem vira uma entrada do log; o apply é por item com PutItem/DeleteItem condicionais.</td><td><a href="../../03_adr/ADR-035-lote-batchwriteitem-uma-entrada-e-apply-condicional.md">ADR-035-lote-batchwriteitem-uma-entrada-e-apply-condicional.md</a></td></tr>
+<tr><td class="nw"><a href="../../03_adr/ADR-048-skip-por-item.md">ADR-048</a></td><td>O SKIP identifica o item: (índice, ordem)</td><td>O SKIP identifica o item por (índice, ordem) e o applier persiste o progresso por item.</td><td><a href="../../03_adr/ADR-048-skip-por-item.md">ADR-048-skip-por-item.md</a></td></tr>
+<tr><td class="nw"><a href="../../03_adr/ADR-051-compatibilidade-dynamodb-inventario-conformidade-e-idempotencia.md">ADR-051</a></td><td>Compatibilidade com o DynamoDB: inventário, conformidade e limite da idempotência</td><td>Compatibilidade com o DynamoDB por inventário de chamadas, suíte de conformidade e limite de idempotência documentado.</td><td><a href="../../03_adr/ADR-051-compatibilidade-dynamodb-inventario-conformidade-e-idempotencia.md">ADR-051-compatibilidade-dynamodb-inventario-conformidade-e-idempotencia.md</a></td></tr>
+</tbody></table></div>
+<p class="nota">Lista extraída do cabeçalho “ADRs” do arquivo fonte. A decisão resumida condensa a seção “Decisão” de cada ADR.</p>
+</section>
+<section id="anexo"><h2>Anexo: texto original da fonte</h2><p class="nota">Seções do .md fonte reproduzidas sem reescrita, para conferência.</p>
+<details class="anexo"><summary>Falhas e tratativas</summary><ul>
+<li><strong>Hash do conteúdo como fallback.</strong> Pode confundir duas escritas legítimas iguais (um contador regravado com o mesmo valor) com retry.</li>
+<li><strong>Aplicação com retry próprio.</strong> Fora da janela e fora da cobertura; informar os times de aplicação e registrar no inventário do cliente.</li>
+<li><strong>Retry depois da troca de líder.</strong> A tabela de dedupe é projeção do log e existe em todos os votantes, então a líder nova reconhece o retry (propriedade P14 do modelo, <a href="X01-gate-e-troca-de-lider.html">X01</a>).</li>
+</ul></details>
+<details class="anexo"><summary>Pontos em aberto</summary><ul>
+<li>Verificação do header por SDK: spike S5 e suíte de conformidade (PEND-16).</li>
+<li>Inventário real de chamadas e uso de condicional por cliente (PEND-15).</li>
+<li>Memória da janela: <a href="../parking-lot/R22-memoria-da-janela-de-dedupe.html">R22</a>.</li>
+<li>Lote do <code>BatchWriteItem</code>: <a href="../success-path/C23-batchwriteitem-lote-uma-entrada.html">C23</a>.</li>
+</ul></details>
+</section>
+<footer class="rodape">
+Gerado em 13/10/2026 a partir de <code>DataReplication_Versao_1/</code>. O conteúdo vem dos arquivos .md citados no código-fonte desta página;
+textos marcados como <em>sugestão</em> são inferência do arquiteto e não decisões registradas.
+</footer>
+</main>
+</div>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@11.4.1/dist/mermaid.min.js"></script>
+<script>mermaid.initialize({startOnLoad: true, theme: "neutral", securityLevel: "strict", flowchart: {htmlLabels: true, useMaxWidth: true}, sequence: {useMaxWidth: true}});</script>
+</body>
+</html>

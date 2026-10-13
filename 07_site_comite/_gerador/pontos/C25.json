@@ -1,0 +1,61 @@
+{
+ "id": "C25",
+ "pontos": [
+  {
+   "titulo": "Um único learner lento",
+   "origem": "Falhas e tratativas",
+   "contexto": "O gate espera a maioria Azure durável, e cada learner pode ter atraso próprio. Um learner lento sozinho não segura o gate, mas dois lentos seguram, e então toda escrita espera o mais lento dos dois. A redundância efetiva na Azure cai sem que nenhuma falha formal seja registrada.",
+   "na_fonte": "A fonte decide que o gate usa o segundo maior índice durável entre os 3 learners (maioria 2/3), de modo que um learner lento não segura o gate (ADR-017).",
+   "sugestao": "Alertar quando um learner fica atrás por mais de um tempo a definir, pois a margem passa a ser zero, e incluir teste de caos com latência injetada em um e depois em dois learners para medir o efeito no gate."
+  },
+  {
+   "titulo": "Lentidão intermitente faz o shard entrar e sair do degradado",
+   "origem": "Falhas e tratativas",
+   "contexto": "Se algumas escritas passam de 2 s e outras não, o shard pode alternar entre normal e degradado. Cada entrada em degradado abre janela de RPO > 0 e, na política `accept`, inicia o lease. A oscilação gera ruído de alertas e confusão operacional.",
+   "na_fonte": "Não decidido na fonte. O C25 remete o tema ao R07.",
+   "sugestao": "Definir histerese para entrada e saída do degradado e testar no TLA+ que a oscilação não viola o lease nem o gate. Testar com perda de pacote intermitente no link e medir quantas transições ocorrem por hora."
+  },
+  {
+   "titulo": "Fila crescendo com o gate lento",
+   "origem": "Falhas e tratativas",
+   "contexto": "Com o gate lento, as escritas ficam em voo esperando a maioria Azure; a fonte estima cerca de 4.500 escritas em voo com gate a 1,5 s e 3.000 TPS. Sem teto, a lentidão vira consumo de memória e conexões sem fim, até derrubar o processo. O efeito transforma latência em indisponibilidade.",
+   "na_fonte": "Não decidido na fonte. Proposta na fonte: teto de requisições em voo e rejeição rápida com `503` quando atingido, com valores a definir no spike S1.",
+   "sugestao": "No spike S1, medir a memória por requisição em voo e definir o teto (limiar a definir), com métrica de ocupação e alerta antes de atingi-lo. Testar com link lento sustentado que o processo não sofre OOM e que o `503` é devolvido rápido."
+  },
+  {
+   "titulo": "Lentidão sustentada abaixo de 2 s",
+   "origem": "Falhas e tratativas",
+   "contexto": "O sistema pode ficar horas lento mas seguro, com RPO 0 e latência acima da meta, sem disparar degradação. Não existe comando para o operador forçar o modo degradado, e o alerta precisa escalar para uma pessoa. Em instalações `reject` esse comando nunca existirá, então a única saída é resolver o link.",
+   "na_fonte": "Decidido no ADR-037: na faixa cinzenta só se alerta e se mantém RPO 0; criar um comando de degradação forçada depende do aceite do RPO > 0 (PEND-02).",
+   "sugestao": "Definir o runbook do plantão para faixa cinzenta prolongada, com escalada após N minutos (limiar a definir), e deixar explícito para o negócio que a meta de latência não é garantida nesse estado."
+  },
+  {
+   "titulo": "Cabo compartilhado entre clientes",
+   "origem": "Falhas e tratativas",
+   "contexto": "Cada cliente tem a sua instalação, mas o cabo dedicado entre AWS e Azure é um só. O tráfego de um cliente pode deixar o link lento para todos, colocando os outros na faixa cinzenta ou até no degradado. É um risco de vizinho barulhento fora do controle de cada instalação.",
+   "na_fonte": "A fonte decide reservar ou limitar a banda por cliente, com métrica por cliente (ADR-043, C31).",
+   "sugestao": "Definir o mecanismo concreto de limite (QoS no cabo e limitação no `DataReplication`) e testar com dois clientes simulados, um saturando, para verificar que o gate do outro não se altera."
+  },
+  {
+   "titulo": "Fan-out da replicação pelo link",
+   "origem": "Falhas e tratativas",
+   "contexto": "Cada escrita é enviada aos 3 learners pelo mesmo link, o que a fonte estima em cerca de 18 MB/s só de log a 3.000 TPS, fora o encaminhamento. Isso aumenta a chance de saturar o link e cair na faixa cinzenta. Um relay na Azure reduziria a banda, mas acrescentaria um salto.",
+   "na_fonte": "Não decidido na fonte. Proposta na fonte: avaliar no spike S1 um relay na Azure, em que a líder envia 1 cópia e um learner repassa.",
+   "sugestao": "No spike S1, medir a banda real com tamanho médio de entrada dos clientes e comparar latência do gate com e sem relay. Se o relay for adotado, modelar no TLA+ que a durabilidade continua contada por learner e que o relay não vira ponto único de falha do gate."
+  },
+  {
+   "titulo": "Segundo circuito privado ou cabo único",
+   "origem": "Pontos em aberto",
+   "contexto": "Um único cabo entre AWS e Azure é ponto único de falha do link e aumenta a chance de degradar ou de ficar na faixa cinzenta. Contratar um segundo circuito por outra operadora reduz esse risco, mas tem custo.",
+   "na_fonte": "Não decidido na fonte. É decisão de custo e risco fora do software, registrada no R23.",
+   "sugestao": "Levar ao negócio a comparação entre custo do segundo circuito e o custo esperado de degradações (RPO > 0 e RTO maior), usando a frequência histórica de falhas do cabo atual, se disponível."
+  },
+  {
+   "titulo": "P99 real do gate e volta à degradação por latência",
+   "origem": "Pontos em aberto",
+   "contexto": "Sem o P99 real do gate não se sabe com que frequência o sistema vive na faixa cinzenta. Voltar a degradar por latência só faz sentido depois do aceite do RPO > 0.",
+   "na_fonte": "Não decidido na fonte. A medição está prevista no spike S1 e a degradação por latência só volta depois do PEND-02.",
+   "sugestao": "Medir no spike S1 o P99 e o P99,9 do gate com o link real, e usar o resultado para dimensionar o alerta de faixa cinzenta. Só reabrir a degradação por latência com dados de frequência e com o PEND-02 fechado."
+  }
+ ]
+}

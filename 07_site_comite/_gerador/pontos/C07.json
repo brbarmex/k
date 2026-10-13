@@ -1,0 +1,61 @@
+{
+ "id": "C07",
+ "pontos": [
+  {
+   "titulo": "SDK sem identificador estável",
+   "origem": "Falhas e tratativas",
+   "contexto": "O dedupe depende de um identificador que se repete entre as tentativas do SDK. Se um SDK não tiver esse identificador, o último recurso é o hash de tabela, chave e conteúdo, que trata como repetição duas escritas legítimas iguais e descarta a segunda.",
+   "na_fonte": "Hash como último recurso, com falso positivo possível (ADR-026). Confirmar o identificador em Java 2.x, Go v2 e .NET v4 é verificação pendente.",
+   "sugestao": "Executar a verificação por SDK na suíte de conformidade (PEND-16) e tornar a instalação recusada para SDK sem identificador estável, em vez de cair no hash em silêncio. Se o hash for mantido, expor métrica de dedupe por hash para medir o risco de falso positivo."
+  },
+  {
+   "titulo": "Aplicação retenta por cima do SDK",
+   "origem": "Falhas e tratativas",
+   "contexto": "Se a aplicação tem sua própria lógica de retry, a repetição pode chegar depois da janela de 5 min e não ser reconhecida como duplicata. Para um `PutItem`, isso pode sobrescrever uma escrita mais nova da mesma chave (caso ABA).",
+   "na_fonte": "Se existir em algum cliente, a janela precisa crescer; fora da janela vale a semântica do DynamoDB (ADR-051, R22).",
+   "sugestao": "Levantar no inventário (PEND-15) quais aplicações retentam por cima do SDK e com que intervalo. Avaliar o custo de memória de uma janela maior junto com o R22 antes de aumentar `DEDUPE_WINDOW`."
+  },
+  {
+   "titulo": "`DEGRADED_POLICY=reject` ou lease vencido com resultado desconhecido",
+   "origem": "Falhas e tratativas",
+   "contexto": "Com `reject` e a Azure fora, a escrita já commitada espera o gate indefinidamente e o cliente recebe `503 PENDING` aos 7,5 s sem saber se ela aconteceu. Com `accept` e lease vencido, a resposta `503 LEASE_EXPIRED` também pode corresponder a uma entrada já commitada. A escrita pode aparecer mais tarde, após o retorno da Azure, quando o cliente já desistiu.",
+   "na_fonte": "O retry encontra o dedupe (ADR-045, C32). A fonte classifica ambos como resultado desconhecido.",
+   "sugestao": "Documentar para os clientes que `503 PENDING` e `503 LEASE_EXPIRED` não significam escrita rejeitada e testar no modelo TLA+ o caso de retry depois de a janela de dedupe vencer enquanto a entrada ainda espera o gate. Avaliar se uma Azure fora por mais de 5 min deixa entradas commitadas e órfãs do dedupe."
+  },
+  {
+   "titulo": "Cascata de prazos fora de ordem",
+   "origem": "Falhas e tratativas",
+   "contexto": "Os prazos precisam ser crescentes: degradar antes de o servidor desistir, e o servidor desistir antes do cliente. Uma configuração invertida faria todas as requisições estourarem antes da degradação ou o cliente desistir antes de receber `503 PENDING`.",
+   "na_fonte": "A partida recusa subir se `DEGRADE_AFTER >= REQUEST_DEADLINE` ou `REQUEST_DEADLINE >= CLIENT_TIMEOUT` (ADR-028).",
+   "sugestao": "Ter teste de partida com cada combinação inválida e incluir na validação a relação entre `IdleTimeout` e o idle dos SDKs, que hoje é uma premissa e não uma checagem."
+  },
+  {
+   "titulo": "Conexão ociosa fechada pelo servidor",
+   "origem": "Falhas e tratativas",
+   "contexto": "Se o servidor fecha uma conexão ociosa antes do SDK, o SDK pode reusá-la e receber erro na escrita seguinte, gerando retries desnecessários e possíveis resultados desconhecidos.",
+   "na_fonte": "`IdleTimeout` de 120 s, maior que o idle dos SDKs.",
+   "sugestao": "Confirmar o idle real de cada SDK suportado (Java 2.x, Go v2, .NET v4) e de balanceadores intermediários, e incluir esse valor na suíte de conformidade."
+  },
+  {
+   "titulo": "Memória da janela de dedupe",
+   "origem": "Pontos em aberto",
+   "contexto": "A janela de 5 min a 3.000 TPS exige cerca de 900 mil identificadores e ~58 MiB por shard, fora do orçamento original. Além disso, a nova líder precisa ter a tabela pronta ao assumir, senão reconstrói lendo 5 min de log e infla o RTO.",
+   "na_fonte": "Tratado em parte no R22: tabela como projeção do log mantida por todos os votantes, reconstrução pelo log de replicação (ADR-055) e janela configurável. Falta medir.",
+   "sugestao": "Medir no spike a memória real com o tamanho de id de cada SDK e o tempo de reconstrução no reinício, e incluir esse tempo na distribuição de RTO do C18. Testar a eleição com tabela de dedupe vazia para ver o efeito no retry em voo."
+  },
+  {
+   "titulo": "Lote do `BatchWriteItem`",
+   "origem": "Pontos em aberto",
+   "contexto": "Um `BatchWriteItem` vira uma única entrada no log e o dedupe é pelo id da requisição inteira. Isso afeta como falhas parciais e retries de lote são tratados.",
+   "na_fonte": "Decidido em C23 e ADR-035: lote como uma entrada, dedupe pelo id da requisição inteira e apply condicional.",
+   "sugestao": "Ver C23. Incluir na suíte de conformidade o caso de retry de lote com itens não processados, comparando com o DynamoDB nativo."
+  },
+  {
+   "titulo": "Valores de 7,5 s e 2 s a validar",
+   "origem": "Pontos em aberto",
+   "contexto": "`REQUEST_DEADLINE` de 7,5 s e `DEGRADE_AFTER` de 2 s foram escolhidos por raciocínio, não por medição. Valores errados mudam quanto tempo uma escrita espera antes de degradar e quantos clientes recebem resultado desconhecido.",
+   "na_fonte": "Não decidido na fonte. Proposta na fonte: validar os dois valores em teste (verificações pendentes da PEND-12).",
+   "sugestao": "Validar com teste de caos que corta o link durante carga e mede a fração de escritas que recebem `503 PENDING` contra as que esperam e são ACKadas em degradado. Escolher `DEGRADE_AFTER` junto com D e com a histerese do R07."
+  }
+ ]
+}

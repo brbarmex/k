@@ -1,0 +1,26 @@
+{
+ "id": "R16",
+ "pontos": [
+  {
+   "titulo": "Líder como gargalo do ReadIndex",
+   "origem": "Falhas e tratativas",
+   "contexto": "Toda leitura forte numa follower precisa que a líder confirme a liderança com o quórum e devolva `ReadIndex` e gate, somando cerca de 1 RTT. Se a maioria das leituras for forte e houver muitas células, a líder passa a confirmar liderança com muita frequência e pode virar gargalo de leitura e, indiretamente, de escrita. Isso afeta latência de leitura e a capacidade por shard.",
+   "na_fonte": "A fonte propõe agrupar pedidos de ReadIndex em lote, com custo por lote e não por leitura, e medir no spike S1/S5 com a proporção real de leitura e escrita; leituras por lease ficam desligadas por padrão.",
+   "sugestao": "No spike, medir `read_index_wait` e a fila na líder variando a proporção de leituras fortes e o tamanho da janela de agrupamento, com critério de aceite de não degradar o P99 de escrita além de um limiar a definir. Avaliar também o efeito do agrupamento sobre a latência de leitura individual, porque a janela de poucos ms soma tempo a toda leitura."
+  },
+  {
+   "titulo": "Requisito de que applied nunca passe do gate",
+   "origem": "Falhas e tratativas",
+   "contexto": "A barreira `min(ReadIndex, gate)` só é correta se o `applied` de uma célula nunca ultrapassar o gate; se ultrapassasse, uma leitura forte poderia ver dado ainda não durável na Azure. Isso exigiu tirar o apply paralelo do modo Eventual. Uma regressão futura que reintroduza apply antecipado quebraria a garantia de leitura sem sinal visível.",
+   "na_fonte": "A fonte decide pelo ADR-053 (sem apply paralelo no Eventual na v1) e cobre a propriedade no TLA+ (P17 do X01).",
+   "sugestao": "Além do TLA+, incluir uma asserção em tempo de execução que falha alto se `last_applied > last_azure_durable` na célula, com métrica e alerta. Isso protege contra regressões no código, que o modelo não cobre."
+  },
+  {
+   "titulo": "Proporção de leituras fortes e SLO de leitura",
+   "origem": "Pontos em aberto",
+   "contexto": "Hoje só existe meta de latência de escrita; não se conhece a proporção real de leituras fortes por escrita nem há SLO de latência de leitura. Sem esses números não é possível dimensionar a líder, avaliar o agrupamento de ReadIndex nem decidir quando encaminhar leituras fortes da Azure para a AWS. O assunto entra no SLO ponta a ponta do R18.",
+   "na_fonte": "Não decidido na fonte. Proposta na fonte: medir a proporção e definir o SLO de leitura como parte do SLO ponta a ponta (R18).",
+   "sugestao": "Pedir aos times clientes, junto com o inventário da PEND-15, a proporção de leituras fortes e eventuais por tabela, e definir o SLO de leitura forte separadamente para células AWS e Azure. Verificar também o caso de leitura forte em célula Azure durante a faixa cinzenta, que pode ficar sempre no limite de 3 s antes de encaminhar."
+  }
+ ]
+}

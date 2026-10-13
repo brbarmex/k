@@ -1,0 +1,54 @@
+{
+ "id": "X05",
+ "pontos": [
+  {
+   "titulo": "Hash do conteúdo como fallback de dedupe",
+   "origem": "Falhas e tratativas",
+   "contexto": "Se o identificador estável não estiver disponível, um fallback por hash do conteúdo confundiria duas escritas legítimas iguais (por exemplo um contador regravado com o mesmo valor) com retry. A segunda escrita seria descartada silenciosamente. Isso viola a semântica esperada pelo cliente.",
+   "na_fonte": "A fonte registra o risco e adota o dedupe por identificador da requisição, não por item nem por conteúdo (ADR-026, ADR-035).",
+   "sugestao": "Decidir explicitamente que não há fallback por hash: requisição sem `amz-sdk-invocation-id` não é deduplicada e isso é documentado. Medir em produção a fração de requisições sem o header como métrica."
+  },
+  {
+   "titulo": "Aplicação com retry próprio",
+   "origem": "Falhas e tratativas",
+   "contexto": "Um retry feito pela aplicação, fora do SDK, gera chamada nova com identificador novo. A camada não reconhece como retry e a escrita pode ser duplicada. Isso fica fora da garantia de idempotência.",
+   "na_fonte": "A fonte decide informar os times de aplicação e registrar no inventário do cliente (PEND-15).",
+   "sugestao": "Incluir no inventário de cada cliente uma pergunta explícita sobre retry próprio e, se houver, exigir operações idempotentes por natureza ou o uso de escrita condicional quando a v1.1 existir."
+  },
+  {
+   "titulo": "Retry depois da troca de líder",
+   "origem": "Falhas e tratativas",
+   "contexto": "Se a líder cai entre o commit e a resposta, o SDK repete a chamada para a líder nova. Se a tabela de dedupe estivesse só na líder antiga, a escrita seria duplicada. Isso afeta a correção do resultado desconhecido (`503 PENDING`).",
+   "na_fonte": "A tabela de dedupe é projeção do log e existe em todos os votantes, então a líder nova reconhece o retry (P14 em X01).",
+   "sugestao": "Teste de caos que mata a líder logo após o commit e antes da resposta, repetindo com o mesmo `amz-sdk-invocation-id`, verificando uma só entrada. Incluir P14 no núcleo do modelo da fase 1."
+  },
+  {
+   "titulo": "Verificação do header por SDK",
+   "origem": "Pontos em aberto",
+   "contexto": "O `amz-sdk-invocation-id` é o candidato natural a identificador, mas seu comportamento precisa ser confirmado em cada SDK (Java 2.x, Go v2, .NET v4). Se algum SDK não o mantiver igual entre tentativas, o dedupe não funciona para esse cliente.",
+   "na_fonte": "Não decidido na fonte. Proposta na fonte: spike S5 e suíte de conformidade (PEND-16), necessária antes do primeiro cliente (ADR-051).",
+   "sugestao": "Incluir na suíte um teste que force retry em cada SDK e compare o header entre tentativas, rodando a cada atualização de versão do SDK. Registrar o resultado por SDK e versão."
+  },
+  {
+   "titulo": "Inventário de chamadas e uso de condicional",
+   "origem": "Pontos em aberto",
+   "contexto": "A escrita condicional está fora da v1, então clientes com concorrência otimista (versão, saldo) não têm proteção pela camada. Sem inventário, um cliente pode entrar dependendo de `ConditionExpression` sem saber. Isso é risco de correção de dados, não de replicação.",
+   "na_fonte": "PEND-15: nenhum cliente entra sem o inventário; se depender de condicional, a decisão de antecipar a v1.1 volta ao Bruno (ADR-025, ADR-051).",
+   "sugestao": "Complementar o inventário declarado com captura de tráfego real (amostra de chamadas) para detectar uso de condicional que o time não declarou. A camada deveria recusar explicitamente `ConditionExpression` na v1, em vez de ignorar."
+  },
+  {
+   "titulo": "Memória da janela de dedupe",
+   "origem": "Pontos em aberto",
+   "contexto": "A janela de 5 min a 3.000 TPS gera cerca de 900 mil entradas e 58 MiB por votante. Picos acima do previsto ou janela maior aumentam a memória proporcionalmente. Como a tabela existe em todos os votantes e é reconstruída na partida, ela também pesa no tempo de volta do nó.",
+   "na_fonte": "Tratado em R22.",
+   "sugestao": "Ver R22; adicionar métrica do tamanho da tabela de dedupe e alerta com limiar a definir."
+  },
+  {
+   "titulo": "Lote do `BatchWriteItem`",
+   "origem": "Pontos em aberto",
+   "contexto": "O lote vira uma única entrada e o dedupe é pelo id da chamada. Isso afeta como o retry e o resultado por item são tratados, porque um item pulado por `SKIP` aparece como `REJECTED` enquanto os demais seguem aplicados. Um erro aqui gera duplicidade ou resultado inconsistente na consulta após `503 PENDING`.",
+   "na_fonte": "Tratado em C23 e ADR-035.",
+   "sugestao": "Ver C23; garantir teste de retry de lote com sucesso parcial (um item `REJECTED` por `SKIP`) e consulta por identificador."
+  }
+ ]
+}

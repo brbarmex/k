@@ -1,0 +1,33 @@
+{
+ "id": "C19",
+ "pontos": [
+  {
+   "titulo": "Célula inteira sem DataReplication",
+   "origem": "Falhas e tratativas",
+   "contexto": "Há um único `DataReplication` por célula e ele é o único caminho entre as apps e o banco; se o processo cai por crash, OOM ou deploy, as apps da célula ficam sem acesso a dados até o pod voltar. O SDK recebe conexão recusada e retenta, o que pode não bastar se a volta demorar mais que as tentativas. Isso afeta a disponibilidade da célula e, se ela era a líder, também o RTO de escrita do shard, que depende da eleição na AWS.",
+   "na_fonte": "A fonte indica que o Compass-Router (externo) pode desviar o tráfego e que as apps toleram a indisponibilidade com o retry do SDK; o PDB limita a indisponibilidade a uma célula por vez.",
+   "sugestao": "Definir e testar o contrato com o Compass-Router: qual sinal ele usa para desviar (por exemplo `readyz`), em quanto tempo e se o desvio respeita a afinidade de leitura forte local. Um teste de caos com `kill -9` e OOM forçado do `DataReplication` na célula líder e numa follower deve medir o tempo até o tráfego ser servido de novo, comparado com a janela de retries do SDK."
+  },
+  {
+   "titulo": "Reinício no meio do apply de um lote",
+   "origem": "Falhas e tratativas",
+   "contexto": "Um `BatchWriteItem` é uma entrada com até 25 itens aplicados por item. Se o processo reinicia com parte dos itens gravados, o applier precisa saber onde parou para não perder nem duplicar efeitos. Um erro aqui deixaria o banco da célula com o lote pela metade de forma permanente, quebrando RPO e consistência entre réplicas.",
+   "na_fonte": "O progresso por item `(índice, ordem)` é lido do volume do log e os itens já aplicados são reaplicados de forma idempotente pela condição de versão (C23, ADR-048).",
+   "sugestao": "Cobrir com teste de propriedade que injeta queda em cada ponto do apply de um lote (antes e depois de cada item e do fsync do progresso) e verifica que o estado final é idêntico ao de um apply sem queda. Verificar também o caso em que o progresso persistido está à frente do que o banco realmente gravou, garantindo que a condição de versão, e não o progresso, é a garantia final."
+  },
+  {
+   "titulo": "SDK sem identificador estável de requisição",
+   "origem": "Falhas e tratativas",
+   "contexto": "O dedupe de retry na líder depende de um identificador estável por requisição; se o SDK não o fornece, uma escrita que caiu depois do commit pode ser repetida e gerar uma entrada nova. O último recurso é um hash do conteúdo, que pode ter falso positivo: duas escritas legítimas e idênticas dentro da janela seriam tratadas como uma só. Isso é perda silenciosa de escrita do ponto de vista do cliente.",
+   "na_fonte": "A fonte prevê o hash do conteúdo como último recurso, aceitando o falso positivo possível (ADR-026).",
+   "sugestao": "Validar por SDK suportado, na suíte de compatibilidade, se existe um identificador estável utilizável e registrar no inventário do cliente (PEND-15) quais aplicações caem no hash. Para essas, levar ao cliente a decisão explícita de aceitar o falso positivo ou incluir um identificador no próprio item, e expor uma métrica de dedupe por hash para dimensionar o risco."
+  },
+  {
+   "titulo": "Janela de dedupe e memória",
+   "origem": "Pontos em aberto",
+   "contexto": "A janela de dedupe precisa lembrar na líder o identificador de cada requisição recente, e o R22 estima esse custo em memória por shard como não previsto no orçamento do pod. Além disso, a tabela precisa existir na líder nova; se só a líder a mantém, a nova líder reconstrói lendo minutos de log durante a eleição, o que infla o RTO. Uma janela curta demais, por outro lado, deixa retries tardios virarem escrita duplicada.",
+   "na_fonte": "Não decidido na fonte. Proposta na fonte: no R22, a tabela é uma projeção do log mantida por todos os votantes, com janela configurável `DEDUPE_WINDOW`, reconstrução no reinício a partir do log de replicação e inclusão da memória no orçamento e no `GOMEMLIMIT`.",
+   "sugestao": "Medir no spike de carga a ocupação real da tabela por shard e o tempo de reconstrução no reinício, e garantir que a retenção mínima do log de replicação cobre a janela mais uma margem. Incluir no TLA+ ou em teste de propriedade a propriedade de que um retry dentro da janela nunca gera entrada nova mesmo após troca de líder, e alertar quando a janela efetiva ficar menor que o prazo máximo de retry do SDK."
+  }
+ ]
+}

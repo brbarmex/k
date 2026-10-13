@@ -1,0 +1,19 @@
+{
+ "id": "C09",
+ "pontos": [
+  {
+   "titulo": "Duas AZs da Azure caem",
+   "origem": "Falhas e tratativas",
+   "contexto": "Com só um learner de pé, não há maioria Azure e o gate para. Para a AWS é igual à Azure inteira inalcançável, e o comportamento passa a depender da política: com `accept` abre janela de RPO > 0, com `reject` as escritas param.",
+   "na_fonte": "Modo degradado com lease se `accept` (C12, C32) ou `503 PENDING` se `reject`; ressincronização depois (C13).",
+   "sugestao": "Incluir no teste de caos a queda de duas AZs Azure em sequência (não simultânea), conferindo que `t_c` é o instante em que se perdeu a maioria e não a primeira queda. Medir o tempo até o `RESTORE` quando as AZs voltam."
+  },
+  {
+   "titulo": "Z3 volta com disco novo",
+   "origem": "Falhas e tratativas",
+   "contexto": "Se o learner volta sem o disco, não tem log nem histórico confiável. Se voltasse com a mesma identidade, poderia contar para o gate uma durabilidade que não tem mais.",
+   "na_fonte": "Identidade nova como learner e reconstrução (C21, ADR-034).",
+   "sugestao": "Testar a volta de learner com disco zerado e conferir que ele só conta no gate depois de responder ao `AppendEntries` no termo atual com a identidade nova. Medir o tempo de reconstrução, porque durante ele o gate depende dos dois learners restantes e mais uma falha leva à degradação."
+  }
+ ]
+}

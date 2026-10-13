@@ -1,0 +1,19 @@
+{
+ "id": "C17",
+ "pontos": [
+  {
+   "titulo": "Transições da máquina de estados sem prova formal",
+   "origem": "Pontos em aberto",
+   "contexto": "As regras de `t_c` e de líder nova estão decididas, mas as transições Normal para Degradado, Degradado para Lease expirado e a promoção ainda não foram verificadas. Um erro sutil nessas transições pode causar split-brain ou perda de dado sem falha de infraestrutura.",
+   "na_fonte": "Não decidido na fonte. Proposta na fonte: modelar no TLA+ (ADR-030), incluindo H-DR13 e H-DR14.",
+   "sugestao": "Definir as propriedades a provar (nunca escrita nas duas pontas, gate monotônico, ACK só com lease válido) e exigir o modelo antes do código do gate. Incluir no modelo a transição para Parado e a saída por promoção."
+  },
+  {
+   "titulo": "Ordem entre `RENEW`, `RESTORE` e `promotion_blocked`",
+   "origem": "Pontos em aberto",
+   "contexto": "O `RENEW` é decidido na AWS, mas a Azure não vê o Raft da AWS. Sem ordem definida, uma prorrogação, um `RESTORE` e a promoção podem acontecer em ordem que deixa as duas pontas aptas a escrever.",
+   "na_fonte": "Não decidido na fonte. Proposta na fonte: regra candidata de marcar a Azure como `promotion_blocked` antes de prorrogar, a provar (C32, PEND-20).",
+   "sugestao": "Provar a regra no TLA+ e testar a falha do link no exato momento do `RENEW`, quando a marcação pode não chegar à Azure."
+  }
+ ]
+}

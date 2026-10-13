@@ -1,0 +1,26 @@
+{
+ "id": "C01",
+ "pontos": [
+  {
+   "titulo": "Compass-Router ou Agent indisponível",
+   "origem": "Falhas e tratativas",
+   "contexto": "O Compass-Router decide para qual nuvem e célula vai cada requisição, e o Agent do control plane é quem manda rotear o shard para a Azure. Os dois são externos ao time, então uma indisponibilidade deles deixa o cliente sem caminho até o `DataReplication`, mesmo com a replicação saudável. Nesse caso o RTO real do cliente passa a depender de um componente que o projeto não controla nem mede, e no desastre da AWS a promoção da Azure não adianta se o roteamento não chegar até ela.",
+   "na_fonte": "A fonte trata como dependência externa fora do escopo do time e registra que o router sobrevive à perda total da AWS e que o Agent roda nas duas nuvens, confirmado pelo Bruno.",
+   "sugestao": "Pedir aos donos do Compass-Router e do Agent o SLO e o RTO formais desses componentes e incluí-los no orçamento de `Delta-T` por tipo de falha, já que hoje entram como confiança verbal. Incluir no exercício de desastre (o teste com a AWS bloqueada do R11) a verificação de que o Agent, rodando só na Azure, consegue de fato mudar a rota."
+  },
+  {
+   "titulo": "Certificados mTLS ou credenciais entre nuvens expiram",
+   "origem": "Falhas e tratativas",
+   "contexto": "O canal entre as células AWS e Azure depende de certificados mTLS e credenciais. Se expiram, a AWS para de receber as confirmações dos learners e, do ponto de vista dela, é igual à Azure cair. Com `accept` isso abre uma janela de RPO > 0 sem nenhuma falha real de infraestrutura; com `reject` as escritas ficam em `503 PENDING`, ou seja, indisponibilidade autoinfligida.",
+   "na_fonte": "Tratado como queda da Azure: conforme a `DEGRADED_POLICY`, entra o modo degradado com lease (`accept`) ou a escrita responde `503 PENDING` (`reject`), como em C12. A fonte pede alerta de expiração com antecedência.",
+   "sugestao": "Definir a antecedência do alerta (limiar a definir) e automatizar a rotação com teste de caos que expira um certificado de propósito em homologação, verificando que o alerta dispara antes da degradação. Ponto crítico não coberto: a autoridade de certificados está na lista de dependências do R11, então a rotação precisa funcionar também com a AWS fora, senão a Azure promovida não renova os próprios certificados."
+  },
+  {
+   "titulo": "Link lento ou saturado (falha cinzenta)",
+   "origem": "Pontos em aberto",
+   "contexto": "Um link AWS↔Azure que continua entregando confirmações, porém devagar, nunca dispara o modo degradado, porque o gatilho é a espera passar de `DEGRADE_AFTER`. Toda escrita passa a esperar a maioria Azure e estoura o orçamento de latência sem que nenhum alarme de link caído dispare. O impacto é em latência e, por acúmulo de escritas em voo, em memória e conexões, não em RPO.",
+   "na_fonte": "Tratado em C25: a decisão do ADR-037 é que a faixa cinzenta só gera alerta, sem ação automática, com métricas de espera do gate por learner e proteção de banda do link.",
+   "sugestao": "Garantir que o alerta do C25 tenha dono e escalonamento definidos antes da produção e que o teste de caos injete latência crescente no link (abaixo e acima de `DEGRADE_AFTER`) medindo P99 de escrita e escritas em voo. Levar ao comitê o tradeoff explícito de ficar horas lento mas seguro sem comando de degradação manual."
+  }
+ ]
+}

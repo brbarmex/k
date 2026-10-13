@@ -1,0 +1,61 @@
+{
+ "id": "C12",
+ "pontos": [
+  {
+   "titulo": "Fim de D com a Azure ainda fora",
+   "origem": "Falhas e tratativas",
+   "contexto": "Ao fim do lease D, a AWS para de aceitar escrita mesmo sem a Azure ter voltado. A disponibilidade em modo degradado é finita por desenho, e a escolha entre prorrogar, esperar ou promover a Azure exige uma pessoa. Uma prorrogação depois de D + M pode reabrir o risco de as duas pontas escreverem.",
+   "na_fonte": "Saídas: a Azure voltar e ressincronizar, `RENEW` humano, ou promoção da Azure depois de D + M (ADR-044). A regra prorrogação x promoção é a H-DR13 (PEND-20), a fechar no TLA+.",
+   "sugestao": "Fechar a H-DR13 no TLA+ antes de habilitar `accept` em produção e escrever o runbook do fim de D com a decisão pré-aprovada pelo negócio. Alertar com antecedência do fim de D (limiar a definir) com o ETA de ressincronização ao lado."
+  },
+  {
+   "titulo": "Pausa de processo ou salto de relógio",
+   "origem": "Falhas e tratativas",
+   "contexto": "O lease depende de relógio monotônico. Uma pausa longa de processo ou um salto de relógio pode fazer a líder ACKar com o lease já vencido, ampliando a janela em que a Azure poderia ser promovida enquanto a AWS ainda escreve.",
+   "na_fonte": "Conferência do lease a cada ACK, depois do fsync e antes de responder; salto detectado conta como lease expirado. A margem M inclui deriva e pausa máxima (ADR-044, PEND-17).",
+   "sugestao": "Medir deriva de relógio e pausas máximas de processo (GC, throttling de CPU do pod) nos clusters reais para fixar M. Incluir no teste tipo Jepsen pausas de processo e relógios defasados durante o degradado."
+  },
+  {
+   "titulo": "Disco do log esgota durante degradação longa",
+   "origem": "Falhas e tratativas",
+   "contexto": "No degradado a AWS retém todas as entradas desde `fromIndex` para a Azure, cerca de 0,5 TB por dia por shard a 3.000 TPS. Se o disco dos votantes enche, o fsync falha e não há mais commit, e o modo criado para manter o sistema de pé o derrubaria.",
+   "na_fonte": "Teto de 70% do volume; passado o teto a Azure fica fora da janela e precisa de reconstrução completa, sem descarga para S3 na v1 (ADR-041, C29). D dimensiona o volume (PEND-22).",
+   "sugestao": "Dimensionar o volume a partir de D aprovado, como a fonte indica, e testar o atingimento do teto com carga sintética. Avaliar o efeito sobre as órfãs: ao passar do teto, a AWS descarta a retenção que serviria ao relatório do R13."
+  },
+  {
+   "titulo": "Partição assimétrica",
+   "origem": "Falhas e tratativas",
+   "contexto": "Se a Azure recebe os dados mas as confirmações não voltam, a AWS entra em degradado enquanto a Azure ainda vê contato recente. A AWS assume RPO > 0 sem necessidade, e as noções de último contato nas duas pontas divergem.",
+   "na_fonte": "A Azure ter dados a mais não causa dano e a ressincronização acerta a diferença. Hipótese H-DR14 (PEND-20), a modelar no TLA+.",
+   "sugestao": "Modelar no TLA+ partições nos dois sentidos e confirmar que D + M continua seguro. Incluir no teste de caos o bloqueio de um só sentido do link, com regra de firewall unidirecional."
+  },
+  {
+   "titulo": "Link oscilando (flapping)",
+   "origem": "Falhas e tratativas",
+   "contexto": "Se o link cai e volta várias vezes, o shard entra e sai do degradado, abrindo uma janela de RPO > 0 a cada episódio e gerando pausas de escrita a cada religação do gate.",
+   "na_fonte": "Histerese na saída é a proposta, ainda a revisar (R07, PEND-12). Cada `DEGRADE` novo conta o lease desde o `t_c` do novo episódio.",
+   "sugestao": "Fechar os valores de `RESTORE_STABLE`, `RESTORE_LAG` e limite de transições junto com D. Ponto crítico: se cada episódio recomeça o lease, um link que oscila pode prolongar a janela total de RPO > 0 além de D sem nenhuma decisão humana; recomendo modelar no TLA+ se o `fromIndex` estável do episódio do R07 limita isso."
+  },
+  {
+   "titulo": "`reject` e disponibilidade",
+   "origem": "Falhas e tratativas",
+   "contexto": "Com `reject`, uma queda da Azure ou do link para as escritas do cliente. O RPO fica 0, mas a disponibilidade de escrita depende da saúde das duas nuvens e do link.",
+   "na_fonte": "A política é testada nos dois valores na suíte de falhas (ADR-045).",
+   "sugestao": "Mostrar ao cliente que escolhe `reject` a estimativa de indisponibilidade esperada a partir do histórico do link (dado do time de rede) para que a escolha seja informada (PEND-17)."
+  },
+  {
+   "titulo": "Aceite formal do RPO > 0 e do valor de D",
+   "origem": "Pontos em aberto",
+   "contexto": "D é o teto de duração da janela de RPO > 0 e também o piso do RTO quando a AWS morre em degradado. Sem D aprovado, o modo degradado não pode ser ligado e instalações `accept` ficam bloqueadas.",
+   "na_fonte": "Não decidido na fonte. Bloqueante (PEND-02, R23 H2): falta o aceite de negócio e risco para D e M.",
+   "sugestao": "Levar ao negócio e risco uma tabela com D candidato, perda máxima por shard, RTO mínimo D + M e tamanho do volume do log, para decisão conjunta. Definir dono e data da decisão."
+  },
+  {
+   "titulo": "Link lento sem cair não dispara a degradação",
+   "origem": "Pontos em aberto",
+   "contexto": "Um link lento abaixo de `DEGRADE_AFTER` deixa todas as escritas lentas sem acionar o degradado nem alarme de queda. O sistema pode ficar horas lento mas seguro.",
+   "na_fonte": "Tratado em C25: só alerta (ADR-037); voltar à degradação por latência só depois da PEND-02.",
+   "sugestao": "Ver C25. Garantir escalonamento humano do alerta e incluir esse cenário no SLO ponta a ponta."
+  }
+ ]
+}

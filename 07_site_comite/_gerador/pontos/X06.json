@@ -1,0 +1,40 @@
+{
+ "id": "X06",
+ "pontos": [
+  {
+   "titulo": "Zumbi observado nos testes",
+   "origem": "Falhas e tratativas",
+   "contexto": "Com DELETE real e sem tombstone, um PUT atrasado aplicado depois de um DELETE pode ressuscitar o item. A ordem por chave no applier evita isso no caminho normal, mas a segurança não é intuitiva. Se o zumbi aparecer, há leitura de dado apagado e divergência entre células.",
+   "na_fonte": "A alternativa registrada é uma tabela separada de tombstones consultada só em replay e rebuild, com uma escrita extra por DELETE; só entra se os testes mostrarem zumbi (H-DR1). Tombstone dentro do item foi descartado.",
+   "sugestao": "Definir o teste de propriedade com sequências aleatórias de Put e Delete e queda em qualquer ponto como critério que dispara ou não a tabela de tombstones. Incluir também o caminho Cosmos pelo Cloud-Adapter, onde a ordem por chave depende de outra implementação."
+  },
+  {
+   "titulo": "Rebuild mais lento que a retenção do log",
+   "origem": "Falhas e tratativas",
+   "contexto": "A reconstrução em tabela sombra precisa reter o log desde F até o fim da cópia. Se a varredura demorar mais que a retenção permitida pelo teto de 70%, o log necessário é descartado. O rebuild falha e recomeça, podendo nunca terminar em tabelas grandes.",
+   "na_fonte": "A fonte registra que o rebuild falha e recomeça (ADR-041, C33).",
+   "sugestao": "Medir a vazão de cópia por tabela e calcular antes do rebuild se ele cabe na retenção, recusando iniciar quando não cabe. Considerar reter o log fixando F como bloqueio de truncamento enquanto houver espaço, com alerta."
+  },
+  {
+   "titulo": "Custo da varredura no rebuild",
+   "origem": "Falhas e tratativas",
+   "contexto": "A cópia consome WCU no DynamoDB e RU no Cosmos, o que pode competir com o tráfego normal e causar 429. A anti-entropia por checksum só detecta divergência, não a previne.",
+   "na_fonte": "A fonte registra o custo e a anti-entropia como detecção.",
+   "sugestao": "Limitar a taxa da varredura e medir impacto em latência do tráfego normal durante um rebuild em teste. Ligar a varredura ao mesmo dimensionamento de RU de R03."
+  },
+  {
+   "titulo": "Prova de I-DEL no TLA+ e teste de propriedade",
+   "origem": "Pontos em aberto",
+   "contexto": "I-DEL é a invariante que sustenta o DELETE real sem tombstone. Sem prova e sem teste, a regra de abrir leituras só depois do high-water mark é só argumento. Uma falha nela significa leitura de item apagado ou divergência entre células após replay, o que afeta a correção das leituras e não o RPO.",
+   "na_fonte": "Entram no plano da fase 1 (ADR-030, ADR-047, P16).",
+   "sugestao": "Tornar P16 e o teste de propriedade critérios de aceite da fase 1, incluindo queda de host e o caso de high-water mark que volta (X04)."
+  },
+  {
+   "titulo": "Reconstrução a partir de cópia antiga e tabela de tombstones",
+   "origem": "Pontos em aberto",
+   "contexto": "Uma réplica reconstruída a partir de cópia antiga pode trazer itens já apagados. A proteção do checkpoint não vale nesse caminho, porque reconstrução, PITR e cópia de outra célula não passam pelo replay ordenado a partir do checkpoint. Sem o protocolo correto, a célula reconstruída pode servir itens zumbis por tempo indefinido.",
+   "na_fonte": "Coberto pelo protocolo da tabela sombra (C33); a tabela de tombstones só entra se os testes mostrarem zumbi (H-DR1).",
+   "sugestao": "Testar o protocolo da tabela sombra com uma cópia deliberadamente antiga contendo itens já apagados e confirmar por checksum que eles não sobrevivem ao cutover."
+  }
+ ]
+}

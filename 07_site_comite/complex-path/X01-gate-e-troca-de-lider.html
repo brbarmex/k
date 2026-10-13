@@ -1,0 +1,349 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>X01 — Gate: definição, monotonicidade e troca de líder · DataReplication v1</title>
+<link rel="stylesheet" href="../assets/site.css">
+</head>
+<body>
+<!--
+Fonte(s) usada(s) nesta página (rastreabilidade), relativas à raiz do pacote:
+  02_cenarios/complexos/X01-gate-e-troca-de-lider.md
+  04_diagramas/D05-gate-e-quorum.md
+Gerado em 13/10/2026 a partir do pacote DataReplication_Versao_1.
+-->
+<header class="topo">
+<button class="menu" type="button" aria-label="Abrir navegação" onclick="document.body.classList.toggle('nav-aberta')">☰</button>
+<a href="../index.html">DataReplication v1</a><span class="sep">·</span><span>Apresentação ao comitê técnico</span>
+</header>
+<div class="layout">
+<nav class="sidebar" aria-label="Navegação">
+<a class="marca" href="../index.html">DataReplication v1<span>Comitê técnico</span></a>
+<a class="nav-inicio" href="../index.html">Resumo e requisitos</a>
+<details class="grupo"><summary>Success path <span class="qtd">10</span></summary><ul>
+<li><a class="idx" href="../success-path/index.html">Índice da seção</a></li>
+<li><a href="../success-path/C01-visao-geral.html"><b>C01</b> Visão geral da arquitetura</a></li>
+<li><a href="../success-path/C02-dentro-da-celula.html"><b>C02</b> Dentro da célula: apps do cliente e DataReplication</a></li>
+<li><a href="../success-path/C03-escrita-strong.html"><b>C03</b> Caminho feliz: escrita (apply serial depois do gate)</a></li>
+<li><a href="../success-path/C04-escrita-eventual.html"><b>C04</b> Modo Eventual: só de leitura (sem apply paralelo na v1)</a></li>
+<li><a href="../success-path/C05-leitura-strong-e-eventual.html"><b>C05</b> Caminho feliz: leitura Strong e Eventual</a></li>
+<li><a href="../success-path/C06-follower-encaminha.html"><b>C06</b> Requisição chega numa célula que não é a líder</a></li>
+<li><a href="../success-path/C11-transferencia-planejada.html"><b>C11</b> Transferência planejada de liderança (manutenção)</a></li>
+<li><a href="../success-path/C18-partida-e-recuperacao-do-no.html"><b>C18</b> Partida, recuperação e parada limpa do nó</a></li>
+<li><a href="../success-path/C23-batchwriteitem-lote-uma-entrada.html"><b>C23</b> BatchWriteItem: o lote é uma entrada e o apply é por item (antes R15)</a></li>
+<li><a href="../success-path/C31-implantacao-por-cliente-e-identidade.html"><b>C31</b> Uma instalação por cliente e identificação na API (antes R19)</a></li>
+</ul></details>
+<details class="grupo"><summary>Fail path <span class="qtd">24</span></summary><ul>
+<li><a class="idx" href="../fail-path/index.html">Índice da seção</a></li>
+<li><a href="../fail-path/C07-timeout-depois-do-commit.html"><b>C07</b> Prazo estoura depois do commit, antes do ACK (retry do SDK)</a></li>
+<li><a href="../fail-path/C08-queda-de-celula-lider-ou-az-aws.html"><b>C08</b> Queda da célula líder ou de uma AZ na AWS</a></li>
+<li><a href="../fail-path/C09-queda-de-az-azure.html"><b>C09</b> Queda de uma AZ na Azure</a></li>
+<li><a href="../fail-path/C10-celulas-de-app-aws-fora.html"><b>C10</b> Apps da AWS fora, replicação viva: tráfego vai para a Azure</a></li>
+<li><a href="../fail-path/C12-modo-degradado.html"><b>C12</b> Link AWS↔Azure cai ou Azure cai: modo degradado com lease</a></li>
+<li><a href="../fail-path/C13-ressincronizacao-da-azure.html"><b>C13</b> Ressincronização da Azure</a></li>
+<li><a href="../fail-path/C14-aws-cai-sem-degradacao.html"><b>C14</b> AWS cai por inteiro sem degradação prévia</a></li>
+<li><a href="../fail-path/C15-aws-cai-em-degradacao.html"><b>C15</b> AWS cai durante o modo degradado</a></li>
+<li><a href="../fail-path/C16-aws-volta-apos-promocao.html"><b>C16</b> AWS volta depois da promoção da Azure</a></li>
+<li><a href="../fail-path/C17-maquina-de-estados.html"><b>C17</b> Máquina de estados dos modos de operação de um shard</a></li>
+<li><a href="../fail-path/C19-falha-do-datareplication.html"><b>C19</b> O DataReplication da célula cai ou reinicia</a></li>
+<li><a href="../fail-path/C20-bypass-de-escrita-direta.html"><b>C20</b> Aplicação escreve direto no banco (bypass)</a></li>
+<li><a href="../fail-path/C21-disco-fsync-e-reconstrucao.html"><b>C21</b> Falha de fsync, corrupção, disco lento e disco perdido</a></li>
+<li><a href="../fail-path/C22-cliente-com-sdk-nao-suportado.html"><b>C22</b> Cliente com SDK ou versão não suportada</a></li>
+<li><a href="../fail-path/C24-orcamento-de-50ms-e-escrita-no-dynamodb.html"><b>C24</b> Orçamento de 50 ms e a escrita no DynamoDB dentro do ACK (antes R21)</a></li>
+<li><a href="../fail-path/C25-link-lento-faixa-cinzenta.html"><b>C25</b> Link lento ou saturado (faixa cinzenta): só alertar (antes R01)</a></li>
+<li><a href="../fail-path/C26-entrada-venenosa.html"><b>C26</b> Entrada venenosa: um item que o banco recusa para sempre (antes R02)</a></li>
+<li><a href="../fail-path/C27-encaminhamento-sem-lider-conhecida.html"><b>C27</b> Loop de encaminhamento e espera pela líder durante a eleição (antes R05)</a></li>
+<li><a href="../fail-path/C28-leitura-eventual-na-azure-defasada.html"><b>C28</b> Leitura eventual na Azure durante a degradação (antes R04)</a></li>
+<li><a href="../fail-path/C29-disco-do-log-em-degradacao-longa.html"><b>C29</b> Disco do log esgota durante uma degradação longa (antes R08)</a></li>
+<li><a href="../fail-path/C30-aws-que-volta-boot-cercado.html"><b>C30</b> Fencing: o DynamoDB e o applier da AWS que voltam depois da promoção (antes R14)</a></li>
+<li><a href="../fail-path/C32-particao-e-lease-do-modo-degradado.html"><b>C32</b> Partição entre AWS e Azure: lease do modo degradado e promoção da Azure</a></li>
+<li><a href="../fail-path/C33-reconstrucao-em-tabela-sombra.html"><b>C33</b> Reconstrução do banco de uma célula em tabela sombra</a></li>
+<li><a href="../fail-path/C34-autorizacao-por-aplicacao.html"><b>C34</b> Autorização por aplicação: mTLS e lista de permissões por identidade</a></li>
+</ul></details>
+<details class="grupo" open><summary>Complex path <span class="qtd">6</span></summary><ul>
+<li><a class="idx" href="index.html">Índice da seção</a></li>
+<li><a class="atual" aria-current="page" href="X01-gate-e-troca-de-lider.html"><b>X01</b> Gate: definição, monotonicidade e troca de líder</a></li>
+<li><a href="X02-modo-degradado.html"><b>X02</b> Modo degradado: entrada, permanência, lease e saída</a></li>
+<li><a href="X03-desastre-e-promocao-da-azure.html"><b>X03</b> Desastre: promoção da Azure, fencing e reconciliação</a></li>
+<li><a href="X04-partida-recuperacao-e-dois-logs.html"><b>X04</b> Partida, recuperação e coerência entre os dois logs</a></li>
+<li><a href="X05-timeouts-e-idempotencia.html"><b>X05</b> Timeouts em cascata e idempotência do retry</a></li>
+<li><a href="X06-delete-ttl-gsi.html"><b>X06</b> DELETE, TTL, Scan e GSI</a></li>
+</ul></details>
+<details class="grupo"><summary>Parking lot <span class="qtd">14</span></summary><ul>
+<li><a class="idx" href="../parking-lot/index.html">Índice da seção</a></li>
+<li><a href="../parking-lot/R03-backlog-de-apply-no-cosmos.html"><b>R03</b> Backlog de apply no Cosmos (429 e RU insuficiente)</a></li>
+<li><a href="../parking-lot/R06-duas-azs-aws-caem.html"><b>R06</b> Duas AZs da AWS caem com a Azure saudável</a></li>
+<li><a href="../parking-lot/R07-link-oscilando.html"><b>R07</b> Link oscilando (flapping)</a></li>
+<li><a href="../parking-lot/R09-resincronizacao-lenta-ou-bloqueada.html"><b>R09</b> Ressincronização da Azure lenta ou que nunca termina</a></li>
+<li><a href="../parking-lot/R10-operador-lento-no-desastre.html"><b>R10</b> Tempo de decisão humana no desastre</a></li>
+<li><a href="../parking-lot/R11-api-de-promocao-depende-da-aws.html"><b>R11</b> A API de promoção depende de algo que estava na AWS</a></li>
+<li><a href="../parking-lot/R12-promocao-com-aws-viva.html"><b>R12</b> Promoção da Azure com a AWS viva (split-brain, PEND-01)</a></li>
+<li><a href="../parking-lot/R13-escritas-orfas-reconciliacao.html"><b>R13</b> Escritas órfãs: reconciliação depois da promoção (PEND-03)</a></li>
+<li><a href="../parking-lot/R16-leitura-forte-em-celulas-follower.html"><b>R16</b> Leitura forte em células follower (ReadIndex e gate)</a></li>
+<li><a href="../parking-lot/R17-atributo-de-versao-e-limite-400kb.html"><b>R17</b> Atributo de versão: limite de 400 KB e ausência nas respostas</a></li>
+<li><a href="../parking-lot/R18-rto-nao-quantificado.html"><b>R18</b> RTO (Delta-T) ainda sem número</a></li>
+<li><a href="../parking-lot/R20-custo-6x.html"><b>R20</b> Custo: cada escrita lógica vira seis gravações</a></li>
+<li><a href="../parking-lot/R22-memoria-da-janela-de-dedupe.html"><b>R22</b> Memória da janela de dedupe</a></li>
+<li><a href="../parking-lot/R23-hipoteses-gerais.html"><b>R23</b> Hipóteses gerais em aberto</a></li>
+</ul></details>
+</nav>
+<main>
+<div class="migalhas"><a href="../index.html">Início</a> / <a href="index.html">Complex path</a> / X01</div>
+<h1>X01 — Gate: definição, monotonicidade e troca de líder</h1>
+<div class="meta"><span class="selo complex-path">Complex path</span><div><b>Status na fonte:</b> Decidido (D9, D12; revisado em 13/10 pelo <a href="../../03_adr/ADR-046-gate-so-conta-progresso-validado-pelo-raft.md">ADR-046</a>); falta o modelo TLA+, que agora nasce junto da fase 1</div><div><b>Relacionados:</b> <a href="X02-modo-degradado.html">X02</a>, <a href="X03-desastre-e-promocao-da-azure.html">X03</a>, <a href="../fail-path/C32-particao-e-lease-do-modo-degradado.html">C32</a></div></div>
+<section id="visao-geral"><h2>1. Visão geral do cenário</h2>
+<p>O gate é a regra que une o Raft (decisão só da AWS) à exigência de durabilidade na Azure. É lógica nossa, fora de uma prova conhecida, e por isso é o ponto de maior risco do consenso da v1. Este documento detalha a regra, o que muda na troca de líder e as propriedades que o modelo TLA+ deve provar.</p>
+<p>Os learners da Azure são learners do <code>etcd-io/raft</code>: a líder só conta o progresso de um learner depois da verificação de índice e termo anteriores do <code>AppendEntries</code> (casamento de logs). Por isso "índice N durável" significa "o mesmo prefixo do log até N". Isso só vale se o progresso chegar <strong>pelo próprio <code>AppendEntries</code></strong>: um número que chegue por canal paralelo, sem termo, não prova nada.</p>
+</section>
+<section id="diagrama"><h2>2. Diagrama</h2>
+<h3>Troca de líder</h3>
+<div class="diagrama"><pre class="mermaid">flowchart TD
+    A[&quot;Líder A1 cai&quot;] --&gt; B[&quot;Eleição: A2 vira líder no termo T+1&quot;]
+    B --&gt; C[&quot;A2 ainda não tem progresso da Azure confirmado no termo T+1&quot;]
+    C --&gt; D{&quot;Libera o ACK com o valor que tem?&quot;}
+    D --&gt;|&quot;sim: gate zerado, menor ou valor reportado fora de banda&quot;| E[&quot;Risco: ACK de escrita que a Azure ainda não tem&quot;]
+    D --&gt;|&quot;não: reconstrói primeiro&quot;| F[&quot;A2 envia AppendEntries aos 3 learners Azure no termo T+1&quot;]
+    F --&gt; G[&quot;Cada resposta traz termo, índice de casamento e identidade do learner&quot;]
+    G --&gt; H[&quot;Adota o 2º maior índice confirmado no termo T+1&quot;]
+    H --&gt; I[&quot;Gate nunca menor que o anterior&quot;]
+    I --&gt; J[&quot;Só agora ACKa, libera o applier e atende leitura forte&quot;]
+    F --&gt;|&quot;Azure inalcançável por DEGRADE_AFTER&quot;| K{&quot;DEGRADED_POLICY&quot;}
+    K --&gt;|&quot;accept&quot;| L[&quot;Propõe DEGRADE com lease D e segue com RPO maior que 0&quot;]
+    K --&gt;|&quot;reject&quot;| M[&quot;Não degrada: a escrita responde 503 PENDING&quot;]</pre></div>
+<h3>Arquitetura geral relacionada: <a href="../../04_diagramas/D05-gate-e-quorum.md">D05 — Quórum e gate</a></h3><p class="nota">Diagrama de <code>04_diagramas/</code> escolhido pelo site como contexto; o cenário fonte não faz essa associação.</p>
+<div class="diagrama"><pre class="mermaid">flowchart LR
+    subgraph VOT[&quot;Votantes AWS&quot;]
+        A1[&quot;A1 líder, termo T&quot;]
+        A2[&quot;A2&quot;]
+        A3[&quot;A3&quot;]
+    end
+    subgraph LRN[&quot;Learners Azure, sem voto&quot;]
+        Z1[&quot;Z1&quot;]
+        Z2[&quot;Z2&quot;]
+        Z3[&quot;Z3&quot;]
+    end
+    A1 --&gt;|&quot;2 de 3 com fsync&quot;| RC[&quot;commit do Raft&quot;]
+    A2 --&gt; RC
+    A3 --&gt; RC
+    Z1 --&gt;|&quot;resposta do AppendEntries: termo, índice, identidade&quot;| AQ[&quot;2º maior índice durável no termo atual&quot;]
+    Z2 --&gt; AQ
+    Z3 --&gt; AQ
+    AQ -.-&gt;|&quot;valor de outro termo ou fora de banda: ignorado&quot;| IGN[&quot;descartado até a primeira confirmação no termo novo&quot;]
+    RC --&gt; MIN[&quot;gate = min dos dois, atualizado por evento&quot;]
+    AQ --&gt; MIN
+    MIN --&gt; MONO[&quot;monotônico: current = max de current e o novo valor&quot;]
+    DEG[&quot;Modo degradado com lease D, só accept&quot;] -.-&gt;|&quot;ignora o AQ enquanto o lease valer&quot;| MIN
+    LEASE{&quot;Lease válido? conferido a cada ACK&quot;} --&gt;|&quot;não&quot;| REJ[&quot;503 LEASE_EXPIRED&quot;]
+    MONO --&gt; ACK[&quot;libera ACK e apply&quot;]
+    MONO --&gt; RB[&quot;barreira da leitura forte: min de ReadIndex e gate&quot;]</pre></div>
+</section>
+<section id="etapas"><h2>3. Legenda e etapas</h2>
+<div class="etapas"><ol>
+<li><strong>Regra:</strong> <code>gateIndex = min(raftCommitIndex, azureMajorityIndex)</code>. O <code>azureMajorityIndex</code> é o 2º maior entre os 3 índices duráveis dos learners Azure (maior índice confirmado por ≥ 2 de 3 com fsync feito).</li>
+<li><strong>Origem do progresso:</strong> o progresso da Azure chega só pelas respostas do <code>AppendEntries</code>. <code>LearnerDurable()</code> devolve <strong>(termo, índice, identidade do learner)</strong> e o gate só adota valores do <strong>termo atual</strong> da líder.</li>
+<li><strong>Gate alimentado por evento:</strong> cada resposta de learner atualiza o gate no momento em que chega, e não só quando um lote commitado é processado. Sem isso uma escrita pode esperar até o timeout sem que nada a acorde.</li>
+<li><strong>Em modo degradado</strong> (entrada <code>DEGRADE</code> commitada e lease válido), <code>gateIndex = raftCommitIndex</code>. O modo faz parte do estado replicado: um líder novo o lê do log, não da memória. Ao fim do lease D a AWS recusa a escrita (<code>503 LEASE_EXPIRED</code>, <a href="X02-modo-degradado.html">X02</a>); o gate não é afrouxado de outra forma. Com <code>DEGRADED_POLICY=reject</code> o <code>DEGRADE</code> nunca é proposto.</li>
+<li><strong>Monotonicidade (D9):</strong> o gate nunca recua. O <code>azureMajorityIndex</code> é estado do líder; ao assumir, o líder novo só adota progresso <strong>confirmado no termo novo</strong> pelo <code>AppendEntries</code>, o maior valor confirmado por ≥ 2 de 3, <strong>antes</strong> de ACKar, liberar o applier ou atender leitura forte. Um índice que um learner reporte fora de banda é ignorado até a primeira confirmação, porque pode ser o sufixo de uma líder antiga.</li>
+<li><strong>Barreira da leitura forte:</strong> a leitura forte espera <code>min(ReadIndex, gate)</code> (<a href="../../03_adr/ADR-049-barreira-da-leitura-forte-e-o-gate.md">ADR-049</a>). Um cliente só viu escritas já ACKadas, e toda escrita ACKada está abaixo do gate; assim uma Azure lenta não atrasa a leitura. A follower recebe o <code>ReadIndex</code> e o gate <strong>na mesma resposta</strong> da líder.</li>
+<li><strong>Learner que perde o disco ou é trocado:</strong> volta com identidade nova e começa do zero. Ele deixa de contar até alcançar o índice; o gate nunca usa um índice que não esteja durável nele agora, nem herda o progresso da identidade antiga.</li>
+<li><strong>Entradas replicadas aos learners mas nunca commitadas:</strong> podem existir na Azure. Na promoção, o log é escolhido por (termo, índice) e o cliente que recebeu <code>PENDING</code> trata o resultado como desconhecido (ver <a href="X03-desastre-e-promocao-da-azure.html">X03</a>).</li>
+<li><strong>Métricas separadas:</strong> <code>last_committed</code>, <code>last_azure_durable</code>, <code>last_acked</code>, <code>last_applied</code> e <code>last_reconciled</code>. Os nomes distinguem o que está decidido, o que está seguro na Azure, o que o cliente já viu, o que o banco já tem e o que a reconciliação já conferiu.</li>
+</ol></div>
+</section>
+<section id="pontos"><h2>4. Pontos que precisam ser avaliados</h2>
+<p class="nota">Reescritos a partir das seções “Falhas e tratativas” e “Pontos em aberto” (e de outras seções de risco, quando existem). Em cada ponto, <b>O que a fonte define</b> vem da documentação; <b>Sugestão de encaminhamento</b> é <b>inferência do arquiteto</b>, não decisão registrada.</p>
+<article class="ponto">
+<h3><span class="num">1</span>Líder nova sem o valor do gate <span class="origem">Falhas e tratativas</span></h3>
+<dl>
+<dt>Contexto</dt><dd>Logo após a eleição, a líder nova (termo T+1) ainda não tem progresso da Azure confirmado no seu termo, porque o <code>azureMajorityIndex</code> é estado em memória do líder. Se ela liberasse ACK com um gate zerado, menor ou reportado fora de banda, poderia confirmar escrita que a Azure ainda não tem, quebrando o RPO=0. Por isso há uma janela curta sem ACK, sem liberação do applier e sem leitura forte, que soma diretamente ao tempo de indisponibilidade de escrita da troca de líder.</dd>
+<dt>O que a fonte define</dt><dd class="">A líder nova só adota progresso confirmado no termo novo pelo <code>AppendEntries</code> (2º maior índice de 3) antes de ACKar, liberar o applier ou atender leitura forte (D9, <a href="../../03_adr/ADR-029-gate-monotonico-na-troca-de-lider.md">ADR-029</a>, <a href="../../03_adr/ADR-046-gate-so-conta-progresso-validado-pelo-raft.md">ADR-046</a>). A janela conta dentro da meta de 3 a 4 s de <a href="../fail-path/C08-queda-de-celula-lider-ou-az-aws.html">C08</a>.</dd>
+<dt class="sug">Sugestão de encaminhamento <small>(inferência, não decidida)</small></dt><dd class="sug">Medir em teste de caos a duração dessa janela (do fim da eleição até o primeiro ACK) como distribuição, separada do tempo de eleição, e checar se cabe na meta de <a href="../fail-path/C08-queda-de-celula-lider-ou-az-aws.html">C08</a>. Incluir no TLA+ um estado em que a líder recebe índice fora de banda antes da primeira confirmação, para provar que P3 e P9 não dependem da ordem de chegada das mensagens.</dd>
+</dl>
+</article>
+<article class="ponto">
+<h3><span class="num">2</span>Learner reporta índice menor que antes <span class="origem">Falhas e tratativas</span></h3>
+<dl>
+<dt>Contexto</dt><dd>Um learner da Azure pode responder com índice durável menor do que já tinha reportado, por exemplo após reinício ou truncamento de cauda. Se o gate seguisse esse valor, ele recuaria e escritas já ACKadas deixariam de estar cobertas pela regra, violando a monotonicidade. Isso afeta a garantia de RPO=0 e a leitura forte, que usa o gate como barreira.</dd>
+<dt>O que a fonte define</dt><dd class="">O gate guarda o máximo e o learner volta a contar quando alcança o índice (D9, propriedade P3). Learner que perde o disco volta com identidade nova e não herda progresso (P13).</dd>
+<dt class="sug">Sugestão de encaminhamento <small>(inferência, não decidida)</small></dt><dd class="sug">Distinguir no código e nas métricas o caso de regressão com a mesma identidade (que sugere perda de dado após fsync e deveria ser tratado como incidente) do caso de identidade nova. Criar um teste de caos que force a regressão de índice em um learner enquanto outro está fora, para confirmar que o gate não fica sustentado por um índice que não está mais durável em 2 de 3.</dd>
+</dl>
+</article>
+<article class="ponto">
+<h3><span class="num">3</span>Azure inalcançável durante a reconstrução do gate <span class="origem">Falhas e tratativas</span></h3>
+<dl>
+<dt>Contexto</dt><dd>Se a Azure estiver inalcançável justo quando a líder nova tenta reconstruir o gate, ela não consegue confirmar progresso nenhum no termo novo. Sem tratamento, as escritas ficariam paradas indefinidamente; com tratamento, o shard entra em modo degradado com RPO &gt; 0 ou responde <code>503 PENDING</code>. É a interseção de duas falhas (troca de líder e partição) e afeta disponibilidade e RPO ao mesmo tempo.</dd>
+<dt>O que a fonte define</dt><dd class="">Passados <code>DEGRADE_AFTER</code>, com <code>DEGRADED_POLICY=accept</code> a líder propõe <code>DEGRADE</code> com lease (<a href="../fail-path/C12-modo-degradado.html">C12</a>, <a href="../fail-path/C32-particao-e-lease-do-modo-degradado.html">C32</a>, <a href="../../03_adr/ADR-044-lease-do-modo-degradado-e-promocao-da-azure.md">ADR-044</a>); com <code>reject</code> a escrita responde <code>503 PENDING</code> (<a href="../../03_adr/ADR-045-politica-de-degradacao-por-instalacao.md">ADR-045</a>, P8, P18).</dd>
+<dt class="sug">Sugestão de encaminhamento <small>(inferência, não decidida)</small></dt><dd class="sug">Incluir no modelo TLA+ a sequência eleição seguida de partição antes da primeira confirmação, verificando que o <code>DEGRADE</code> proposto pela líder nova já nasce com lease expirado quando ela não tem <code>t_c</code>. Isso deixa claro que, nesse cenário, a líder nova provavelmente responde <code>503 LEASE_EXPIRED</code> e não degrada, o que precisa constar da expectativa de disponibilidade apresentada ao negócio.</dd>
+</dl>
+</article>
+<article class="ponto">
+<h3><span class="num">4</span>Líder nova herda um lease em curso <span class="origem">Falhas e tratativas</span></h3>
+<dl>
+<dt>Contexto</dt><dd>O <code>DEGRADE</code> é estado replicado no log, então a líder nova herda o modo degradado, mas o <code>t_c</code> (último contato com a maioria Azure) é medido no relógio monotônico de cada líder e não é replicado. Se a líder nova assumisse um <code>t_c</code> qualquer, poderia estender o lease além de D e abrir uma janela de escrita nas duas pontas. Tratar o lease como expirado protege a segurança, mas gera indisponibilidade de escrita em cada troca de líder durante a degradação.</dd>
+<dt>O que a fonte define</dt><dd class="">Decidido: a líder nova trata o lease como expirado até obter contato com a Azure ou um <code>RENEW</code> (<a href="../../03_adr/ADR-044-lease-do-modo-degradado-e-promocao-da-azure.md">ADR-044</a>); a regra entra no modelo para prova.</dd>
+<dt class="sug">Sugestão de encaminhamento <small>(inferência, não decidida)</small></dt><dd class="sug">Avaliar e medir o impacto operacional: em degradação longa, toda troca de líder (inclusive transferência planejada) vira parada de escrita até um <code>RENEW</code> humano, e isso precisa estar no runbook e em alerta específico. Considerar bloquear transferências planejadas de liderança enquanto o shard estiver degradado.</dd>
+</dl>
+</article>
+<article class="ponto">
+<h3><span class="num">5</span>Modelo TLA+ ainda não escrito <span class="origem">Pontos em aberto</span></h3>
+<dl>
+<dt>Contexto</dt><dd>O gate é lógica própria, fora de uma prova conhecida, e é o ponto de maior risco do consenso da v1. As propriedades P1 a P18 estão listadas, mas nenhuma está verificada, e várias decisões (lease, promoção, dedupe, I-DEL) dependem delas. Sem o modelo, a garantia de RPO=0 e a ausência de escrita nas duas pontas são argumentos informais.</dd>
+<dt>O que a fonte define</dt><dd class=""><a href="../../03_adr/ADR-030-verificacao-formal-tla.md">ADR-030</a> decide verificação formal; pela revisão de 13/10 o modelo nasce junto da fase 1 e o núcleo mínimo verificável vem antes de qualquer caminho de banco. O escopo mínimo está listado no <a href="X01-gate-e-troca-de-lider.html">X01</a>.</dd>
+<dt class="sug">Sugestão de encaminhamento <small>(inferência, não decidida)</small></dt><dd class="sug">Definir um critério de aceite da fase 1 com as propriedades que precisam passar no TLC (por exemplo P1 a P5, P9, P10) e quais podem vir depois, com tamanho de estado explícito. Exigir também que cada propriedade tenha um contraexemplo intencional (mutação do modelo) para mostrar que ela de fato detecta o erro.</dd>
+</dl>
+</article>
+<article class="ponto">
+<h3><span class="num">6</span>Prorrogação x promoção (H-DR13) e partição assimétrica (H-DR14) <span class="origem">Pontos em aberto</span></h3>
+<dl>
+<dt>Contexto</dt><dd>Prorrogar o lease com <code>RENEW</code> depois que a Azure já pode ser promovida reabre o risco de duas pontas aceitando escrita. Numa partição assimétrica, o último contato visto pela Azure e o gate visto pela AWS divergem, e a conta de D + M pode deixar de ser segura. As duas hipóteses tocam diretamente P11 e P12 e são o centro da segurança sem terceiro domínio.</dd>
+<dt>O que a fonte define</dt><dd class="nd-fonte">Não decidido na fonte. Proposta na fonte: uma regra como marcar a Azure como <code>promotion_blocked</code> antes de prorrogar, a fechar no TLA+ (<a href="../parking-lot/R23-hipoteses-gerais.html">R23</a>).</dd>
+<dt class="sug">Sugestão de encaminhamento <small>(inferência, não decidida)</small></dt><dd class="sug">Modelar explicitamente os dois sentidos do link como canais independentes e verificar P11 e P12 com <code>RENEW</code> concorrente a <code>ForcePromote</code>. Levar ao Bruno, antes da implementação do <code>RENEW</code>, a decisão de que a prorrogação exige um ato confirmado do lado Azure (o bloqueio de promoção) e não só uma entrada no Raft da AWS.</dd>
+</dl>
+</article>
+<article class="ponto">
+<h3><span class="num">7</span>Regra de não herdar <code>t_c</code> a provar no modelo <span class="origem">Pontos em aberto</span></h3>
+<dl>
+<dt>Contexto</dt><dd>A regra de que a líder nova não herda <code>t_c</code> é decidida, mas sua correção depende de detalhes de relógio monotônico, pausa de processo e reinício de nó. Se houver um caminho em que um nó reiniciado ou uma líder antiga reassuma com <code>t_c</code> antigo, o lease poderia ser estendido indevidamente. Isso afeta P10 e P11.</dd>
+<dt>O que a fonte define</dt><dd class="">Decidido (<a href="../../03_adr/ADR-044-lease-do-modo-degradado-e-promocao-da-azure.md">ADR-044</a>); a fonte registra que a regra entra no modelo para prova.</dd>
+<dt class="sug">Sugestão de encaminhamento <small>(inferência, não decidida)</small></dt><dd class="sug">Incluir no modelo eventos de reinício de nó e de líder que volta a ser líder em termo posterior, verificando que nenhum ACK ocorre depois de D sem <code>RENEW</code>. Complementar com teste de caos que congele o processo da líder (SIGSTOP) além de D e confirme <code>503 LEASE_EXPIRED</code> na volta.</dd>
+</dl>
+</article>
+</section>
+<section id="adrs"><h2>5. ADRs relacionados</h2>
+<div class="tabela"><table><thead><tr><th>ADR</th><th>Título</th><th>Decisão resumida</th><th>Arquivo</th></tr></thead><tbody>
+<tr><td class="nw"><a href="../../03_adr/ADR-017-azure-learners-e-gate.md">ADR-017</a></td><td>Azure como learners, com gate</td><td>Azure como learners; gateIndex = min(commit Raft, índice durável em 2 de 3 learners) controla ACK e applier.</td><td><a href="../../03_adr/ADR-017-azure-learners-e-gate.md">ADR-017-azure-learners-e-gate.md</a></td></tr>
+<tr><td class="nw"><a href="../../03_adr/ADR-029-gate-monotonico-na-troca-de-lider.md">ADR-029</a></td><td>O gate nunca recua; líder nova reconstrói antes de ACKar</td><td>O gate nunca recua: a líder nova reconstrói o gate com os learners antes de ACKar.</td><td><a href="../../03_adr/ADR-029-gate-monotonico-na-troca-de-lider.md">ADR-029-gate-monotonico-na-troca-de-lider.md</a></td></tr>
+<tr><td class="nw"><a href="../../03_adr/ADR-046-gate-so-conta-progresso-validado-pelo-raft.md">ADR-046</a></td><td>O gate só conta progresso validado pelo Raft no termo atual</td><td>O gate só conta progresso da Azure confirmado pelo AppendEntries no termo atual.</td><td><a href="../../03_adr/ADR-046-gate-so-conta-progresso-validado-pelo-raft.md">ADR-046-gate-so-conta-progresso-validado-pelo-raft.md</a></td></tr>
+<tr><td class="nw"><a href="../../03_adr/ADR-030-verificacao-formal-tla.md">ADR-030</a></td><td>Modelo TLA+ do gate antes do código do gate</td><td>Modelo TLA+ do gate, DEGRADE/RESTORE e troca de líder verificado antes de implementar o gate.</td><td><a href="../../03_adr/ADR-030-verificacao-formal-tla.md">ADR-030-verificacao-formal-tla.md</a></td></tr>
+<tr><td class="nw"><a href="../../03_adr/ADR-044-lease-do-modo-degradado-e-promocao-da-azure.md">ADR-044</a></td><td>Modo degradado com lease: a AWS para sozinha e a Azure só promove depois de D mais margem</td><td>Modo degradado com lease D contado desde t_c; a AWS para sozinha e a Azure só promove depois de D + M.</td><td><a href="../../03_adr/ADR-044-lease-do-modo-degradado-e-promocao-da-azure.md">ADR-044-lease-do-modo-degradado-e-promocao-da-azure.md</a></td></tr>
+<tr><td class="nw"><a href="../../03_adr/ADR-049-barreira-da-leitura-forte-e-o-gate.md">ADR-049</a></td><td>A leitura forte espera <code>min(ReadIndex, gate)</code></td><td>A leitura forte espera min(ReadIndex, gate), obtidos da líder na mesma resposta.</td><td><a href="../../03_adr/ADR-049-barreira-da-leitura-forte-e-o-gate.md">ADR-049-barreira-da-leitura-forte-e-o-gate.md</a></td></tr>
+</tbody></table></div>
+<p class="nota">Lista extraída do cabeçalho “ADRs” do arquivo fonte. A decisão resumida condensa a seção “Decisão” de cada ADR.</p>
+</section>
+<section id="anexo"><h2>Anexo: texto original da fonte</h2><p class="nota">Seções do .md fonte reproduzidas sem reescrita, para conferência.</p>
+<details class="anexo"><summary>Falhas e tratativas</summary><ul>
+<li><strong>Líder nova sem o valor.</strong> Janela curta sem ACK logo após a eleição (parte da meta de 3 a 4 s de C08).</li>
+<li><strong>Learner reporta índice menor que antes.</strong> O gate guarda o máximo; o learner volta a contar quando alcança.</li>
+<li><strong>Azure inalcançável durante a reconstrução.</strong> Passados <code>DEGRADE_AFTER</code>, com <code>accept</code> a líder propõe <code>DEGRADE</code> com lease (C12, <a href="../fail-path/C32-particao-e-lease-do-modo-degradado.html">C32</a>); com <code>reject</code> a escrita responde <code>503 PENDING</code>.</li>
+<li><strong>Líder nova herda um lease em curso.</strong> Ela herda o <code>DEGRADE</code> mas não o <code>t_c</code> (último contato com a maioria Azure): trata o lease como expirado até obter contato com a Azure ou um <code>RENEW</code> (<a href="../../03_adr/ADR-044-lease-do-modo-degradado-e-promocao-da-azure.md">ADR-044</a>).</li>
+</ul></details>
+<details class="anexo"><summary>Propriedades para o modelo TLA+ (D12, ampliado pelo ADR-046)</summary><p>As propriedades P1 a P8 são as originais e mantêm a numeração. P9 em diante são as acrescentadas pela revisão de 13/10.</p>
+<div class="tabela"><table>
+<thead>
+<tr>
+<th>#</th>
+<th>Propriedade</th>
+<th>Tipo</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>P1</td>
+<td>Toda entrada ACKada está durável em ≥ 2 de 3 votantes AWS</td>
+<td>Segurança</td>
+</tr>
+<tr>
+<td>P2</td>
+<td>Fora de uma janela <code>DEGRADE</code>..<code>RESTORE</code>, toda entrada ACKada está durável em ≥ 2 de 3 learners Azure</td>
+<td>Segurança</td>
+</tr>
+<tr>
+<td>P3</td>
+<td>O gate nunca recua, inclusive na troca de líder</td>
+<td>Segurança</td>
+</tr>
+<tr>
+<td>P4</td>
+<td>Nenhuma entrada ACKada se perde depois de qualquer sequência de quedas de uma AZ AWS e de uma AZ Azure</td>
+<td>Segurança</td>
+</tr>
+<tr>
+<td>P5</td>
+<td>Duas líderes nunca confirmam no mesmo termo</td>
+<td>Segurança</td>
+</tr>
+<tr>
+<td>P6</td>
+<td><code>DEGRADE</code> e <code>RESTORE</code> só mudam o modo uma vez por epoch</td>
+<td>Segurança</td>
+</tr>
+<tr>
+<td>P7</td>
+<td>Com maioria AWS viva e Azure viva, toda escrita é ACKada (sem travar)</td>
+<td>Vivacidade</td>
+</tr>
+<tr>
+<td>P8</td>
+<td>Com a Azure fora por mais de <code>DEGRADE_AFTER</code>, o gate libera (modo degradado, só com <code>DEGRADED_POLICY=accept</code>)</td>
+<td>Vivacidade</td>
+</tr>
+<tr>
+<td>P9</td>
+<td>O gate só conta progresso confirmado pelo <code>AppendEntries</code> no termo atual; "índice N durável" implica o mesmo prefixo até N</td>
+<td>Segurança</td>
+</tr>
+<tr>
+<td>P10</td>
+<td>Lease: com <code>accept</code>, a AWS não ACKa escrita depois de D sem <code>RENEW</code>, e a conferência é feita a cada ACK, também sob pausa de processo</td>
+<td>Segurança</td>
+</tr>
+<tr>
+<td>P11</td>
+<td>Promoção entre nuvens: nunca dois lados aceitam escrita confirmada ao mesmo tempo. <code>ForcePromote</code> é recusada antes de D + M; com <code>reject</code> vale o fencing por maioria Azure na epoch nova</td>
+<td>Segurança</td>
+</tr>
+<tr>
+<td>P12</td>
+<td>Prorrogação x promoção: um <code>RENEW</code> nunca é efetivo depois de a Azure já poder ser promovida (hipótese H-DR13)</td>
+<td>Segurança</td>
+</tr>
+<tr>
+<td>P13</td>
+<td>Troca de membros: um learner com disco substituído e identidade nova não conta até alcançar o índice, e não herda o progresso da identidade antiga</td>
+<td>Segurança</td>
+</tr>
+<tr>
+<td>P14</td>
+<td>Dedupe: um retry com o mesmo identificador dentro da janela não gera segunda entrada, inclusive depois da troca de líder; o dedupe é por requisição</td>
+<td>Segurança</td>
+</tr>
+<tr>
+<td>P15</td>
+<td>Resultado desconhecido: depois de <code>503 PENDING</code>, a escrita ou foi commitada e aparece na consulta por identificador, ou nunca foi; não há perda silenciosa de escrita ACKada</td>
+<td>Segurança</td>
+</tr>
+<tr>
+<td>P16</td>
+<td>I-DEL: com as leituras abertas, o estado materializado da célula é a dobra do log até <code>applied</code>, com DELETE, replay e queda em qualquer ponto (<a href="X06-delete-ttl-gsi.html">X06</a>)</td>
+<td>Segurança</td>
+</tr>
+<tr>
+<td>P17</td>
+<td>Barreira da leitura forte: a leitura forte (espera <code>min(ReadIndex, gate)</code>) nunca devolve estado anterior a uma escrita ACKada nem enxerga escrita não ACKada (<code>applied</code> nunca passa do gate)</td>
+<td>Segurança</td>
+</tr>
+<tr>
+<td>P18</td>
+<td>Com <code>reject</code>, nenhuma escrita é ACKada sem o gate da Azure, e <code>DEGRADE</code> nunca é proposto</td>
+<td>Segurança</td>
+</tr>
+</tbody>
+</table></div>
+<p>Escopo mínimo do modelo: 3 votantes, 3 learners, troca de líder, <code>DEGRADE</code> com lease e <code>RENEW</code>, <code>RESTORE</code>, <code>DEGRADED_POLICY</code> nos dois valores, <code>ForcePromote</code> com epoch E+1, troca de membros (disco substituído, identidade nova), dedupe com retry, operações de resultado desconhecido, DELETE com replay, falhas de nó, pausa de processo, deriva de relógio limitada e partição AWS↔Azure (simétrica e assimétrica, H-DR14).</p></details>
+<details class="anexo"><summary>Pontos em aberto</summary><ul>
+<li>Modelo TLA+ ainda não escrito (<a href="../../03_adr/ADR-030-verificacao-formal-tla.md">ADR-030</a>): primeiro item do plano. Pela revisão de 13/10 (fases) ele nasce junto da fase 1, e o núcleo mínimo verificável vem antes de qualquer caminho de banco.</li>
+<li>Regra de prorrogação x promoção (H-DR13) e partição assimétrica (H-DR14): ver <a href="../parking-lot/R23-hipoteses-gerais.html">R23</a>.</li>
+<li>A regra decidida de que a líder nova não herda <code>t_c</code> (lease expirado até contato ou <code>RENEW</code>) entra no modelo para prova.</li>
+</ul></details>
+</section>
+<footer class="rodape">
+Gerado em 13/10/2026 a partir de <code>DataReplication_Versao_1/</code>. O conteúdo vem dos arquivos .md citados no código-fonte desta página;
+textos marcados como <em>sugestão</em> são inferência do arquiteto e não decisões registradas.
+</footer>
+</main>
+</div>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@11.4.1/dist/mermaid.min.js"></script>
+<script>mermaid.initialize({startOnLoad: true, theme: "neutral", securityLevel: "strict", flowchart: {htmlLabels: true, useMaxWidth: true}, sequence: {useMaxWidth: true}});</script>
+</body>
+</html>

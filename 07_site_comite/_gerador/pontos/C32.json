@@ -1,0 +1,124 @@
+{
+ "id": "C32",
+ "pontos": [
+  {
+   "titulo": "AWS morre de verdade em modo degradado",
+   "origem": "Falhas e tratativas",
+   "contexto": "Como a Azure não distingue AWS morta de link caído, a promoção só é aceita depois de D + M desde o último contato. Se a AWS morre de verdade, o RTO passa a ser pelo menos D + M, que é o preço de ter autoridade única sem terceiro domínio. A mesma espera vale quando a AWS cai em modo normal com a política `accept`.",
+   "na_fonte": "Decidido no ADR-044: RTO >= D + M, declarado ao negócio; a opção `reject` (ADR-045) existe para quem não aceita (C14, C15).",
+   "sugestao": "Levar ao negócio, junto com o PEND-02, a relação explícita entre D, M e o RTO de pior caso, e confirmar que o RTO vendido ao cliente é compatível. Exercitar em game day a perda total da AWS e cronometrar o tempo até a primeira escrita aceita na Azure."
+  },
+  {
+   "titulo": "Escritas param ao fim de D com a Azure ainda inalcançável",
+   "origem": "Falhas e tratativas",
+   "contexto": "Com o lease, a disponibilidade de escrita em degradado passa a ser finita: ao fim de D a AWS responde `503 LEASE_EXPIRED`. As saídas são uma pessoa prorrogar, esperar a Azure voltar ou promover depois de D + M. Sem aviso prévio, o fim do lease pega o plantão de surpresa.",
+   "na_fonte": "A fonte decide que o alerta de lease chegando ao fim precisa disparar com antecedência, com limiar a definir.",
+   "sugestao": "Definir o limiar do alerta em função do tempo de resposta do plantão medido em game day, e preparar o runbook do `RENEW` em dois passos com as checagens necessárias."
+  },
+  {
+   "titulo": "Escrita commitada com resposta 503 LEASE_EXPIRED",
+   "origem": "Falhas e tratativas",
+   "contexto": "Se o lease vence entre o commit e a conferência, a entrada está no log da AWS mas o cliente não recebeu ACK, um resultado desconhecido como no C07. Depois de uma promoção ela vira órfã sem nunca ter sido confirmada. O cliente pode retentar e gerar duplicidade ou assumir falha incorreta.",
+   "na_fonte": "A fonte decide que a consulta por identificador deve devolver `PENDING` para essas escritas (ADR-048).",
+   "sugestao": "Incluir no TLA+ o estado de escrita commitada sem ACK e verificar que ela nunca é contada como confirmada. Na extração das órfãs (R13), separar as nunca ACKadas das ACKadas para a reconciliação com o cliente."
+  },
+  {
+   "titulo": "Retry em cascata com lease expirado",
+   "origem": "Falhas e tratativas",
+   "contexto": "O SDK trata `503` como retentável e repete até 3 vezes. Enquanto o lease está expirado, cada escrita vira até quatro requisições, enchendo filas sem chance de sucesso.",
+   "na_fonte": "A fonte decide que a líder deve rejeitar rápido, com `retryAfter`, como no circuito do C26.",
+   "sugestao": "Testar sob carga que a rejeição com lease expirado é imediata e que o `retryAfter` reduz a taxa de requisições, com métrica de rejeições por motivo."
+  },
+  {
+   "titulo": "Pausa de processo ou GC na líder",
+   "origem": "Cenários ocultos",
+   "contexto": "Se a líder congela (GC, VM pausada, snapshot), o temporizador do lease não dispara a tempo. Ao voltar, a líder poderia ACKar uma escrita depois do fim de D, quando a Azure já pode estar promovida. Isso abriria escrita nas duas pontas.",
+   "na_fonte": "A fonte decide conferir a validade a cada ACK, depois do fsync, e contar a pausa máxima como parcela de M.",
+   "sugestao": "Medir a pausa máxima de processo real em produção e em teste com GC forçado e congelamento de VM, e incluir no TLA+ uma ação de pausa arbitrária antes do ACK."
+  },
+  {
+   "titulo": "Salto de relógio",
+   "origem": "Cenários ocultos",
+   "contexto": "NTP, migração de VM ou suspensão podem fazer o relógio de parede saltar, e ele não serve para medir duração. Um salto mal tratado encurtaria ou alongaria o lease.",
+   "na_fonte": "A fonte decide usar só relógio monotônico, de preferência o que conta a suspensão (`CLOCK_BOOTTIME`); salto detectado conta como lease expirado, e a deriva máxima entra em M.",
+   "sugestao": "Testar com suspensão e retomada de VM e com ajuste de relógio, verificando que o lease expira. Confirmar que a linguagem e o runtime usam o relógio que conta a suspensão."
+  },
+  {
+   "titulo": "Partição assimétrica (H-DR14)",
+   "origem": "Cenários ocultos",
+   "contexto": "Se a Azure recebe da AWS mas as confirmações não voltam, a AWS não vê o gate e degrada, enquanto a Azure continua vendo contato recente e nunca libera a promoção. É seguro, mas só uma pessoa destrava, por `RENEW`. O sistema fica sem escrita ao fim de D sem saída automática.",
+   "na_fonte": "Não decidido na fonte. É a hipótese H-DR14, a modelar no TLA+.",
+   "sugestao": "Modelar a partição assimétrica no TLA+ nos dois sentidos e testar com regras de firewall unidirecionais em game day, verificando o alerta e o runbook."
+  },
+  {
+   "titulo": "AWS morta em degradado",
+   "origem": "Cenários ocultos",
+   "contexto": "Se a AWS morre já em degradado, não há nada para ela parar além do lease que já vale. A Azure precisa esperar D + M antes da promoção.",
+   "na_fonte": "A fonte decide RTO >= D + M, declarado ao negócio, com a opção `reject` para quem não aceita.",
+   "sugestao": "Incluir esse caso no material de decisão do PEND-02 e no game day de desastre."
+  },
+  {
+   "titulo": "Prorrogação contra promoção (H-DR13)",
+   "origem": "Cenários ocultos",
+   "contexto": "Se o `RENEW` sai depois de a Azure já poder ser promovida, as duas pontas podem escrever. É o caso mais perigoso do lease, porque depende de duas decisões humanas em lados diferentes.",
+   "na_fonte": "Não decidido na fonte. Proposta na fonte: a regra candidata do ADR-044 faz a prorrogação em dois passos humanos, primeiro marcar a Azure como `promotion_blocked` pela porta de administração e depois propor `RENEW`; não vale como regra até o TLA+ provar.",
+   "sugestao": "Priorizar a prova do H-DR13 no TLA+ e, até lá, não habilitar o `RENEW` em produção. Avaliar o que acontece se o `promotion_blocked` não chegar à Azure por falta de rede de administração."
+  },
+  {
+   "titulo": "Primeira escrita chega muito depois da partição",
+   "origem": "Cenários ocultos",
+   "contexto": "Se D contasse desde a proposta do `DEGRADE`, uma escrita tardia estenderia a janela da AWS além do instante em que a Azure já pode ser promovida. Isso abriria escrita nas duas pontas.",
+   "na_fonte": "Decidido na fonte: D conta desde `t_c`, o último contato confirmado por uma maioria Azure; com proposta tardia, o lease já nasce vencido.",
+   "sugestao": "Incluir no TLA+ a proposta tardia de `DEGRADE` e testar em caos uma partição sem escritas por mais de D seguida de uma escrita."
+  },
+  {
+   "titulo": "Troca de líder ou reinício do nó em degradado",
+   "origem": "Cenários ocultos",
+   "contexto": "A líder nova herda o `DEGRADE` por replicação mas não herda `t_c`. Contar D desde a eleição estenderia o lease.",
+   "na_fonte": "Decidido na fonte: a líder nova e o nó reiniciado tratam o lease como expirado até obter contato com a Azure ou um `RENEW`, com o custo aceito de ficar sem escrita.",
+   "sugestao": "Incluir no TLA+ e em teste de caos a troca de líder em degradado, e informar ao plantão que uma eleição em degradado encerra a escrita."
+  },
+  {
+   "titulo": "Reinício de uma célula Azure",
+   "origem": "Cenários ocultos",
+   "contexto": "O último contato vive em memória, no relógio monotônico de cada célula Azure, e some no reinício. Se perdido de forma errada, a Azure poderia liberar a promoção cedo.",
+   "na_fonte": "A fonte decide que o reinício conta como contato, promovendo mais tarde (lado seguro), e que a recusa usa o contato mais recente entre as três células Azure.",
+   "sugestao": "Incluir no TLA+ o reinício de células Azure e testar que a `ForcePromote` é recusada após um reinício recente."
+  },
+  {
+   "titulo": "Política reject com entradas commitadas e nunca ACKadas",
+   "origem": "Cenários ocultos",
+   "contexto": "Com `reject`, o RPO dos ACKs continua 0, mas existem entradas no log da AWS que a Azure não tem e cujo resultado o cliente não conhece. Na promoção, elas ficam fora da Azure.",
+   "na_fonte": "A fonte decide que o cliente trata `503 PENDING` como desconhecido (X05) e que, na promoção, essas entradas são extraídas como as órfãs do R13; a promoção se apoia no fencing por maioria, a provar no modelo.",
+   "sugestao": "Incluir a política `reject` no TLA+, com a prova do fencing por maioria, e definir como o cliente é notificado das escritas `PENDING` que nunca chegaram à Azure."
+  },
+  {
+   "titulo": "Valores de D e de M",
+   "origem": "Pontos em aberto",
+   "contexto": "D vem do aceite do negócio e M é a soma da deriva máxima de relógio e da pausa máxima de processo, ambas a medir. Sem esses valores, o lease não pode ser ligado.",
+   "na_fonte": "Não decidido na fonte. D depende do PEND-02 e M da medição; ambos entram na validação de partida.",
+   "sugestao": "Medir deriva e pausa em ambiente real e levar o PEND-02 com a tabela de D versus RTO e volume de disco."
+  },
+  {
+   "titulo": "Modelo TLA+ do lease",
+   "origem": "Pontos em aberto",
+   "contexto": "H-DR13 e H-DR14 seguem como hipóteses a provar, e as regras de `t_c` e de líder nova também entram no modelo. Sem o modelo, o desenho não tem garantia formal.",
+   "na_fonte": "Não decidido na fonte. O modelo está previsto pelo ADR-030.",
+   "sugestao": "Definir as propriedades a provar, como no máximo uma ponta aceitando escrita por instante, e incluir as ações de pausa, reinício e partição assimétrica."
+  },
+  {
+   "titulo": "Contorno de emergência (break-glass) da recusa do ForcePromote",
+   "origem": "Pontos em aberto",
+   "contexto": "Quando uma pessoa comprova que a AWS foi destruída, a espera de D + M parece desnecessária. Um contorno reduziria o RTO, mas reintroduziria risco de split-brain.",
+   "na_fonte": "Decidido pelo Bruno em 13/10 (15b): não há contorno na v1, a espera de D + M vale sempre; um contorno com fencing comprovado e duas pessoas pode ser reavaliado depois do TLA+.",
+   "sugestao": "Registrar o RTO de pior caso no contrato e, depois do TLA+, avaliar um contorno com fencing externo comprovado."
+  },
+  {
+   "titulo": "Fechamento da PEND-01",
+   "origem": "Pontos em aberto",
+   "contexto": "A PEND-01 só fecha quando D e M forem aprovados e o modelo provar a ausência de escrita nas duas pontas. Até lá, a promoção não tem garantia formal.",
+   "na_fonte": "Não decidido na fonte. O fechamento depende do PEND-02 e do modelo TLA+.",
+   "sugestao": "Colocar a prova do TLA+ e o PEND-02 como critérios de saída do marco, com validação pelos outros arquitetos."
+  }
+ ]
+}

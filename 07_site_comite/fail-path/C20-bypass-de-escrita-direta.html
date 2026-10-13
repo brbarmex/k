@@ -1,0 +1,181 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>C20 — Aplicação escreve direto no banco (bypass) · DataReplication v1</title>
+<link rel="stylesheet" href="../assets/site.css">
+</head>
+<body>
+<!--
+Fonte(s) usada(s) nesta página (rastreabilidade), relativas à raiz do pacote:
+  02_cenarios/atualizados/C20-bypass-de-escrita-direta.md
+  04_diagramas/D02-implantacao-da-celula.md
+Gerado em 13/10/2026 a partir do pacote DataReplication_Versao_1.
+-->
+<header class="topo">
+<button class="menu" type="button" aria-label="Abrir navegação" onclick="document.body.classList.toggle('nav-aberta')">☰</button>
+<a href="../index.html">DataReplication v1</a><span class="sep">·</span><span>Apresentação ao comitê técnico</span>
+</header>
+<div class="layout">
+<nav class="sidebar" aria-label="Navegação">
+<a class="marca" href="../index.html">DataReplication v1<span>Comitê técnico</span></a>
+<a class="nav-inicio" href="../index.html">Resumo e requisitos</a>
+<details class="grupo"><summary>Success path <span class="qtd">10</span></summary><ul>
+<li><a class="idx" href="../success-path/index.html">Índice da seção</a></li>
+<li><a href="../success-path/C01-visao-geral.html"><b>C01</b> Visão geral da arquitetura</a></li>
+<li><a href="../success-path/C02-dentro-da-celula.html"><b>C02</b> Dentro da célula: apps do cliente e DataReplication</a></li>
+<li><a href="../success-path/C03-escrita-strong.html"><b>C03</b> Caminho feliz: escrita (apply serial depois do gate)</a></li>
+<li><a href="../success-path/C04-escrita-eventual.html"><b>C04</b> Modo Eventual: só de leitura (sem apply paralelo na v1)</a></li>
+<li><a href="../success-path/C05-leitura-strong-e-eventual.html"><b>C05</b> Caminho feliz: leitura Strong e Eventual</a></li>
+<li><a href="../success-path/C06-follower-encaminha.html"><b>C06</b> Requisição chega numa célula que não é a líder</a></li>
+<li><a href="../success-path/C11-transferencia-planejada.html"><b>C11</b> Transferência planejada de liderança (manutenção)</a></li>
+<li><a href="../success-path/C18-partida-e-recuperacao-do-no.html"><b>C18</b> Partida, recuperação e parada limpa do nó</a></li>
+<li><a href="../success-path/C23-batchwriteitem-lote-uma-entrada.html"><b>C23</b> BatchWriteItem: o lote é uma entrada e o apply é por item (antes R15)</a></li>
+<li><a href="../success-path/C31-implantacao-por-cliente-e-identidade.html"><b>C31</b> Uma instalação por cliente e identificação na API (antes R19)</a></li>
+</ul></details>
+<details class="grupo" open><summary>Fail path <span class="qtd">24</span></summary><ul>
+<li><a class="idx" href="index.html">Índice da seção</a></li>
+<li><a href="C07-timeout-depois-do-commit.html"><b>C07</b> Prazo estoura depois do commit, antes do ACK (retry do SDK)</a></li>
+<li><a href="C08-queda-de-celula-lider-ou-az-aws.html"><b>C08</b> Queda da célula líder ou de uma AZ na AWS</a></li>
+<li><a href="C09-queda-de-az-azure.html"><b>C09</b> Queda de uma AZ na Azure</a></li>
+<li><a href="C10-celulas-de-app-aws-fora.html"><b>C10</b> Apps da AWS fora, replicação viva: tráfego vai para a Azure</a></li>
+<li><a href="C12-modo-degradado.html"><b>C12</b> Link AWS↔Azure cai ou Azure cai: modo degradado com lease</a></li>
+<li><a href="C13-ressincronizacao-da-azure.html"><b>C13</b> Ressincronização da Azure</a></li>
+<li><a href="C14-aws-cai-sem-degradacao.html"><b>C14</b> AWS cai por inteiro sem degradação prévia</a></li>
+<li><a href="C15-aws-cai-em-degradacao.html"><b>C15</b> AWS cai durante o modo degradado</a></li>
+<li><a href="C16-aws-volta-apos-promocao.html"><b>C16</b> AWS volta depois da promoção da Azure</a></li>
+<li><a href="C17-maquina-de-estados.html"><b>C17</b> Máquina de estados dos modos de operação de um shard</a></li>
+<li><a href="C19-falha-do-datareplication.html"><b>C19</b> O DataReplication da célula cai ou reinicia</a></li>
+<li><a class="atual" aria-current="page" href="C20-bypass-de-escrita-direta.html"><b>C20</b> Aplicação escreve direto no banco (bypass)</a></li>
+<li><a href="C21-disco-fsync-e-reconstrucao.html"><b>C21</b> Falha de fsync, corrupção, disco lento e disco perdido</a></li>
+<li><a href="C22-cliente-com-sdk-nao-suportado.html"><b>C22</b> Cliente com SDK ou versão não suportada</a></li>
+<li><a href="C24-orcamento-de-50ms-e-escrita-no-dynamodb.html"><b>C24</b> Orçamento de 50 ms e a escrita no DynamoDB dentro do ACK (antes R21)</a></li>
+<li><a href="C25-link-lento-faixa-cinzenta.html"><b>C25</b> Link lento ou saturado (faixa cinzenta): só alertar (antes R01)</a></li>
+<li><a href="C26-entrada-venenosa.html"><b>C26</b> Entrada venenosa: um item que o banco recusa para sempre (antes R02)</a></li>
+<li><a href="C27-encaminhamento-sem-lider-conhecida.html"><b>C27</b> Loop de encaminhamento e espera pela líder durante a eleição (antes R05)</a></li>
+<li><a href="C28-leitura-eventual-na-azure-defasada.html"><b>C28</b> Leitura eventual na Azure durante a degradação (antes R04)</a></li>
+<li><a href="C29-disco-do-log-em-degradacao-longa.html"><b>C29</b> Disco do log esgota durante uma degradação longa (antes R08)</a></li>
+<li><a href="C30-aws-que-volta-boot-cercado.html"><b>C30</b> Fencing: o DynamoDB e o applier da AWS que voltam depois da promoção (antes R14)</a></li>
+<li><a href="C32-particao-e-lease-do-modo-degradado.html"><b>C32</b> Partição entre AWS e Azure: lease do modo degradado e promoção da Azure</a></li>
+<li><a href="C33-reconstrucao-em-tabela-sombra.html"><b>C33</b> Reconstrução do banco de uma célula em tabela sombra</a></li>
+<li><a href="C34-autorizacao-por-aplicacao.html"><b>C34</b> Autorização por aplicação: mTLS e lista de permissões por identidade</a></li>
+</ul></details>
+<details class="grupo"><summary>Complex path <span class="qtd">6</span></summary><ul>
+<li><a class="idx" href="../complex-path/index.html">Índice da seção</a></li>
+<li><a href="../complex-path/X01-gate-e-troca-de-lider.html"><b>X01</b> Gate: definição, monotonicidade e troca de líder</a></li>
+<li><a href="../complex-path/X02-modo-degradado.html"><b>X02</b> Modo degradado: entrada, permanência, lease e saída</a></li>
+<li><a href="../complex-path/X03-desastre-e-promocao-da-azure.html"><b>X03</b> Desastre: promoção da Azure, fencing e reconciliação</a></li>
+<li><a href="../complex-path/X04-partida-recuperacao-e-dois-logs.html"><b>X04</b> Partida, recuperação e coerência entre os dois logs</a></li>
+<li><a href="../complex-path/X05-timeouts-e-idempotencia.html"><b>X05</b> Timeouts em cascata e idempotência do retry</a></li>
+<li><a href="../complex-path/X06-delete-ttl-gsi.html"><b>X06</b> DELETE, TTL, Scan e GSI</a></li>
+</ul></details>
+<details class="grupo"><summary>Parking lot <span class="qtd">14</span></summary><ul>
+<li><a class="idx" href="../parking-lot/index.html">Índice da seção</a></li>
+<li><a href="../parking-lot/R03-backlog-de-apply-no-cosmos.html"><b>R03</b> Backlog de apply no Cosmos (429 e RU insuficiente)</a></li>
+<li><a href="../parking-lot/R06-duas-azs-aws-caem.html"><b>R06</b> Duas AZs da AWS caem com a Azure saudável</a></li>
+<li><a href="../parking-lot/R07-link-oscilando.html"><b>R07</b> Link oscilando (flapping)</a></li>
+<li><a href="../parking-lot/R09-resincronizacao-lenta-ou-bloqueada.html"><b>R09</b> Ressincronização da Azure lenta ou que nunca termina</a></li>
+<li><a href="../parking-lot/R10-operador-lento-no-desastre.html"><b>R10</b> Tempo de decisão humana no desastre</a></li>
+<li><a href="../parking-lot/R11-api-de-promocao-depende-da-aws.html"><b>R11</b> A API de promoção depende de algo que estava na AWS</a></li>
+<li><a href="../parking-lot/R12-promocao-com-aws-viva.html"><b>R12</b> Promoção da Azure com a AWS viva (split-brain, PEND-01)</a></li>
+<li><a href="../parking-lot/R13-escritas-orfas-reconciliacao.html"><b>R13</b> Escritas órfãs: reconciliação depois da promoção (PEND-03)</a></li>
+<li><a href="../parking-lot/R16-leitura-forte-em-celulas-follower.html"><b>R16</b> Leitura forte em células follower (ReadIndex e gate)</a></li>
+<li><a href="../parking-lot/R17-atributo-de-versao-e-limite-400kb.html"><b>R17</b> Atributo de versão: limite de 400 KB e ausência nas respostas</a></li>
+<li><a href="../parking-lot/R18-rto-nao-quantificado.html"><b>R18</b> RTO (Delta-T) ainda sem número</a></li>
+<li><a href="../parking-lot/R20-custo-6x.html"><b>R20</b> Custo: cada escrita lógica vira seis gravações</a></li>
+<li><a href="../parking-lot/R22-memoria-da-janela-de-dedupe.html"><b>R22</b> Memória da janela de dedupe</a></li>
+<li><a href="../parking-lot/R23-hipoteses-gerais.html"><b>R23</b> Hipóteses gerais em aberto</a></li>
+</ul></details>
+</nav>
+<main>
+<div class="migalhas"><a href="../index.html">Início</a> / <a href="index.html">Fail path</a> / C20</div>
+<h1>C20 — Aplicação escreve direto no banco (bypass)</h1>
+<div class="meta"><span class="selo fail-path">Fail path</span><div><b>Status na fonte:</b> ✅ Atualizado (modelo v1, revisão crítica de 13/10/2026)</div></div>
+<section id="visao-geral"><h2>1. Visão geral do cenário</h2>
+<p>Uma escrita direta no DynamoDB ou no Cosmos não passa pelo log: não é replicada e quebra a ordem e o RPO. A regra é que <strong>a aplicação não tem credencial de escrita</strong>; só o applier do <code>DataReplication</code> de cada célula escreve (um escritor por tabela por célula).</p>
+<p>Fechar o banco para as aplicações cria o problema inverso, que a revisão crítica apontou: o papel largo passa a ser o do <code>DataReplication</code>, e se a única barreira for a NetworkPolicy, qualquer pod do namespace escreve em qualquer tabela, o que hoje o IAM por aplicação não permite. Por isso o acesso ao <code>DataReplication</code> exige <strong>mTLS por aplicação</strong> e uma lista identidade → tabelas e operações (<a href="../../03_adr/ADR-052-autorizacao-por-aplicacao-com-mtls.md">ADR-052</a>, <a href="C34-autorizacao-por-aplicacao.html">C34</a>).</p>
+</section>
+<section id="diagrama"><h2>2. Diagrama</h2>
+<div class="diagrama"><pre class="mermaid">flowchart LR
+    APP[&quot;App do cliente&lt;br/&gt;certificado de cliente&quot;] --&gt;|&quot;NetworkPolicy, mTLS e HTTP DynamoDB&quot;| DR[&quot;DataReplication&lt;br/&gt;lista identidade, tabelas e operações&quot;]
+    DR --&gt;|&quot;sem entrada na lista&quot;| N403[&quot;403&quot;]
+    DR --&gt; APL[&quot;Applier&lt;br/&gt;papel IAM da célula&quot;]
+    APL --&gt; DB[(&quot;Banco da célula&quot;)]
+    APP -. &quot;sem credencial de escrita&quot; .-x DB</pre></div>
+<h3>Arquitetura geral relacionada: <a href="../../04_diagramas/D02-implantacao-da-celula.md">D02 — Implantação de uma célula no Kubernetes</a></h3><p class="nota">Diagrama de <code>04_diagramas/</code> escolhido pelo site como contexto; o cenário fonte não faz essa associação.</p>
+<div class="diagrama"><pre class="mermaid">flowchart TD
+    subgraph NS[&quot;Namespace do cliente, NetworkPolicy fechada&quot;]
+        A1[&quot;App 1&quot;] --&gt;|&quot;mTLS por aplicação&quot;| SVC[&quot;Service interno&lt;br/&gt;porta de API&quot;]
+        A2[&quot;App 2 a 10&quot;] --&gt;|&quot;mTLS por aplicação&quot;| SVC
+        SVC --&gt; POD[&quot;Pod DataReplication&lt;br/&gt;QoS Guaranteed, PDB maxUnavailable 1&lt;br/&gt;lista identidade para tabelas e operações&quot;]
+    end
+    POD --- VOL[(&quot;Volume do Raft, pequeno e rápido&lt;br/&gt;wal do etcd, fsync no caminho do ACK&quot;)]
+    POD --- VOLP[(&quot;Volume do log de replicação, maior&lt;br/&gt;segmentos, fsync só no checkpoint&lt;br/&gt;log de replicação e progresso do applier por item&quot;)]
+    POD --&gt;|&quot;identidade da carga de trabalho&quot;| DB[(&quot;Banco da célula&quot;)]
+    POD &lt;--&gt;|&quot;mTLS, porta de replicação por balanceador interno&quot;| PEERS[&quot;DataReplication das outras células&quot;]
+    POD --&gt; ADM[&quot;Porta de administração&lt;br/&gt;livez, readyz, metrics&quot;]
+    A1 -. &quot;IAM negativo: sem escrita direta&quot; .-&gt; DB</pre></div>
+</section>
+<section id="etapas"><h2>3. Legenda e etapas</h2>
+<div class="etapas"><ol>
+<li>O IAM da célula só concede escrita nas tabelas da célula ao papel do <code>DataReplication</code>.</li>
+<li>As apps recebem apenas o endpoint do <code>DataReplication</code> e o certificado de cliente da sua identidade.</li>
+<li>O <code>DataReplication</code> autentica pelo certificado (mTLS) e autoriza pela lista: tabela lógica e operação por identidade. Sem entrada, <code>403</code>.</li>
+<li>Leitura direta no Cosmos também é proibida (a camada respeita o <code>appliedIndex</code>); reforçar por permissão.</li>
+</ol></div>
+</section>
+<section id="pontos"><h2>4. Pontos que precisam ser avaliados</h2>
+<p class="nota">Reescritos a partir das seções “Falhas e tratativas” e “Pontos em aberto” (e de outras seções de risco, quando existem). Em cada ponto, <b>O que a fonte define</b> vem da documentação; <b>Sugestão de encaminhamento</b> é <b>inferência do arquiteto</b>, não decisão registrada.</p>
+<article class="ponto">
+<h3><span class="num">1</span>Pod do namespace sem certificado ou com certificado de outra aplicação <span class="origem">Falhas e tratativas</span></h3>
+<dl>
+<dt>Contexto</dt><dd>Com o banco fechado para as aplicações, o papel largo de escrita passa a ser o do <code>DataReplication</code>, e se a única barreira fosse a NetworkPolicy qualquer pod do namespace escreveria em qualquer tabela. Um pod sem certificado ou que obteve o certificado de outra aplicação tentaria usar esse privilégio ampliado. O impacto não é de RPO, mas de segurança: escrita indevida que é replicada fielmente para todas as células.</dd>
+<dt>O que a fonte define</dt><dd class="">Decidido no <a href="../../03_adr/ADR-052-autorizacao-por-aplicacao-com-mtls.md">ADR-052</a> e no <a href="C34-autorizacao-por-aplicacao.html">C34</a>: sem certificado o handshake mTLS falha; com o certificado de outra identidade vale a lista dela; a NetworkPolicy continua sendo a primeira barreira.</dd>
+<dt class="sug">Sugestão de encaminhamento <small>(inferência, não decidida)</small></dt><dd class="sug">Proteger os segredos dos certificados com RBAC de <code>Secret</code> por conta de serviço e validade curta, e incluir no teste de segurança um pod do mesmo namespace que monta o segredo de outra aplicação, confirmando que isso é bloqueado pelo RBAC. Auditar <code>authz_denied</code> por identidade com alerta para negações fora do padrão.</dd>
+</dl>
+</article>
+<article class="ponto">
+<h3><span class="num">2</span>Escrita direta detectada só por auditoria <span class="origem">Falhas e tratativas</span></h3>
+<dl>
+<dt>Contexto</dt><dd>Uma escrita feita direto no DynamoDB ou no Cosmos não passa pelo log, não é replicada e quebra a ordem e o RPO, além de poder ser sobrescrita pelo applier. A camada não consegue impedir esse bypass; só o IAM impede, e a auditoria do provedor apenas detecta depois do fato. Até a detecção, as réplicas divergem sem que ninguém saiba.</dd>
+<dt>O que a fonte define</dt><dd class="">A fonte decide que só o papel do <code>DataReplication</code> tem escrita nas tabelas da célula e que a auditoria do provedor (CloudTrail, log de atividade do Cosmos) alerta escrita fora desse papel; a leitura direta no Cosmos também é proibida e deve ser reforçada por permissão.</dd>
+<dt class="sug">Sugestão de encaminhamento <small>(inferência, não decidida)</small></dt><dd class="sug">Adicionar uma política de negação explícita (SCP ou equivalente) para escrita nas tabelas por qualquer principal que não seja o papel da célula ou o papel temporário de reconstrução, e testar o alerta de auditoria com uma escrita direta controlada em game day. Definir o procedimento de correção quando uma escrita direta for detectada (anti-entropia por checksum ou reconstrução em tabela sombra, <a href="C33-reconstrucao-em-tabela-sombra.html">C33</a>).</dd>
+</dl>
+</article>
+<article class="ponto">
+<h3><span class="num">3</span>Autenticação, IAM, lista de permissões e rotação de certificados <span class="origem">Pontos em aberto</span></h3>
+<dl>
+<dt>Contexto</dt><dd>O <a href="C20-bypass-de-escrita-direta.html">C20</a> depende de detalhes que estão em outros cenários: o modelo de identidade e IAM por célula (<a href="../success-path/C31-implantacao-por-cliente-e-identidade.html">C31</a>) e a lista identidade, tabelas e operações com a rotação dos certificados (<a href="C34-autorizacao-por-aplicacao.html">C34</a>). Sem esses detalhes fechados, a regra de que a aplicação não tem credencial de escrita não pode ser implantada sem risco de ampliar privilégio ou de cortar acesso legítimo.</dd>
+<dt>O que a fonte define</dt><dd class="nd-fonte">Não decidido na fonte. O <a href="C20-bypass-de-escrita-direta.html">C20</a> remete o detalhamento ao <a href="../success-path/C31-implantacao-por-cliente-e-identidade.html">C31</a> e ao <a href="C34-autorizacao-por-aplicacao.html">C34</a>; a lista depende do levantamento PEND-19.</dd>
+<dt class="sug">Sugestão de encaminhamento <small>(inferência, não decidida)</small></dt><dd class="sug">Tratar como critério de entrada de cada cliente: lista de permissões gerada a partir do PEND-19, IAM das aplicações sem escrita comprovado por teste, e rotação de certificado exercitada em homologação antes do go-live.</dd>
+</dl>
+</article>
+</section>
+<section id="adrs"><h2>5. ADRs relacionados</h2>
+<div class="tabela"><table><thead><tr><th>ADR</th><th>Título</th><th>Decisão resumida</th><th>Arquivo</th></tr></thead><tbody>
+<tr><td class="nw"><a href="../../03_adr/ADR-001-camada-intermediaria-agnostica.md">ADR-001</a></td><td>Camada intermediária agnóstica a cloud e a banco</td><td>Camada entre a aplicação e o banco que expõe a API do banco primário e mantém capacidades por backend.</td><td><a href="../../03_adr/ADR-001-camada-intermediaria-agnostica.md">ADR-001-camada-intermediaria-agnostica.md</a></td></tr>
+<tr><td class="nw"><a href="../../03_adr/ADR-052-autorizacao-por-aplicacao-com-mtls.md">ADR-052</a></td><td>Autorização por aplicação com mTLS</td><td>Cada aplicação fala mTLS com o DataReplication, que autoriza por lista identidade → tabelas e operações.</td><td><a href="../../03_adr/ADR-052-autorizacao-por-aplicacao-com-mtls.md">ADR-052-autorizacao-por-aplicacao-com-mtls.md</a></td></tr>
+<tr><td class="nw"><a href="../../03_adr/ADR-043-uma-instalacao-por-cliente-identidade-por-configuracao.md">ADR-043</a></td><td>Uma instalação por cliente; o cliente é conhecido na configuração</td><td>Uma instalação por cliente; o cliente é conhecido pela configuração do deploy.</td><td><a href="../../03_adr/ADR-043-uma-instalacao-por-cliente-identidade-por-configuracao.md">ADR-043-uma-instalacao-por-cliente-identidade-por-configuracao.md</a></td></tr>
+</tbody></table></div>
+<p class="nota">Lista extraída do cabeçalho “ADRs” do arquivo fonte. A decisão resumida condensa a seção “Decisão” de cada ADR.</p>
+</section>
+<section id="anexo"><h2>Anexo: texto original da fonte</h2><p class="nota">Seções do .md fonte reproduzidas sem reescrita, para conferência.</p>
+<details class="anexo"><summary>Falhas e tratativas</summary><ul>
+<li><strong>Pod do namespace sem certificado ou com certificado de outra aplicação.</strong> Sem certificado, o handshake falha; com o certificado de outra identidade, vale a lista dela. A NetworkPolicy continua sendo a primeira barreira.</li>
+<li><strong>Escrita direta detectada por auditoria.</strong> O bypass não é impedido pela camada, só por IAM; a auditoria do provedor (CloudTrail, log de atividade do Cosmos) alerta escrita fora do papel do <code>DataReplication</code>.</li>
+</ul></details>
+<details class="anexo"><summary>Pontos em aberto</summary><ul>
+<li>Autenticação e IAM detalhados: <a href="../success-path/C31-implantacao-por-cliente-e-identidade.html">C31</a>; lista de permissões e rotação de certificados: <a href="C34-autorizacao-por-aplicacao.html">C34</a>.</li>
+</ul></details>
+</section>
+<footer class="rodape">
+Gerado em 13/10/2026 a partir de <code>DataReplication_Versao_1/</code>. O conteúdo vem dos arquivos .md citados no código-fonte desta página;
+textos marcados como <em>sugestão</em> são inferência do arquiteto e não decisões registradas.
+</footer>
+</main>
+</div>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@11.4.1/dist/mermaid.min.js"></script>
+<script>mermaid.initialize({startOnLoad: true, theme: "neutral", securityLevel: "strict", flowchart: {htmlLabels: true, useMaxWidth: true}, sequence: {useMaxWidth: true}});</script>
+</body>
+</html>

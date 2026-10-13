@@ -1,0 +1,19 @@
+{
+ "id": "C21",
+ "pontos": [
+  {
+   "titulo": "Reconstrução automática de réplica (H-DR1)",
+   "origem": "Pontos em aberto",
+   "contexto": "Quando o fsync falha, o log está corrompido no meio ou o disco é perdido, o nó precisa ser reconstruído, e o banco da célula, se suspeito, é refeito em tabela sombra. Hoje isso é manual assistido, com decisão humana no pedido, no cutover e no descarte da tabela antiga. O tempo de resposta humana passa a fazer parte do tempo em que a célula fica com redundância reduzida, e uma segunda falha nesse intervalo pode afetar quórum ou o gate.",
+   "na_fonte": "A fonte mantém a reconstrução manual assistida na v1 com o protocolo da tabela sombra (ADR-047, C33); a reconstrução automática fica como hipótese H-DR1 no R23.",
+   "sugestao": "Medir em game day o tempo entre o evento de disco e a réplica de volta ao quórum, incluindo o tempo humano, e usar essa medida para decidir sobre H-DR1. Mesmo mantendo manual, automatizar a detecção e a abertura do pedido `drctl rebuild` com pré-condições checadas, deixando à pessoa só a aprovação."
+  },
+  {
+   "titulo": "P99 de fsync por tipo de volume",
+   "origem": "Pontos em aberto",
+   "contexto": "O fsync decide a latência do ACK e a segurança do dado, e um disco lento faz o watchdog transferir a liderança. Sem o P99 de fsync por tipo de volume, não há como fixar o limiar do watchdog nem o tempo N, e não se sabe quanto do orçamento de 50 ms o disco consome. Um limiar mal escolhido causa trocas de líder espúrias ou deixa uma líder lenta segurando o shard.",
+   "na_fonte": "Não decidido na fonte. O C21 remete a medição ao spike S1; o limiar do watchdog e o N segundos não têm valor.",
+   "sugestao": "No spike S1, medir P99 e P99,9 de fsync por classe de volume sob carga de escrita concorrente e com volume compartilhado e dedicado, e derivar dali o limiar do watchdog (limiar a definir). Adicionar teste de caos com latência de disco injetada para verificar que a transferência de liderança ocorre e não oscila."
+  }
+ ]
+}

@@ -1,0 +1,54 @@
+{
+ "id": "C23",
+ "pontos": [
+  {
+   "titulo": "Leitor vê o lote pela metade",
+   "origem": "Falhas e tratativas",
+   "contexto": "O lote é uma entrada com um índice e um ACK, mas o apply é por item e em paralelo limitado, então durante o apply um leitor pode ver parte dos itens gravados e parte não. Isso não afeta RPO, mas pode surpreender clientes que tratam o `BatchWriteItem` como atômico. O efeito existe tanto no DynamoDB da AWS quanto no Cosmos, que também aplica por item.",
+   "na_fonte": "A fonte aceita o comportamento por equivalência ao DynamoDB, que não promete atomicidade em `BatchWriteItem` (ADR-035).",
+   "sugestao": "Documentar explicitamente no contrato com o cliente que o lote não é atômico para leitores e verificar no inventário (PEND-15) se algum cliente depende disso. Avaliar se a leitura forte, que espera o `applied` do índice, já oculta o lote parcial, e incluir esse caso na suíte de compatibilidade."
+  },
+  {
+   "titulo": "Lote acima de 4 MiB",
+   "origem": "Falhas e tratativas",
+   "contexto": "O DynamoDB aceita lotes de até 16 MB, mas o `DataReplication` recusa antes do commit qualquer lote acima do limite de entrada de 4 MiB. Um cliente com itens grandes que hoje funciona direto no DynamoDB passa a receber erro ao migrar. É uma quebra de compatibilidade que afeta disponibilidade funcional, não RPO.",
+   "na_fonte": "A fonte decide recusar com erro 4xx definido antes do commit e pede que o erro informe o limite.",
+   "sugestao": "Incluir no inventário do cliente (PEND-15) o tamanho máximo real de lote e de item, e bloquear a entrada de quem excede. Definir o código e a mensagem do erro na suíte de compatibilidade e expor uma métrica de lotes recusados por tamanho."
+  },
+  {
+   "titulo": "Latência do apply com até 25 gravações condicionais",
+   "origem": "Falhas e tratativas",
+   "contexto": "Como o `BatchWriteItem` não aceita `ConditionExpression`, o applier grava até 25 `PutItem` ou `DeleteItem` condicionais por entrada, em vez de uma chamada de lote. Como o ACK só sai com todos os itens aplicados na célula da líder, a cauda do pior item entra no `t_apply` e eleva o P99 visto pelo cliente. Throttling em qualquer item atrasa o lote inteiro.",
+   "na_fonte": "A fonte aceita o custo e remete ao C24, onde o SLO de 50 ms exclui a escrita no banco e é publicado como `overhead + banco`; o paralelismo é limitado a 25 por entrada.",
+   "sugestao": "Medir no spike S5 o P99 de `t_apply` para lotes de 1, 5 e 25 itens, inclusive em partição quente, e publicar no contrato o P99 do lote separado do de item único. Avaliar se o limite de paralelismo deve ser configurável por instalação para não amplificar throttling."
+  },
+  {
+   "titulo": "Custo por número de chamadas",
+   "origem": "Falhas e tratativas",
+   "contexto": "As unidades de gravação consumidas são as mesmas do lote, mas o número de chamadas à API cresce até 25 vezes. Isso pode afetar limites de taxa de requisições, CPU e conexões do `DataReplication`, além de se multiplicar pelas seis células. O custo total já é um tema aberto no R20.",
+   "na_fonte": "A fonte registra que a WCU não muda e remete o custo ao R20.",
+   "sugestao": "Medir no spike o custo efetivo e o uso de CPU e conexões por lote de 25 em comparação com uma chamada de lote, e incluir o resultado na estimativa por cliente do R20."
+  },
+  {
+   "titulo": "Falha permanente de um item do lote",
+   "origem": "Falhas e tratativas",
+   "contexto": "Se um item de um lote já commitado é recusado permanentemente pelo banco, o applier para nesse item e o shard inteiro trava, como no C26. Até uma pessoa decidir, as escritas seguintes do shard ficam `PENDING` e as leituras fortes falham. A validação pré-commit cobre todos os itens, mas uma regra desconhecida de um dos bancos ainda pode escapar.",
+   "na_fonte": "Decidido no ADR-048 e no C26: o `SKIP` humano identifica `(índice, ordem)` e pula só o item ruim, mantendo os demais itens do lote; a consulta por identificador devolve o estado por item.",
+   "sugestao": "Incluir na suíte de contrato do Cloud-Adapter lotes com itens próximos dos limites dos dois bancos para reduzir o que escapa da validação. Testar o fluxo completo de `SKIP` por item num lote e verificar que todas as células chegam ao mesmo estado e que a consulta devolve `REJECTED` só para o item pulado."
+  },
+  {
+   "titulo": "Falha da líder no meio do apply do lote",
+   "origem": "Falhas e tratativas",
+   "contexto": "Se a líder cai com parte dos itens aplicados, a nova líder reaplica a entrada inteira. Sem idempotência, itens seriam gravados duas vezes ou com versão errada. O tempo de reapply também se soma ao RTO de escrita do shard.",
+   "na_fonte": "A fonte decide que os itens já aplicados devolvem `ConditionalCheckFailed` e são tratados como feitos; o progresso por item evita reaplicar o que consta como `APPLIED`, mas a condição de versão continua sendo a garantia (ADR-035, ADR-048).",
+   "sugestao": "Incluir no TLA+ ou em teste de propriedade a troca de líder no meio do apply de um lote, com a propriedade de que o estado final é igual ao de um apply sem falha. Verificar também o caso em que um item foi aplicado mas a versão foi sobrescrita depois por uma entrada maior, para garantir que o `ConditionalCheckFailed` não mascara um erro real."
+  },
+  {
+   "titulo": "Confirmar a recusa de condição e medir o P99 do apply de 25 itens",
+   "origem": "Pontos em aberto",
+   "contexto": "A decisão de aplicar por item parte da premissa de que o `BatchWriteItem` do DynamoDB recusa `ConditionExpression`, e o custo em latência dessa escolha ainda não foi medido. Se a premissa estiver errada, há um caminho mais barato; se o P99 for alto, o contrato de latência precisa refletir isso.",
+   "na_fonte": "Não decidido na fonte. A confirmação e a medição estão previstas no spike S5.",
+   "sugestao": "No spike S5, registrar a evidência da recusa da condição e o histograma de `t_apply` por tamanho de lote, e definir um critério de aceite para o P99 do lote (limiar a definir) antes de publicar o contrato com o cliente."
+  }
+ ]
+}

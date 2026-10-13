@@ -1,0 +1,82 @@
+{
+ "id": "C34",
+ "pontos": [
+  {
+   "titulo": "Certificado vencido ou rotação mal feita",
+   "origem": "Falhas e tratativas",
+   "contexto": "Se o certificado de cliente vence ou a rotação falha, o handshake mTLS falha e a aplicação perde acesso, o que para o cliente é indisponibilidade. Os SDKs costumam montar o material TLS na criação do cliente, então a recarga do certificado sem reiniciar a aplicação não é garantida.",
+   "na_fonte": "A fonte decide rotação com sobreposição, alerta de expiração e renovação automática pelo cert-manager; a recarga sem reinício precisa ser testada por SDK.",
+   "sugestao": "Incluir na suíte de compatibilidade o teste de rotação por SDK e alertar com antecedência sobre certificados próximos do vencimento."
+  },
+  {
+   "titulo": "Revogação e vazamento de certificado",
+   "origem": "Falhas e tratativas",
+   "contexto": "Retirar a identidade da lista corta o acesso na próxima recarga da configuração. Se o certificado vazar, o uso dentro das permissões da própria identidade continua valendo até a revogação.",
+   "na_fonte": "A fonte decide proteger o segredo com RBAC de `Secret` e validade curta.",
+   "sugestao": "Definir o tempo máximo de recarga da lista e testar a revogação em homologação."
+  },
+  {
+   "titulo": "Lista incompleta no dia da ativação",
+   "origem": "Falhas e tratativas",
+   "contexto": "Uma aplicação legítima sem entrada na lista receberia `403` em produção. Isso seria indisponibilidade causada pela própria segurança.",
+   "na_fonte": "Não decidido na fonte. Proposta na fonte: um período de observação em que a negação só conta e alerta, como no período de alerta do SDK (C22).",
+   "sugestao": "Adotar o período de observação com `authz_denied` como critério de ativação."
+  },
+  {
+   "titulo": "Listas diferentes entre as células",
+   "origem": "Falhas e tratativas",
+   "contexto": "Uma célula que recusa o que outra aceita muda o comportamento quando a liderança ou o tráfego muda. Depois de uma promoção, as aplicações na Azure precisam ser reconhecidas pela mesma lista.",
+   "na_fonte": "A fonte decide que a lista deve ser idêntica nas seis células, com alerta de divergência, e que o emissor do AKS confia na mesma CA ou a lista aceita os dois emissores.",
+   "sugestao": "Distribuir a lista com versão e hash e alertar quando as células divergirem."
+  },
+  {
+   "titulo": "Custo do handshake",
+   "origem": "Falhas e tratativas",
+   "contexto": "O handshake mTLS tem custo na conexão nova. Com keep-alive, só a conexão nova paga o handshake, mas picos de reconexão podem afetar o orçamento de latência.",
+   "na_fonte": "A fonte decide reaproveitar a conexão (keep-alive, `IdleTimeout` de 120 s) e medir o efeito sobre o orçamento (C24).",
+   "sugestao": "Medir no spike o P99 com e sem reconexões e testar uma reconexão em massa após falha de célula."
+  },
+  {
+   "titulo": "Sondas e administração",
+   "origem": "Falhas e tratativas",
+   "contexto": "As sondas do kubelet não têm certificado de aplicação. Se ficarem na porta de dados, ou falham ou exigem exceção na autorização.",
+   "na_fonte": "A fonte decide colocar `readyz` e `livenessProbe` em porta separada sem acesso a dados, e manter a porta de administração separada com MFA e auditoria (C31).",
+   "sugestao": "Testar que a porta de sondas não expõe dados e que a porta de administração exige MFA."
+  },
+  {
+   "titulo": "Pod comprometido da própria aplicação",
+   "origem": "Falhas e tratativas",
+   "contexto": "O mTLS não impede o que a identidade já pode fazer. Um pod comprometido da aplicação pode usar todas as permissões dela.",
+   "na_fonte": "A fonte aceita o risco, pois limita o dano ao que o IAM já permite hoje.",
+   "sugestao": "Manter a auditoria por identidade e recomendar ao cliente separar identidades por função quando possível."
+  },
+  {
+   "titulo": "Levantamento das permissões IAM atuais (PEND-19)",
+   "origem": "Pontos em aberto",
+   "contexto": "A lista nasce do levantamento por aplicação. Se o levantamento estiver errado, a lista corta acesso legítimo ou concede acesso demais.",
+   "na_fonte": "Não decidido na fonte. A PEND-19 está com os times clientes e entra no inventário (ADR-051).",
+   "sugestao": "Automatizar a extração das permissões dos papéis IAM e revisá-la com o time cliente."
+  },
+  {
+   "titulo": "Formato e local da lista e nome da identidade",
+   "origem": "Pontos em aberto",
+   "contexto": "O formato da lista, onde fica, como é recarregada e auditada, e o nome da identidade no certificado ainda não foram definidos. Sem isso, a autorização não pode ser implementada.",
+   "na_fonte": "Não decidido na fonte. Ficam a definir.",
+   "sugestao": "Definir a lista como configuração versionada com revisão obrigatória e usar a conta de serviço como identidade."
+  },
+  {
+   "titulo": "Mudança nos SDKs ou malha de serviço",
+   "origem": "Pontos em aberto",
+   "contexto": "O cliente HTTP do SDK precisa apresentar o certificado, ou uma malha de serviço precisa entregar o mTLS. Cada opção tem custo diferente por cliente.",
+   "na_fonte": "Não decidido na fonte. A decisão é por cliente conforme o custo no inventário.",
+   "sugestao": "Avaliar a malha de serviço em spike, comparando o custo com a mudança no SDK."
+  },
+  {
+   "titulo": "Validade e sobreposição de certificados",
+   "origem": "Pontos em aberto",
+   "contexto": "A validade dos certificados e o prazo de sobreposição na rotação não foram definidos. Validade longa aumenta o risco de vazamento; curta aumenta o risco de falha de rotação.",
+   "na_fonte": "Não decidido na fonte. Fica a definir e está ligado ao risco 18 (operação da frota).",
+   "sugestao": "Definir os valores com segurança e testar a rotação em homologação."
+  }
+ ]
+}

@@ -1,0 +1,61 @@
+{
+ "id": "C26",
+ "pontos": [
+  {
+   "titulo": "Recusa só no Cosmos",
+   "origem": "Falhas e tratativas",
+   "contexto": "Se a validação pré-commit não conhece uma regra do Cosmos, a AWS aplica o item e a Azure para nele. O desvio é silencioso até o failover: a AWS segue normal e o atraso de apply na Azure cresce. No failover, a Azure promovida estaria atrás, o que afeta RPO efetivo e RTO.",
+   "na_fonte": "A fonte propõe como mitigação a métrica `applied_lag` por cloud, teste de contrato do Cloud-Adapter com itens reais e a suíte de conformidade (ADR-051); o limite de lag do Cosmos para elegibilidade ao failover (PEND-18) também cobre o caso.",
+   "sugestao": "Alertar quando o `applied_lag` da Azure crescer enquanto o da AWS se mantém, com o `poison_entry_index` exposto também nas células Azure. Incluir no teste de contrato itens dos inventários de clientes (PEND-15) e fechar o PEND-18 antes do go-live."
+  },
+  {
+   "titulo": "Raio de impacto: o shard inteiro para",
+   "origem": "Falhas e tratativas",
+   "contexto": "Um item venenoso para o applier do shard inteiro até uma pessoa decidir. Com prazo de 7,5 s, todas as escritas do shard viram `503 PENDING` em segundos e as filas enchem. É indisponibilidade de escrita e de leitura forte do shard.",
+   "na_fonte": "A fonte propõe um circuito de proteção que rejeita rápido enquanto o shard está parado; a leitura forte falha rápido com `503` (ADR-049).",
+   "sugestao": "Implementar o circuito com métrica e teste de caos que injeta um item venenoso e verifica que as filas não crescem e que os outros shards não são afetados."
+  },
+  {
+   "titulo": "Tempo de resposta humana",
+   "origem": "Falhas e tratativas",
+   "contexto": "Sem SKIP automático, o tempo de parada do shard é o tempo do plantão. Isso entra no RTO de escrita do shard e depende de alertas, acesso e treinamento. Fora do horário comercial pode ser longo.",
+   "na_fonte": "Decidido no ADR-038: o SKIP é sempre humano; o tempo de resposta entra no desenho do plantão e nos game days (R10).",
+   "sugestao": "Medir em game day o tempo do alerta até o SKIP, com metas por severidade (limiar a definir), e manter um runbook com o comando de SKIP pronto e as checagens antes de aplicá-lo."
+  },
+  {
+   "titulo": "Divergência e resultado desconhecido depois do SKIP",
+   "origem": "Falhas e tratativas",
+   "contexto": "Pular o item em todas as células mantém os bancos iguais entre si, mas o cliente que recebeu `PENDING` pode ficar com essa escrita como desconhecida para sempre. Sem uma resposta clara, o cliente pode retentar ou assumir sucesso.",
+   "na_fonte": "A fonte decide que a consulta por identificador devolve o resultado por item: `REJECTED` para o item pulado, `APPLIED` para os demais e `PENDING` para os não aplicados (ADR-048).",
+   "sugestao": "Definir o formato da consulta e testar que o retry do cliente com o mesmo identificador, após o SKIP, devolve o mesmo resultado por item. Notificar o time do cliente com o registro auditado do SKIP."
+  },
+  {
+   "titulo": "Lote com item venenoso",
+   "origem": "Falhas e tratativas",
+   "contexto": "O lote é uma entrada, mas o item ruim pode estar no meio dele. Pular a entrada inteira descartaria itens bons; pular só o item mantém o sucesso parcial como no DynamoDB.",
+   "na_fonte": "Decidido no ADR-048: o SKIP age no item, mantendo os itens bons do lote; a validação pré-commit continua sendo a defesa principal.",
+   "sugestao": "Incluir no teste de propriedade lotes com item venenoso em posições diferentes e queda no meio, verificando que todas as células convergem e que a consulta por item é consistente."
+  },
+  {
+   "titulo": "Lista final de regras de validação",
+   "origem": "Pontos em aberto",
+   "contexto": "A validação pré-commit só protege se conhece as regras dos dois bancos, e a lista final ainda não existe. Cada regra faltante é uma entrada venenosa em potencial que trava um shard.",
+   "na_fonte": "Não decidido na fonte. O tema está ligado ao R17 (atributo de versão e limite de item).",
+   "sugestao": "Montar a lista a partir da documentação dos dois bancos e de fuzzing contra o DynamoDB real e o Cosmos, com cada regra coberta por caso na suíte de conformidade."
+  },
+  {
+   "titulo": "Formato da consulta por item e checkpoint por item",
+   "origem": "Pontos em aberto",
+   "contexto": "A consulta por identificador e o checkpoint por item no volume do log ainda não têm formato definido. Sem isso, o cliente não tem como saber o destino de cada item depois de um SKIP ou de um `PENDING`.",
+   "na_fonte": "Não decidido na fonte. Fica a detalhar na implementação.",
+   "sugestao": "Especificar os campos e códigos da consulta antes da implementação e incluí-los na suíte de compatibilidade, e testar a durabilidade do checkpoint por item com queda entre o apply e o fsync do progresso."
+  },
+  {
+   "titulo": "SKIP automático (H-DR2) fora da v1",
+   "origem": "Pontos em aberto",
+   "contexto": "O SKIP automático reduziria o tempo de parada do shard, mas pularia dados sem decisão humana. A fonte o deixa fora da v1.",
+   "na_fonte": "Decidido na fonte que H-DR2 fica fora da v1 e só volta se o plantão se mostrar gargalo.",
+   "sugestao": "Definir desde já a métrica que reabriria a hipótese, como o tempo de parada por item venenoso ao longo dos game days e incidentes, e um limiar a definir para revisão."
+  }
+ ]
+}

@@ -1,0 +1,68 @@
+{
+ "id": "C31",
+ "pontos": [
+  {
+   "titulo": "Pod do mesmo namespace escreve em tabela que não é dele",
+   "origem": "Falhas e tratativas",
+   "contexto": "Com a NetworkPolicy como única barreira, qualquer pod do namespace escreveria em qualquer tabela pelo papel largo do `DataReplication`. Isso amplia o privilégio em relação ao IAM por aplicação de hoje. O risco é de segurança e integridade, com a escrita indevida replicada para todas as células.",
+   "na_fonte": "Decidido no ADR-052: lista de permissões por identidade mTLS, limitando cada aplicação às tabelas e operações que o IAM dela já permite hoje (C34).",
+   "sugestao": "Gerar a lista automaticamente a partir dos papéis IAM atuais (PEND-19) e testar, por aplicação, que operações fora da lista recebem `403`."
+  },
+  {
+   "titulo": "Cabo compartilhado: vizinho barulhento",
+   "origem": "Falhas e tratativas",
+   "contexto": "A replicação de um cliente pode saturar o cabo compartilhado e atrasar o gate dos outros. Sem limite, a lentidão de um vira latência de todos e pode empurrar outros clientes para a faixa cinzenta.",
+   "na_fonte": "Decidido no ADR-043: reservar ou limitar a banda por cliente, com QoS no cabo e limite no `DataReplication`, e métrica por cliente.",
+   "sugestao": "Testar com dois clientes simulados no mesmo cabo, um saturando, e medir o gate do outro. Definir quem é dono do QoS no cabo e como a configuração é auditada."
+  },
+  {
+   "titulo": "Endereçamento sobreposto",
+   "origem": "Falhas e tratativas",
+   "contexto": "O tráfego transitivo entre VPCs de contas diferentes exige faixas de IP sem sobreposição. Contas criadas separadamente costumam repetir a mesma faixa, e isso impede a entrada de um cliente novo.",
+   "na_fonte": "A fonte decide que o plano central de endereçamento é requisito para entrar um cliente novo, mas a premissa ainda precisa ser confirmada com a rede.",
+   "sugestao": "Incluir a verificação de faixas no checklist de entrada do cliente e confirmar com a rede antes do primeiro cliente."
+  },
+  {
+   "titulo": "Custo por cliente",
+   "origem": "Falhas e tratativas",
+   "contexto": "Cada instalação repete os 6 clusters, os bancos e as 6 gravações por escrita. O custo fixo de um cliente pequeno é o mesmo de um grande.",
+   "na_fonte": "Não decidido na fonte. O custo está remetido ao R20.",
+   "sugestao": "Montar um modelo de custo por cliente com componentes fixos e variáveis e levar ao negócio um piso de tamanho de cliente que justifique a instalação."
+  },
+  {
+   "titulo": "Operação de frota",
+   "origem": "Falhas e tratativas",
+   "contexto": "Versões, correções, certificados e a definição de pronto passam a valer por instalação. N clientes são N atualizações coordenadas e N plantões de promoção.",
+   "na_fonte": "Não decidido na fonte. A fonte registra a consequência sem tratativa específica.",
+   "sugestao": "Definir um processo de atualização em ondas com canário por instalação e um inventário central de versões e validade de certificados com alerta."
+  },
+  {
+   "titulo": "Lado Azure isolado por cliente",
+   "origem": "Falhas e tratativas",
+   "contexto": "A Azure é isolada por cliente, com assinatura e conta Cosmos próprias, espelhando a AWS. Isso aumenta o custo fixo do Cosmos por cliente.",
+   "na_fonte": "A fonte decide o isolamento por cliente e remete o custo ao R20.",
+   "sugestao": "Incluir o custo fixo do Cosmos por cliente no modelo de custo e verificar limites de assinatura e cota por região."
+  },
+  {
+   "titulo": "Levantar permissões IAM atuais (PEND-19)",
+   "origem": "Pontos em aberto",
+   "contexto": "A lista identidade, tabelas e operações do mTLS nasce do levantamento das permissões IAM atuais de cada aplicação. Sem ela, a instalação não sobe, e uma lista incompleta corta acesso legítimo em produção.",
+   "na_fonte": "Não decidido na fonte. A PEND-19 está com cada time cliente.",
+   "sugestao": "Fornecer aos times uma ferramenta que extraia automaticamente as permissões dos papéis IAM e gere a lista inicial."
+  },
+  {
+   "titulo": "Plano de endereçamento e medição de banda por cliente",
+   "origem": "Pontos em aberto",
+   "contexto": "O plano de endereçamento sem sobreposição é requisito para entrar um cliente novo, mas ainda precisa de confirmação com a rede. A forma de medir e limitar a banda por cliente no cabo compartilhado também não está definida. Sem as duas coisas, o isolamento entre clientes é só declarado.",
+   "na_fonte": "Não decidido na fonte. Os valores ficam para o spike S1.",
+   "sugestao": "Fechar com a rede o plano de endereçamento e o mecanismo de QoS, e medir no spike S1 a banda real por cliente."
+  },
+  {
+   "titulo": "Estimativa de custo por cliente",
+   "origem": "Pontos em aberto",
+   "contexto": "Cada instalação repete clusters, bancos e gravações, e o custo fixo de um cliente pequeno é igual ao de um grande. Não há ainda estimativa de custo por cliente, o que impede avaliar a viabilidade do modelo 1 para 1.",
+   "na_fonte": "Não decidido na fonte. O tema está no R20.",
+   "sugestao": "Produzir a estimativa com base nos números do spike e apresentá-la ao negócio antes de fechar o modelo de instalação."
+  }
+ ]
+}

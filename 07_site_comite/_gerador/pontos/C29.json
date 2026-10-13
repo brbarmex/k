@@ -1,0 +1,61 @@
+{
+ "id": "C29",
+ "pontos": [
+  {
+   "titulo": "Janela perdida e a AWS cai",
+   "origem": "Falhas e tratativas",
+   "contexto": "Depois de passar o teto de 70%, os segmentos antigos são apagados e a Azure fica fora da janela, sem conseguir alcançar a AWS pelo log. Se a AWS cair nesse período, a promoção da Azure perde tudo o que foi escrito desde `fromIndex`. A perda tem teto de tempo D enquanto não houver prorrogação, mas cada `RENEW` humano estende tanto esse teto quanto a necessidade de disco.",
+   "na_fonte": "A fonte aceita a perda limitada por D, remete o tratamento das órfãs ao R13 e decide o teto de 70% com reconstrução completa da Azure ao voltar (ADR-041).",
+   "sugestao": "Exigir que o volume seja dimensionado para D mais as prorrogações previstas e que o operador veja, antes de aprovar um `RENEW`, se o disco ainda comporta a nova validade. Incluir no TLA+ ou em teste de propriedade a condição de que a Azure perde a elegibilidade ao catch-up antes de o lease acabar, e expor esse estado de forma visível para quem decide a promoção."
+  },
+  {
+   "titulo": "Custo e duração da reconstrução completa da Azure",
+   "origem": "Falhas e tratativas",
+   "contexto": "Quando a Azure volta fora da janela, ela é reconstruída pelo protocolo da tabela sombra, copiando todo o conteúdo para o Cosmos. Isso consome RU e leva um tempo ainda não medido, durante o qual o log precisa estar retido desde F. Enquanto a reconstrução não termina, a Azure não serve como failover em dia, e o RTO e o RPO de um desastre nesse intervalo pioram.",
+   "na_fonte": "Não decidido na fonte. A fonte remete o protocolo ao C33 e a duração e o custo ao R09 e ao R18, ainda sem medição.",
+   "sugestao": "Medir em spike a duração da reconstrução por tamanho de tabela e a RU consumida, e verificar antes de começar se a retenção a 70% cobre essa duração. Declarar ao negócio que, durante a reconstrução da Azure, um desastre na AWS não tem failover com RPO 0."
+  },
+  {
+   "titulo": "Volume do log de replicação cheio",
+   "origem": "Falhas e tratativas",
+   "contexto": "Se o volume do log de replicação enche, o fsync do checkpoint falha, o que é fatal, o `DurableIndex` para e o log do Raft deixa de ser compactado (risco 31). O modo criado para manter o sistema de pé o derrubaria, sem commit. Com o log segmentado, o espaço lógico medido e o físico quase coincidem, mas a diferença do segmento parcial ainda existe.",
+   "na_fonte": "Decidido no ADR-041 e no ADR-055: o teto de 70% do espaço lógico existe para isso não acontecer; o risco 30 do Pebble foi encerrado com o log segmentado.",
+   "sugestao": "Incluir teste de caos que enche o volume até o teto em degradado simulado e verifica que os segmentos são apagados e o commit continua. Alertar com projeção de tempo até encher e garantir que o log do Raft tem limite próprio (`RAFT_RETAIN_MAX`) testado separadamente."
+  },
+  {
+   "titulo": "Disco do learner na Azure",
+   "origem": "Falhas e tratativas",
+   "contexto": "O mesmo risco de esgotamento vale do lado Azure quando o apply no Cosmos atrasa e as entradas recebidas se acumulam. Um learner sem disco deixa de confirmar durabilidade, o que pode segurar o gate se dois forem afetados. Isso afeta latência de escrita e, no limite, leva ao degradado.",
+   "na_fonte": "Não decidido na fonte. O C29 remete o tema ao R03 (backlog de apply no Cosmos).",
+   "sugestao": "Aplicar ao learner o mesmo alerta de ocupação com projeção e o mesmo dimensionamento, e relacionar o limite de lag de apply do Cosmos (PEND-18) com o espaço disponível no learner."
+  },
+  {
+   "titulo": "S3 descartado na v1",
+   "origem": "Falhas e tratativas",
+   "contexto": "Descarregar o log para S3 aumentaria a retenção sem limite de disco, mas o catch-up lendo do S3 atravessaria o link e exigiria credencial AWS na Azure. No desastre em que a AWS some, o S3 também ficaria inacessível. A consequência de não ter S3 é que a retenção fica limitada ao disco local.",
+   "na_fonte": "Decidido no ADR-041: sem descarga para S3 na v1, pelos motivos da H10 do R23.",
+   "sugestao": "Registrar o critério que reabriria a hipótese, por exemplo um D aprovado no PEND-02 que exija volume inviável, e avaliar nessa hora um armazenamento de objetos do lado Azure em vez do S3."
+  },
+  {
+   "titulo": "Tempo máximo de degradação aceito pelo negócio (D)",
+   "origem": "Pontos em aberto",
+   "contexto": "D é o parâmetro de dimensionamento do volume do log de replicação e o teto do RPO > 0. Sem o valor, não há como dimensionar o volume nem ligar o modo degradado com segurança.",
+   "na_fonte": "Não decidido na fonte. O valor depende do aceite do negócio no PEND-02, que é bloqueante para instalações `accept`.",
+   "sugestao": "Levar ao negócio uma tabela que relacione valores candidatos de D com o tamanho de volume, o custo e o RTO mínimo de D + M, para que a escolha seja feita com o tradeoff explícito."
+  },
+  {
+   "titulo": "Alerta intermediário antes do teto",
+   "origem": "Pontos em aberto",
+   "contexto": "Sem um alerta antes dos 70%, o operador só descobre que a Azure está perto de sair da janela quando já é tarde. A fonte cita como exemplo um alerta em 50%.",
+   "na_fonte": "Não decidido na fonte. Proposta na fonte: alerta intermediário, por exemplo em 50%, e verificação na partida ou alerta que compara D com o tempo de retenção estimado.",
+   "sugestao": "Implementar o alerta por projeção de tempo até o teto, e não só por porcentagem, com antecedência suficiente para uma decisão humana (limiar a definir)."
+  },
+  {
+   "titulo": "Tamanho do volume do log de replicação (PEND-22)",
+   "origem": "Pontos em aberto",
+   "contexto": "O tamanho e a classe do volume e os parâmetros do log segmentado têm só valores propostos. O dimensionamento depende do tamanho médio real da entrada, ainda não medido.",
+   "na_fonte": "Não decidido na fonte. Proposta na fonte: valores do PEND-22 a medir nos spikes S1 e S2, com o volume dimensionado para D a 70% mais um segmento por shard.",
+   "sugestao": "No spike S1, simular uma degradação com a carga de referência, medir o crescimento do volume por hora e validar a fórmula de dimensionamento."
+  }
+ ]
+}

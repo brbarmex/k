@@ -1,0 +1,54 @@
+{
+ "id": "R20",
+ "pontos": [
+  {
+   "titulo": "Custo da escrita condicional",
+   "origem": "Falhas e tratativas",
+   "contexto": "As escritas no DynamoDB e no Cosmos usam condição de versão para garantir apply idempotente e em ordem. Se a condição custar mais que uma escrita simples, o custo de cada uma das seis gravações aumenta. `TransactWriteItems` custaria o dobro (C23), o que pesa diretamente no custo multiplicado por seis.",
+   "na_fonte": "Não decidido na fonte. Proposta na fonte: confirmar no teste que a condição de versão custa o mesmo que uma escrita simples e medir as RU por escrita no Cosmos com o Cloud-Adapter.",
+   "sugestao": "Incluir no spike de custo a medição de WRU e RU de escrita condicional com e sem conflito de condição, porque a escrita recusada também consome capacidade. Usar os valores medidos na estimativa por cliente em vez de supor paridade."
+  },
+  {
+   "titulo": "Custo multiplicado por cliente",
+   "origem": "Falhas e tratativas",
+   "contexto": "Cada cliente é uma instalação completa e isolada (ADR-043), então os seis bancos, os seis clusters e os volumes se repetem por time. O custo não é só variável por escrita: há um custo fixo mínimo por instalação que pode inviabilizar clientes com pouco volume. Uma estimativa só pela fórmula por escrita subestima o custo total.",
+   "na_fonte": "A fonte registra que a estimativa precisa de custo por cliente e de custo fixo mínimo, não só da fórmula por escrita; a estimativa ainda não existe.",
+   "sugestao": "Produzir uma planilha com custo fixo mínimo da instalação e custo variável por escrita, avaliada para o menor e o maior cliente previstos. Mostrar a partir de que volume o custo fixo domina, para orientar se clientes pequenos devem ser aceitos nesse modelo."
+  },
+  {
+   "titulo": "Dois volumes por nó",
+   "origem": "Falhas e tratativas",
+   "contexto": "Desde o ADR-055, cada um dos seis nós da instalação tem dois volumes: um pequeno e rápido para o log do Raft e outro maior para o log de replicação. Isso soma seis volumes por instalação, por cliente. O volume do log de replicação é dimensionado para D a 70% de ocupação, então o valor de D afeta diretamente o custo fixo.",
+   "na_fonte": "A fonte decide o desenho de dois volumes (ADR-055), com o volume do Raft pequeno e com IOPS provisionado e o de replicação em classe mais barata (gp3 na AWS, Premium SSD v2 com desempenho base na Azure), por não estar no caminho do ACK.",
+   "sugestao": "Calcular o tamanho do volume de replicação para cada valor candidato de D e levar esse custo à aprovação da PEND-02. Verificar em teste que a classe mais barata aguenta a leitura de catch-up (R09) e a reconstrução do dedupe no reinício (R22), que leem desse volume."
+  },
+  {
+   "titulo": "Carga de leitura espalhada e cobrada por célula",
+   "origem": "Falhas e tratativas",
+   "contexto": "Leituras fortes em células follower leem o banco local, o que espalha a carga de leitura entre as células. Por outro lado, cada célula tem sua própria cobrança de leitura, então a capacidade de leitura precisa ser provisionada em todas. O custo de leitura também se multiplica, e não só o de escrita.",
+   "na_fonte": "A fonte registra o efeito; não há estimativa de custo de leitura.",
+   "sugestao": "Incluir na estimativa o custo de leitura por célula usando a proporção de leituras fortes e eventuais levantada no R16. Avaliar se o roteamento de leitura concentra carga em alguma célula, o que geraria throttling localizado."
+  },
+  {
+   "titulo": "Quem estima e o teto mensal aceitável",
+   "origem": "Pontos em aberto",
+   "contexto": "Não está definido quem estima e valida o custo (FinOps) nem qual o teto mensal aceitável. Sem teto, não há critério para reabrir a alternativa de um banco regional por nuvem, que o ADR-054 deixa como possibilidade caso o custo medido seja inaceitável.",
+   "na_fonte": "Não decidido na fonte. Proposta na fonte: FinOps estima e valida, e a alternativa de um banco por nuvem pode ser reaberta sem trocar o requisito de RPO 0.",
+   "sugestao": "Nomear o responsável de FinOps e pedir o teto antes do primeiro cliente, como critério de reabertura do ADR-054. Registrar no ADR-054 o gatilho de reabertura em termos do teto aprovado."
+  },
+  {
+   "titulo": "Estimativa por cliente com preços vigentes",
+   "origem": "Pontos em aberto",
+   "contexto": "Falta a estimativa por cliente com custo variável por escrita e custo fixo mínimo da instalação (seis bancos, seis clusters, volumes), com os preços vigentes. A ordem de grandeza da fonte, com premissa de cerca de 3.000 escritas por segundo, só dimensiona volume e não custo. Fluxos multiplicados por seis, como reconciliação, fencing e rebuild em tabela sombra (ADR-047, C33), também precisam entrar.",
+   "na_fonte": "Não decidido na fonte. Proposta na fonte: estimativa com tamanho médio do item, TPS por tabela, preços de DynamoDB sob demanda e Cosmos em RU, incluindo os fluxos extras.",
+   "sugestao": "Confirmar a premissa de TPS com os times clientes no inventário da PEND-15 antes de calcular. Incluir na estimativa o custo de transferência entre nuvens dos três learners, que tende a ser relevante e não aparece em WRU ou RU."
+  },
+  {
+   "titulo": "Motivo de manter seis bancos não registrado",
+   "origem": "Pontos em aberto",
+   "contexto": "O argumento para manter um banco por célula é isolamento lógico, mas não está registrado se isso é padrão de bulkhead da organização ou escolha do projeto. Como três tabelas na mesma região não são três domínios físicos, a decisão é questionável do ponto de vista de custo. Sem o motivo registrado, a decisão fica difícil de defender ou de reabrir.",
+   "na_fonte": "Não decidido na fonte. Proposta na fonte: se for regra da organização, citar a fonte no ADR-054.",
+   "sugestao": "Perguntar à arquitetura corporativa se existe padrão de bulkhead exigido e citar o documento no ADR-054. Se não existir, apresentar ao comitê o custo do isolamento lógico lado a lado com o risco da alternativa (ponto único de corrupção lógica e throttling compartilhado) para uma decisão explícita."
+  }
+ ]
+}

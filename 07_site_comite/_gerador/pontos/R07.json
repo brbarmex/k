@@ -1,0 +1,26 @@
+{
+ "id": "R07",
+ "pontos": [
+  {
+   "titulo": "Histerese longa demais",
+   "origem": "Falhas e tratativas",
+   "contexto": "Quanto maior a histerese de saída, mais tempo o shard fica com RPO > 0 depois que o link já voltou. É uma escolha entre estabilidade (menos transições e pausas curtas de escrita a cada religação do gate) e janela de risco. Uma histerese longa também aumenta o conjunto de escritas órfãs possíveis caso a AWS seja perdida nesse intervalo.",
+   "na_fonte": "Não decidido na fonte. Proposta na fonte: valores saem do spike de link (PEND-12).",
+   "sugestao": "Medir no spike de link a distribuição de duração das quedas e escolher `RESTORE_STABLE` pelo menor valor que evita a maioria das oscilações, com limiar a definir."
+  },
+  {
+   "titulo": "Histerese x lease",
+   "origem": "Falhas e tratativas",
+   "contexto": "Se `RESTORE_STABLE` mais o catch-up não couberem em D, o lease expira antes do `RESTORE` e as escritas param. Os valores precisam ser escolhidos juntos. Com o link oscilando, o catch-up pode recomeçar várias vezes dentro do mesmo episódio, e o `t_c` continua contando desde o último contato com a maioria Azure, o que torna a expiração mais provável que num corte único.",
+   "na_fonte": "Não decidido na fonte. A fonte diz que os valores precisam ser escolhidos juntos.",
+   "sugestao": "Adicionar validação na partida que recuse configuração em que `RESTORE_STABLE` mais o catch-up esperado exceda D. Incluir no modelo o caso de link oscilando até o fim de D."
+  },
+  {
+   "titulo": "Valores de histerese, cooldown e limite de transições",
+   "origem": "Pontos em aberto",
+   "contexto": "Os valores de `RESTORE_STABLE`, `RESTORE_LAG`, `COOLDOWN` e limite de transições ainda não existem. Sem eles a proposta de R07 não pode ser aplicada, e o comportamento em oscilação fica indefinido: o shard pode alternar entre normal e degradado em segundos, com pausas de escrita a cada transição e várias janelas de RPO > 0.",
+   "na_fonte": "Não decidido na fonte. PEND-12, escolhidos junto com D (PEND-02).",
+   "sugestao": "Calibrar no POC com perfis de oscilação reproduzidos em laboratório e expor `degraded_transitions` como métrica com alerta."
+  }
+ ]
+}

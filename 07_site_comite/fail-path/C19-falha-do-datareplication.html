@@ -1,0 +1,195 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>C19 — O DataReplication da célula cai ou reinicia · DataReplication v1</title>
+<link rel="stylesheet" href="../assets/site.css">
+</head>
+<body>
+<!--
+Fonte(s) usada(s) nesta página (rastreabilidade), relativas à raiz do pacote:
+  02_cenarios/atualizados/C19-falha-do-datareplication.md
+  04_diagramas/D02-implantacao-da-celula.md
+Gerado em 13/10/2026 a partir do pacote DataReplication_Versao_1.
+-->
+<header class="topo">
+<button class="menu" type="button" aria-label="Abrir navegação" onclick="document.body.classList.toggle('nav-aberta')">☰</button>
+<a href="../index.html">DataReplication v1</a><span class="sep">·</span><span>Apresentação ao comitê técnico</span>
+</header>
+<div class="layout">
+<nav class="sidebar" aria-label="Navegação">
+<a class="marca" href="../index.html">DataReplication v1<span>Comitê técnico</span></a>
+<a class="nav-inicio" href="../index.html">Resumo e requisitos</a>
+<details class="grupo"><summary>Success path <span class="qtd">10</span></summary><ul>
+<li><a class="idx" href="../success-path/index.html">Índice da seção</a></li>
+<li><a href="../success-path/C01-visao-geral.html"><b>C01</b> Visão geral da arquitetura</a></li>
+<li><a href="../success-path/C02-dentro-da-celula.html"><b>C02</b> Dentro da célula: apps do cliente e DataReplication</a></li>
+<li><a href="../success-path/C03-escrita-strong.html"><b>C03</b> Caminho feliz: escrita (apply serial depois do gate)</a></li>
+<li><a href="../success-path/C04-escrita-eventual.html"><b>C04</b> Modo Eventual: só de leitura (sem apply paralelo na v1)</a></li>
+<li><a href="../success-path/C05-leitura-strong-e-eventual.html"><b>C05</b> Caminho feliz: leitura Strong e Eventual</a></li>
+<li><a href="../success-path/C06-follower-encaminha.html"><b>C06</b> Requisição chega numa célula que não é a líder</a></li>
+<li><a href="../success-path/C11-transferencia-planejada.html"><b>C11</b> Transferência planejada de liderança (manutenção)</a></li>
+<li><a href="../success-path/C18-partida-e-recuperacao-do-no.html"><b>C18</b> Partida, recuperação e parada limpa do nó</a></li>
+<li><a href="../success-path/C23-batchwriteitem-lote-uma-entrada.html"><b>C23</b> BatchWriteItem: o lote é uma entrada e o apply é por item (antes R15)</a></li>
+<li><a href="../success-path/C31-implantacao-por-cliente-e-identidade.html"><b>C31</b> Uma instalação por cliente e identificação na API (antes R19)</a></li>
+</ul></details>
+<details class="grupo" open><summary>Fail path <span class="qtd">24</span></summary><ul>
+<li><a class="idx" href="index.html">Índice da seção</a></li>
+<li><a href="C07-timeout-depois-do-commit.html"><b>C07</b> Prazo estoura depois do commit, antes do ACK (retry do SDK)</a></li>
+<li><a href="C08-queda-de-celula-lider-ou-az-aws.html"><b>C08</b> Queda da célula líder ou de uma AZ na AWS</a></li>
+<li><a href="C09-queda-de-az-azure.html"><b>C09</b> Queda de uma AZ na Azure</a></li>
+<li><a href="C10-celulas-de-app-aws-fora.html"><b>C10</b> Apps da AWS fora, replicação viva: tráfego vai para a Azure</a></li>
+<li><a href="C12-modo-degradado.html"><b>C12</b> Link AWS↔Azure cai ou Azure cai: modo degradado com lease</a></li>
+<li><a href="C13-ressincronizacao-da-azure.html"><b>C13</b> Ressincronização da Azure</a></li>
+<li><a href="C14-aws-cai-sem-degradacao.html"><b>C14</b> AWS cai por inteiro sem degradação prévia</a></li>
+<li><a href="C15-aws-cai-em-degradacao.html"><b>C15</b> AWS cai durante o modo degradado</a></li>
+<li><a href="C16-aws-volta-apos-promocao.html"><b>C16</b> AWS volta depois da promoção da Azure</a></li>
+<li><a href="C17-maquina-de-estados.html"><b>C17</b> Máquina de estados dos modos de operação de um shard</a></li>
+<li><a class="atual" aria-current="page" href="C19-falha-do-datareplication.html"><b>C19</b> O DataReplication da célula cai ou reinicia</a></li>
+<li><a href="C20-bypass-de-escrita-direta.html"><b>C20</b> Aplicação escreve direto no banco (bypass)</a></li>
+<li><a href="C21-disco-fsync-e-reconstrucao.html"><b>C21</b> Falha de fsync, corrupção, disco lento e disco perdido</a></li>
+<li><a href="C22-cliente-com-sdk-nao-suportado.html"><b>C22</b> Cliente com SDK ou versão não suportada</a></li>
+<li><a href="C24-orcamento-de-50ms-e-escrita-no-dynamodb.html"><b>C24</b> Orçamento de 50 ms e a escrita no DynamoDB dentro do ACK (antes R21)</a></li>
+<li><a href="C25-link-lento-faixa-cinzenta.html"><b>C25</b> Link lento ou saturado (faixa cinzenta): só alertar (antes R01)</a></li>
+<li><a href="C26-entrada-venenosa.html"><b>C26</b> Entrada venenosa: um item que o banco recusa para sempre (antes R02)</a></li>
+<li><a href="C27-encaminhamento-sem-lider-conhecida.html"><b>C27</b> Loop de encaminhamento e espera pela líder durante a eleição (antes R05)</a></li>
+<li><a href="C28-leitura-eventual-na-azure-defasada.html"><b>C28</b> Leitura eventual na Azure durante a degradação (antes R04)</a></li>
+<li><a href="C29-disco-do-log-em-degradacao-longa.html"><b>C29</b> Disco do log esgota durante uma degradação longa (antes R08)</a></li>
+<li><a href="C30-aws-que-volta-boot-cercado.html"><b>C30</b> Fencing: o DynamoDB e o applier da AWS que voltam depois da promoção (antes R14)</a></li>
+<li><a href="C32-particao-e-lease-do-modo-degradado.html"><b>C32</b> Partição entre AWS e Azure: lease do modo degradado e promoção da Azure</a></li>
+<li><a href="C33-reconstrucao-em-tabela-sombra.html"><b>C33</b> Reconstrução do banco de uma célula em tabela sombra</a></li>
+<li><a href="C34-autorizacao-por-aplicacao.html"><b>C34</b> Autorização por aplicação: mTLS e lista de permissões por identidade</a></li>
+</ul></details>
+<details class="grupo"><summary>Complex path <span class="qtd">6</span></summary><ul>
+<li><a class="idx" href="../complex-path/index.html">Índice da seção</a></li>
+<li><a href="../complex-path/X01-gate-e-troca-de-lider.html"><b>X01</b> Gate: definição, monotonicidade e troca de líder</a></li>
+<li><a href="../complex-path/X02-modo-degradado.html"><b>X02</b> Modo degradado: entrada, permanência, lease e saída</a></li>
+<li><a href="../complex-path/X03-desastre-e-promocao-da-azure.html"><b>X03</b> Desastre: promoção da Azure, fencing e reconciliação</a></li>
+<li><a href="../complex-path/X04-partida-recuperacao-e-dois-logs.html"><b>X04</b> Partida, recuperação e coerência entre os dois logs</a></li>
+<li><a href="../complex-path/X05-timeouts-e-idempotencia.html"><b>X05</b> Timeouts em cascata e idempotência do retry</a></li>
+<li><a href="../complex-path/X06-delete-ttl-gsi.html"><b>X06</b> DELETE, TTL, Scan e GSI</a></li>
+</ul></details>
+<details class="grupo"><summary>Parking lot <span class="qtd">14</span></summary><ul>
+<li><a class="idx" href="../parking-lot/index.html">Índice da seção</a></li>
+<li><a href="../parking-lot/R03-backlog-de-apply-no-cosmos.html"><b>R03</b> Backlog de apply no Cosmos (429 e RU insuficiente)</a></li>
+<li><a href="../parking-lot/R06-duas-azs-aws-caem.html"><b>R06</b> Duas AZs da AWS caem com a Azure saudável</a></li>
+<li><a href="../parking-lot/R07-link-oscilando.html"><b>R07</b> Link oscilando (flapping)</a></li>
+<li><a href="../parking-lot/R09-resincronizacao-lenta-ou-bloqueada.html"><b>R09</b> Ressincronização da Azure lenta ou que nunca termina</a></li>
+<li><a href="../parking-lot/R10-operador-lento-no-desastre.html"><b>R10</b> Tempo de decisão humana no desastre</a></li>
+<li><a href="../parking-lot/R11-api-de-promocao-depende-da-aws.html"><b>R11</b> A API de promoção depende de algo que estava na AWS</a></li>
+<li><a href="../parking-lot/R12-promocao-com-aws-viva.html"><b>R12</b> Promoção da Azure com a AWS viva (split-brain, PEND-01)</a></li>
+<li><a href="../parking-lot/R13-escritas-orfas-reconciliacao.html"><b>R13</b> Escritas órfãs: reconciliação depois da promoção (PEND-03)</a></li>
+<li><a href="../parking-lot/R16-leitura-forte-em-celulas-follower.html"><b>R16</b> Leitura forte em células follower (ReadIndex e gate)</a></li>
+<li><a href="../parking-lot/R17-atributo-de-versao-e-limite-400kb.html"><b>R17</b> Atributo de versão: limite de 400 KB e ausência nas respostas</a></li>
+<li><a href="../parking-lot/R18-rto-nao-quantificado.html"><b>R18</b> RTO (Delta-T) ainda sem número</a></li>
+<li><a href="../parking-lot/R20-custo-6x.html"><b>R20</b> Custo: cada escrita lógica vira seis gravações</a></li>
+<li><a href="../parking-lot/R22-memoria-da-janela-de-dedupe.html"><b>R22</b> Memória da janela de dedupe</a></li>
+<li><a href="../parking-lot/R23-hipoteses-gerais.html"><b>R23</b> Hipóteses gerais em aberto</a></li>
+</ul></details>
+</nav>
+<main>
+<div class="migalhas"><a href="../index.html">Início</a> / <a href="index.html">Fail path</a> / C19</div>
+<h1>C19 — O DataReplication da célula cai ou reinicia</h1>
+<div class="meta"><span class="selo fail-path">Fail path</span><div><b>Status na fonte:</b> ✅ Atualizado (modelo v1)</div><div><b>Relacionados:</b> <a href="C07-timeout-depois-do-commit.html">C07</a></div></div>
+<section id="visao-geral"><h2>1. Visão geral do cenário</h2>
+<p>O <code>DataReplication</code> é o único caminho entre as apps e o banco da célula, e há um só por célula. Se cai (crash, OOM, deploy), o SDK recebe conexão recusada e retenta. O pior caso é cair <strong>depois</strong> de propor a escrita: o retry chega a um processo novo, mas o dedupe da líder pelo identificador estável reconhece a repetição.</p>
+</section>
+<section id="diagrama"><h2>2. Diagrama</h2>
+<div class="diagrama"><pre class="mermaid">flowchart TD
+    A[&quot;DataReplication da célula cai&quot;] --&gt; B[&quot;SDK recebe conexão recusada e retenta&quot;]
+    B --&gt; C{&quot;Havia escrita proposta?&quot;}
+    C --&gt;|&quot;não&quot;| D[&quot;Reinicia e o retry funciona&quot;]
+    C --&gt;|&quot;sim, ainda não commitada&quot;| E[&quot;Descartada, o retry é escrita nova&quot;]
+    C --&gt;|&quot;sim, já commitada&quot;| F[&quot;O retry chega à líder&quot;]
+    F --&gt; G[&quot;Dedupe pelo identificador estável da requisição devolve o índice&quot;]
+    A --&gt; H{&quot;Era a líder?&quot;}
+    H --&gt;|&quot;sim&quot;| I[&quot;Eleição na AWS e gate reconstruído, ver C08&quot;]
+    H --&gt;|&quot;não&quot;| J[&quot;Volta como follower e alcança o log&quot;]
+    A --&gt; K[&quot;Enquanto está fora, as apps da célula não têm caminho para o banco&quot;]</pre></div>
+<h3>Arquitetura geral relacionada: <a href="../../04_diagramas/D02-implantacao-da-celula.md">D02 — Implantação de uma célula no Kubernetes</a></h3><p class="nota">Diagrama de <code>04_diagramas/</code> escolhido pelo site como contexto; o cenário fonte não faz essa associação.</p>
+<div class="diagrama"><pre class="mermaid">flowchart TD
+    subgraph NS[&quot;Namespace do cliente, NetworkPolicy fechada&quot;]
+        A1[&quot;App 1&quot;] --&gt;|&quot;mTLS por aplicação&quot;| SVC[&quot;Service interno&lt;br/&gt;porta de API&quot;]
+        A2[&quot;App 2 a 10&quot;] --&gt;|&quot;mTLS por aplicação&quot;| SVC
+        SVC --&gt; POD[&quot;Pod DataReplication&lt;br/&gt;QoS Guaranteed, PDB maxUnavailable 1&lt;br/&gt;lista identidade para tabelas e operações&quot;]
+    end
+    POD --- VOL[(&quot;Volume do Raft, pequeno e rápido&lt;br/&gt;wal do etcd, fsync no caminho do ACK&quot;)]
+    POD --- VOLP[(&quot;Volume do log de replicação, maior&lt;br/&gt;segmentos, fsync só no checkpoint&lt;br/&gt;log de replicação e progresso do applier por item&quot;)]
+    POD --&gt;|&quot;identidade da carga de trabalho&quot;| DB[(&quot;Banco da célula&quot;)]
+    POD &lt;--&gt;|&quot;mTLS, porta de replicação por balanceador interno&quot;| PEERS[&quot;DataReplication das outras células&quot;]
+    POD --&gt; ADM[&quot;Porta de administração&lt;br/&gt;livez, readyz, metrics&quot;]
+    A1 -. &quot;IAM negativo: sem escrita direta&quot; .-&gt; DB</pre></div>
+</section>
+<section id="etapas"><h2>3. Legenda e etapas</h2>
+<div class="etapas"><ol>
+<li>O processo cai e o SDK da app recebe conexão recusada.</li>
+<li>Se não havia escrita em voo, o retry automático do SDK funciona quando o pod volta.</li>
+<li>Se havia escrita já commitada, o retry chega à líder (a mesma ou a nova) e o dedupe devolve o índice sem entrada nova.</li>
+<li>Se era a líder, há eleição (C08); se não, volta como follower e alcança o log.</li>
+<li>O PDB limita a indisponibilidade a uma célula por vez.</li>
+</ol></div>
+</section>
+<section id="pontos"><h2>4. Pontos que precisam ser avaliados</h2>
+<p class="nota">Reescritos a partir das seções “Falhas e tratativas” e “Pontos em aberto” (e de outras seções de risco, quando existem). Em cada ponto, <b>O que a fonte define</b> vem da documentação; <b>Sugestão de encaminhamento</b> é <b>inferência do arquiteto</b>, não decisão registrada.</p>
+<article class="ponto">
+<h3><span class="num">1</span>Célula inteira sem DataReplication <span class="origem">Falhas e tratativas</span></h3>
+<dl>
+<dt>Contexto</dt><dd>Há um único <code>DataReplication</code> por célula e ele é o único caminho entre as apps e o banco; se o processo cai por crash, OOM ou deploy, as apps da célula ficam sem acesso a dados até o pod voltar. O SDK recebe conexão recusada e retenta, o que pode não bastar se a volta demorar mais que as tentativas. Isso afeta a disponibilidade da célula e, se ela era a líder, também o RTO de escrita do shard, que depende da eleição na AWS.</dd>
+<dt>O que a fonte define</dt><dd class="">A fonte indica que o Compass-Router (externo) pode desviar o tráfego e que as apps toleram a indisponibilidade com o retry do SDK; o PDB limita a indisponibilidade a uma célula por vez.</dd>
+<dt class="sug">Sugestão de encaminhamento <small>(inferência, não decidida)</small></dt><dd class="sug">Definir e testar o contrato com o Compass-Router: qual sinal ele usa para desviar (por exemplo <code>readyz</code>), em quanto tempo e se o desvio respeita a afinidade de leitura forte local. Um teste de caos com <code>kill -9</code> e OOM forçado do <code>DataReplication</code> na célula líder e numa follower deve medir o tempo até o tráfego ser servido de novo, comparado com a janela de retries do SDK.</dd>
+</dl>
+</article>
+<article class="ponto">
+<h3><span class="num">2</span>Reinício no meio do apply de um lote <span class="origem">Falhas e tratativas</span></h3>
+<dl>
+<dt>Contexto</dt><dd>Um <code>BatchWriteItem</code> é uma entrada com até 25 itens aplicados por item. Se o processo reinicia com parte dos itens gravados, o applier precisa saber onde parou para não perder nem duplicar efeitos. Um erro aqui deixaria o banco da célula com o lote pela metade de forma permanente, quebrando RPO e consistência entre réplicas.</dd>
+<dt>O que a fonte define</dt><dd class="">O progresso por item <code>(índice, ordem)</code> é lido do volume do log e os itens já aplicados são reaplicados de forma idempotente pela condição de versão (<a href="../success-path/C23-batchwriteitem-lote-uma-entrada.html">C23</a>, <a href="../../03_adr/ADR-048-skip-por-item.md">ADR-048</a>).</dd>
+<dt class="sug">Sugestão de encaminhamento <small>(inferência, não decidida)</small></dt><dd class="sug">Cobrir com teste de propriedade que injeta queda em cada ponto do apply de um lote (antes e depois de cada item e do fsync do progresso) e verifica que o estado final é idêntico ao de um apply sem queda. Verificar também o caso em que o progresso persistido está à frente do que o banco realmente gravou, garantindo que a condição de versão, e não o progresso, é a garantia final.</dd>
+</dl>
+</article>
+<article class="ponto">
+<h3><span class="num">3</span>SDK sem identificador estável de requisição <span class="origem">Falhas e tratativas</span></h3>
+<dl>
+<dt>Contexto</dt><dd>O dedupe de retry na líder depende de um identificador estável por requisição; se o SDK não o fornece, uma escrita que caiu depois do commit pode ser repetida e gerar uma entrada nova. O último recurso é um hash do conteúdo, que pode ter falso positivo: duas escritas legítimas e idênticas dentro da janela seriam tratadas como uma só. Isso é perda silenciosa de escrita do ponto de vista do cliente.</dd>
+<dt>O que a fonte define</dt><dd class="">A fonte prevê o hash do conteúdo como último recurso, aceitando o falso positivo possível (<a href="../../03_adr/ADR-026-dedupe-de-retry-id-estavel.md">ADR-026</a>).</dd>
+<dt class="sug">Sugestão de encaminhamento <small>(inferência, não decidida)</small></dt><dd class="sug">Validar por SDK suportado, na suíte de compatibilidade, se existe um identificador estável utilizável e registrar no inventário do cliente (PEND-15) quais aplicações caem no hash. Para essas, levar ao cliente a decisão explícita de aceitar o falso positivo ou incluir um identificador no próprio item, e expor uma métrica de dedupe por hash para dimensionar o risco.</dd>
+</dl>
+</article>
+<article class="ponto">
+<h3><span class="num">4</span>Janela de dedupe e memória <span class="origem">Pontos em aberto</span></h3>
+<dl>
+<dt>Contexto</dt><dd>A janela de dedupe precisa lembrar na líder o identificador de cada requisição recente, e o <a href="../parking-lot/R22-memoria-da-janela-de-dedupe.html">R22</a> estima esse custo em memória por shard como não previsto no orçamento do pod. Além disso, a tabela precisa existir na líder nova; se só a líder a mantém, a nova líder reconstrói lendo minutos de log durante a eleição, o que infla o RTO. Uma janela curta demais, por outro lado, deixa retries tardios virarem escrita duplicada.</dd>
+<dt>O que a fonte define</dt><dd class="nd-fonte">Não decidido na fonte. Proposta na fonte: no <a href="../parking-lot/R22-memoria-da-janela-de-dedupe.html">R22</a>, a tabela é uma projeção do log mantida por todos os votantes, com janela configurável <code>DEDUPE_WINDOW</code>, reconstrução no reinício a partir do log de replicação e inclusão da memória no orçamento e no <code>GOMEMLIMIT</code>.</dd>
+<dt class="sug">Sugestão de encaminhamento <small>(inferência, não decidida)</small></dt><dd class="sug">Medir no spike de carga a ocupação real da tabela por shard e o tempo de reconstrução no reinício, e garantir que a retenção mínima do log de replicação cobre a janela mais uma margem. Incluir no TLA+ ou em teste de propriedade a propriedade de que um retry dentro da janela nunca gera entrada nova mesmo após troca de líder, e alertar quando a janela efetiva ficar menor que o prazo máximo de retry do SDK.</dd>
+</dl>
+</article>
+</section>
+<section id="adrs"><h2>5. ADRs relacionados</h2>
+<div class="tabela"><table><thead><tr><th>ADR</th><th>Título</th><th>Decisão resumida</th><th>Arquivo</th></tr></thead><tbody>
+<tr><td class="nw"><a href="../../03_adr/ADR-016-app-unico-por-celula-monolito-modular.md">ADR-016</a></td><td>Um único app DataReplication por célula, monolito modular</td><td>Um único app DataReplication por célula (API, Raft, log, applier), sem sidecar e sem HPA.</td><td><a href="../../03_adr/ADR-016-app-unico-por-celula-monolito-modular.md">ADR-016-app-unico-por-celula-monolito-modular.md</a></td></tr>
+<tr><td class="nw"><a href="../../03_adr/ADR-026-dedupe-de-retry-id-estavel.md">ADR-026</a></td><td>Dedupe de retry na líder por identificador estável</td><td>Dedupe de retry na líder por identificador estável do SDK, hash como último recurso, janela de 5 min.</td><td><a href="../../03_adr/ADR-026-dedupe-de-retry-id-estavel.md">ADR-026-dedupe-de-retry-id-estavel.md</a></td></tr>
+<tr><td class="nw"><a href="../../03_adr/ADR-028-timeouts-em-cascata.md">ADR-028</a></td><td>Prazos em cascata dentro do timeout do SDK</td><td>Prazos em cascata: REQUEST_DEADLINE 7,5 s, DEGRADE_AFTER 2 s, forward até 3 s; valores a validar.</td><td><a href="../../03_adr/ADR-028-timeouts-em-cascata.md">ADR-028-timeouts-em-cascata.md</a></td></tr>
+</tbody></table></div>
+<p class="nota">Lista extraída do cabeçalho “ADRs” do arquivo fonte. A decisão resumida condensa a seção “Decisão” de cada ADR.</p>
+</section>
+<section id="anexo"><h2>Anexo: texto original da fonte</h2><p class="nota">Seções do .md fonte reproduzidas sem reescrita, para conferência.</p>
+<details class="anexo"><summary>Falhas e tratativas</summary><ul>
+<li><strong>Célula inteira sem DataReplication.</strong> O Compass-Router (externo) pode desviar o tráfego; as apps toleram a indisponibilidade com retry do SDK.</li>
+<li><strong>Reinício no meio do apply de um lote.</strong> O progresso por item é lido do volume do log; os itens já aplicados são reaplicados de forma idempotente (<a href="../success-path/C23-batchwriteitem-lote-uma-entrada.html">C23</a>).</li>
+<li><strong>Sem identificador estável no SDK.</strong> Hash do conteúdo como último recurso, com falso positivo possível.</li>
+</ul></details>
+<details class="anexo"><summary>Pontos em aberto</summary><ul>
+<li>Janela de dedupe e memória: <a href="../parking-lot/R22-memoria-da-janela-de-dedupe.html">R22</a>.</li>
+</ul></details>
+</section>
+<footer class="rodape">
+Gerado em 13/10/2026 a partir de <code>DataReplication_Versao_1/</code>. O conteúdo vem dos arquivos .md citados no código-fonte desta página;
+textos marcados como <em>sugestão</em> são inferência do arquiteto e não decisões registradas.
+</footer>
+</main>
+</div>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@11.4.1/dist/mermaid.min.js"></script>
+<script>mermaid.initialize({startOnLoad: true, theme: "neutral", securityLevel: "strict", flowchart: {htmlLabels: true, useMaxWidth: true}, sequence: {useMaxWidth: true}});</script>
+</body>
+</html>

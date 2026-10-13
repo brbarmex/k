@@ -1,0 +1,33 @@
+{
+ "id": "C08",
+ "pontos": [
+  {
+   "titulo": "Learner sem resposta no termo novo",
+   "origem": "Falhas e tratativas",
+   "contexto": "A líder nova só conta progresso da Azure confirmado no termo novo. Se nenhum learner responder, o gate não avança e as escritas esperam, até cair na `DEGRADED_POLICY`. Se o shard estava degradado, a líder nova herda o `DEGRADE` mas não herda `t_c`, então trata o lease como expirado e fica sem escrita.",
+   "na_fonte": "Gate fica onde estava; depois de `DEGRADE_AFTER` vale a política (C12). Em degradado, lease tratado como expirado até contato com a Azure ou `RENEW` (ADR-044, C32).",
+   "sugestao": "Incluir no modelo TLA+ a troca de líder durante o modo degradado, verificando que a líder nova nunca ACKa com lease herdado. Medir nos exercícios o tempo de escrita parada após eleição em degradado, que soma eleição com a espera por contato ou `RENEW` humano e entra no RTO."
+  },
+  {
+   "titulo": "Líder oscilando (eleições repetidas)",
+   "origem": "Falhas e tratativas",
+   "contexto": "Um nó com rede instável pode provocar eleições sucessivas, cada uma com pausa de escrita e reconstrução do gate. A soma das pausas degrada a disponibilidade sem que nenhum nó esteja de fato fora.",
+   "na_fonte": "PreVote e CheckQuorum: um nó com rede instável não derruba a liderança sozinho.",
+   "sugestao": "Teste de caos com perda de pacote intermitente em um votante, medindo número de eleições por hora e pausa acumulada. Criar métrica e alerta de eleições por janela de tempo, com limiar a definir."
+  },
+  {
+   "titulo": "Duas AZs da AWS caem",
+   "origem": "Falhas e tratativas",
+   "contexto": "Sem maioria de votantes na AWS não há eleição nem commit, mesmo com a Azure viva e completa. A Azure não pode assumir sozinha porque as duas AZs podem estar só isoladas. O RTO depende da promoção humana e, em `accept`, de esperar D + M.",
+   "na_fonte": "Remete ao R06: desenho decidido com o lease do ADR-044; a regra de degradar só com 3 de 3 votantes fica como alternativa a comparar no modelo TLA+.",
+   "sugestao": "Modelar no TLA+ as duas regras (só lease e lease mais 3 de 3) com a propriedade de nunca dois lados aceitarem escrita confirmada, e levar ao comitê o custo de disponibilidade da regra 3 de 3 em falha dupla. Definir também o que conta como contato da AWS (votante ou só líder), que muda o RTO."
+  },
+  {
+   "titulo": "Líder lenta mas viva",
+   "origem": "Falhas e tratativas",
+   "contexto": "Uma líder com disco ruim continua mandando heartbeat e não perde a eleição, mas deixa todas as escritas lentas. Sem um critério além do heartbeat, o shard fica lento por tempo indeterminado.",
+   "na_fonte": "Watchdog de fsync transfere a liderança; o critério completo é a hipótese H4 do R23 (PEND-11), ainda proposta e sem disparo automático até decidir.",
+   "sugestao": "Definir o critério de saúde (latência de fsync, P99 de commit, limiar e histerese a definir) e testar com degradação artificial de IO no volume da líder. Cuidar para que o critério não cause oscilação de liderança entre nós com o mesmo problema de disco."
+  }
+ ]
+}

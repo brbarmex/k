@@ -1,0 +1,200 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>R03 — Backlog de apply no Cosmos (429 e RU insuficiente) · DataReplication v1</title>
+<link rel="stylesheet" href="../assets/site.css">
+</head>
+<body>
+<!--
+Fonte(s) usada(s) nesta página (rastreabilidade), relativas à raiz do pacote:
+  02_cenarios/a_rever/R03-backlog-de-apply-no-cosmos.md
+  04_diagramas/D08-uma-escrita-seis-bancos.md
+Gerado em 13/10/2026 a partir do pacote DataReplication_Versao_1.
+-->
+<header class="topo">
+<button class="menu" type="button" aria-label="Abrir navegação" onclick="document.body.classList.toggle('nav-aberta')">☰</button>
+<a href="../index.html">DataReplication v1</a><span class="sep">·</span><span>Apresentação ao comitê técnico</span>
+</header>
+<div class="layout">
+<nav class="sidebar" aria-label="Navegação">
+<a class="marca" href="../index.html">DataReplication v1<span>Comitê técnico</span></a>
+<a class="nav-inicio" href="../index.html">Resumo e requisitos</a>
+<details class="grupo"><summary>Success path <span class="qtd">10</span></summary><ul>
+<li><a class="idx" href="../success-path/index.html">Índice da seção</a></li>
+<li><a href="../success-path/C01-visao-geral.html"><b>C01</b> Visão geral da arquitetura</a></li>
+<li><a href="../success-path/C02-dentro-da-celula.html"><b>C02</b> Dentro da célula: apps do cliente e DataReplication</a></li>
+<li><a href="../success-path/C03-escrita-strong.html"><b>C03</b> Caminho feliz: escrita (apply serial depois do gate)</a></li>
+<li><a href="../success-path/C04-escrita-eventual.html"><b>C04</b> Modo Eventual: só de leitura (sem apply paralelo na v1)</a></li>
+<li><a href="../success-path/C05-leitura-strong-e-eventual.html"><b>C05</b> Caminho feliz: leitura Strong e Eventual</a></li>
+<li><a href="../success-path/C06-follower-encaminha.html"><b>C06</b> Requisição chega numa célula que não é a líder</a></li>
+<li><a href="../success-path/C11-transferencia-planejada.html"><b>C11</b> Transferência planejada de liderança (manutenção)</a></li>
+<li><a href="../success-path/C18-partida-e-recuperacao-do-no.html"><b>C18</b> Partida, recuperação e parada limpa do nó</a></li>
+<li><a href="../success-path/C23-batchwriteitem-lote-uma-entrada.html"><b>C23</b> BatchWriteItem: o lote é uma entrada e o apply é por item (antes R15)</a></li>
+<li><a href="../success-path/C31-implantacao-por-cliente-e-identidade.html"><b>C31</b> Uma instalação por cliente e identificação na API (antes R19)</a></li>
+</ul></details>
+<details class="grupo"><summary>Fail path <span class="qtd">24</span></summary><ul>
+<li><a class="idx" href="../fail-path/index.html">Índice da seção</a></li>
+<li><a href="../fail-path/C07-timeout-depois-do-commit.html"><b>C07</b> Prazo estoura depois do commit, antes do ACK (retry do SDK)</a></li>
+<li><a href="../fail-path/C08-queda-de-celula-lider-ou-az-aws.html"><b>C08</b> Queda da célula líder ou de uma AZ na AWS</a></li>
+<li><a href="../fail-path/C09-queda-de-az-azure.html"><b>C09</b> Queda de uma AZ na Azure</a></li>
+<li><a href="../fail-path/C10-celulas-de-app-aws-fora.html"><b>C10</b> Apps da AWS fora, replicação viva: tráfego vai para a Azure</a></li>
+<li><a href="../fail-path/C12-modo-degradado.html"><b>C12</b> Link AWS↔Azure cai ou Azure cai: modo degradado com lease</a></li>
+<li><a href="../fail-path/C13-ressincronizacao-da-azure.html"><b>C13</b> Ressincronização da Azure</a></li>
+<li><a href="../fail-path/C14-aws-cai-sem-degradacao.html"><b>C14</b> AWS cai por inteiro sem degradação prévia</a></li>
+<li><a href="../fail-path/C15-aws-cai-em-degradacao.html"><b>C15</b> AWS cai durante o modo degradado</a></li>
+<li><a href="../fail-path/C16-aws-volta-apos-promocao.html"><b>C16</b> AWS volta depois da promoção da Azure</a></li>
+<li><a href="../fail-path/C17-maquina-de-estados.html"><b>C17</b> Máquina de estados dos modos de operação de um shard</a></li>
+<li><a href="../fail-path/C19-falha-do-datareplication.html"><b>C19</b> O DataReplication da célula cai ou reinicia</a></li>
+<li><a href="../fail-path/C20-bypass-de-escrita-direta.html"><b>C20</b> Aplicação escreve direto no banco (bypass)</a></li>
+<li><a href="../fail-path/C21-disco-fsync-e-reconstrucao.html"><b>C21</b> Falha de fsync, corrupção, disco lento e disco perdido</a></li>
+<li><a href="../fail-path/C22-cliente-com-sdk-nao-suportado.html"><b>C22</b> Cliente com SDK ou versão não suportada</a></li>
+<li><a href="../fail-path/C24-orcamento-de-50ms-e-escrita-no-dynamodb.html"><b>C24</b> Orçamento de 50 ms e a escrita no DynamoDB dentro do ACK (antes R21)</a></li>
+<li><a href="../fail-path/C25-link-lento-faixa-cinzenta.html"><b>C25</b> Link lento ou saturado (faixa cinzenta): só alertar (antes R01)</a></li>
+<li><a href="../fail-path/C26-entrada-venenosa.html"><b>C26</b> Entrada venenosa: um item que o banco recusa para sempre (antes R02)</a></li>
+<li><a href="../fail-path/C27-encaminhamento-sem-lider-conhecida.html"><b>C27</b> Loop de encaminhamento e espera pela líder durante a eleição (antes R05)</a></li>
+<li><a href="../fail-path/C28-leitura-eventual-na-azure-defasada.html"><b>C28</b> Leitura eventual na Azure durante a degradação (antes R04)</a></li>
+<li><a href="../fail-path/C29-disco-do-log-em-degradacao-longa.html"><b>C29</b> Disco do log esgota durante uma degradação longa (antes R08)</a></li>
+<li><a href="../fail-path/C30-aws-que-volta-boot-cercado.html"><b>C30</b> Fencing: o DynamoDB e o applier da AWS que voltam depois da promoção (antes R14)</a></li>
+<li><a href="../fail-path/C32-particao-e-lease-do-modo-degradado.html"><b>C32</b> Partição entre AWS e Azure: lease do modo degradado e promoção da Azure</a></li>
+<li><a href="../fail-path/C33-reconstrucao-em-tabela-sombra.html"><b>C33</b> Reconstrução do banco de uma célula em tabela sombra</a></li>
+<li><a href="../fail-path/C34-autorizacao-por-aplicacao.html"><b>C34</b> Autorização por aplicação: mTLS e lista de permissões por identidade</a></li>
+</ul></details>
+<details class="grupo"><summary>Complex path <span class="qtd">6</span></summary><ul>
+<li><a class="idx" href="../complex-path/index.html">Índice da seção</a></li>
+<li><a href="../complex-path/X01-gate-e-troca-de-lider.html"><b>X01</b> Gate: definição, monotonicidade e troca de líder</a></li>
+<li><a href="../complex-path/X02-modo-degradado.html"><b>X02</b> Modo degradado: entrada, permanência, lease e saída</a></li>
+<li><a href="../complex-path/X03-desastre-e-promocao-da-azure.html"><b>X03</b> Desastre: promoção da Azure, fencing e reconciliação</a></li>
+<li><a href="../complex-path/X04-partida-recuperacao-e-dois-logs.html"><b>X04</b> Partida, recuperação e coerência entre os dois logs</a></li>
+<li><a href="../complex-path/X05-timeouts-e-idempotencia.html"><b>X05</b> Timeouts em cascata e idempotência do retry</a></li>
+<li><a href="../complex-path/X06-delete-ttl-gsi.html"><b>X06</b> DELETE, TTL, Scan e GSI</a></li>
+</ul></details>
+<details class="grupo" open><summary>Parking lot <span class="qtd">14</span></summary><ul>
+<li><a class="idx" href="index.html">Índice da seção</a></li>
+<li><a class="atual" aria-current="page" href="R03-backlog-de-apply-no-cosmos.html"><b>R03</b> Backlog de apply no Cosmos (429 e RU insuficiente)</a></li>
+<li><a href="R06-duas-azs-aws-caem.html"><b>R06</b> Duas AZs da AWS caem com a Azure saudável</a></li>
+<li><a href="R07-link-oscilando.html"><b>R07</b> Link oscilando (flapping)</a></li>
+<li><a href="R09-resincronizacao-lenta-ou-bloqueada.html"><b>R09</b> Ressincronização da Azure lenta ou que nunca termina</a></li>
+<li><a href="R10-operador-lento-no-desastre.html"><b>R10</b> Tempo de decisão humana no desastre</a></li>
+<li><a href="R11-api-de-promocao-depende-da-aws.html"><b>R11</b> A API de promoção depende de algo que estava na AWS</a></li>
+<li><a href="R12-promocao-com-aws-viva.html"><b>R12</b> Promoção da Azure com a AWS viva (split-brain, PEND-01)</a></li>
+<li><a href="R13-escritas-orfas-reconciliacao.html"><b>R13</b> Escritas órfãs: reconciliação depois da promoção (PEND-03)</a></li>
+<li><a href="R16-leitura-forte-em-celulas-follower.html"><b>R16</b> Leitura forte em células follower (ReadIndex e gate)</a></li>
+<li><a href="R17-atributo-de-versao-e-limite-400kb.html"><b>R17</b> Atributo de versão: limite de 400 KB e ausência nas respostas</a></li>
+<li><a href="R18-rto-nao-quantificado.html"><b>R18</b> RTO (Delta-T) ainda sem número</a></li>
+<li><a href="R20-custo-6x.html"><b>R20</b> Custo: cada escrita lógica vira seis gravações</a></li>
+<li><a href="R22-memoria-da-janela-de-dedupe.html"><b>R22</b> Memória da janela de dedupe</a></li>
+<li><a href="R23-hipoteses-gerais.html"><b>R23</b> Hipóteses gerais em aberto</a></li>
+</ul></details>
+</nav>
+<main>
+<div class="migalhas"><a href="../index.html">Início</a> / <a href="index.html">Parking lot</a> / R03</div>
+<h1>R03 — Backlog de apply no Cosmos (429 e RU insuficiente)</h1>
+<div class="meta"><span class="selo parking-lot">Parking lot</span><div><b>Status na fonte:</b> 🟡 A rever · parcialmente tratado; o limite de lag de apply para a elegibilidade ao failover é a PEND-18 (valor a definir)</div><div><b>Relacionados:</b> <a href="../fail-path/C13-ressincronizacao-da-azure.html">C13</a>, <a href="../success-path/C05-leitura-strong-e-eventual.html">C05</a>, <a href="../complex-path/X04-partida-recuperacao-e-dois-logs.html">X04</a></div></div>
+<section id="visao-geral"><h2>1. Visão geral do cenário</h2>
+<p>O gate conta o índice <strong>durável (fsync)</strong> nos learners da Azure, não o apply. Por isso, se o Cosmos não tiver RU para o pico e devolver 429, o <strong>RPO segue 0</strong>, mas o atraso entre <code>commitIndex</code> e <code>appliedIndex</code> na Azure cresce sem limite. Consequências: leituras eventuais na Azure ficam velhas (<a href="../fail-path/C28-leitura-eventual-na-azure-defasada.html">C28</a>) e, no failover, a Azure precisa drenar o backlog antes de abrir leituras fortes, então <strong>o RTO real depende do tamanho da fila</strong>.</p>
+<p><strong>Efeito escondido (novo).</strong> O log de replicação da Azure só pode ser truncado até o que foi aplicado. Backlog longo <strong>enche o disco dos learners</strong>; learner sem disco falha o fsync, sai do gate e a AWS acaba em modo degradado. <strong>Um Cosmos lento pode, por esse caminho, causar RPO &gt; 0.</strong></p>
+<p class="aviso">Cenário <b>a rever</b>: o conteúdo abaixo traz propostas e riscos ainda <b>não decididos na fonte</b>, salvo quando o texto diz o contrário.</p>
+</section>
+<section id="diagrama"><h2>2. Diagrama</h2>
+<h3>Do 429 ao RPO</h3>
+<div class="diagrama"><pre class="mermaid">flowchart TD
+    A[&quot;3.000 TPS commitadas, gate conta o fsync dos learners&quot;] --&gt; B[&quot;Applier da Azure grava no Cosmos&quot;]
+    B --&gt; C{&quot;RU suficiente?&quot;}
+    C --&gt;|&quot;sim&quot;| D[&quot;Atraso de apply baixo&quot;]
+    C --&gt;|&quot;não, 429&quot;| E[&quot;Applier desacelera, atraso cresce&quot;]
+    E --&gt; F[&quot;Leitura eventual na Azure fica velha&quot;]
+    E --&gt; G[&quot;No failover, drenar backlog antes das leituras fortes: RTO cresce&quot;]
+    E --&gt; H[&quot;Log da Azure não pode ser truncado: disco enche&quot;]
+    H --&gt; I[&quot;Learner falha o fsync e sai do gate&quot;]
+    I --&gt; J[&quot;AWS pode entrar em modo degradado: RPO maior que 0&quot;]
+    E --&gt; K{&quot;Lag de apply acima do limite de elegibilidade? PEND-18&quot;}
+    K --&gt;|&quot;sim&quot;| L[&quot;Alerta: Azure não elegível ao failover sem decisão humana explícita&quot;]
+    K --&gt;|&quot;não&quot;| M[&quot;Azure elegível: RTO previsível&quot;]</pre></div>
+<h3>Arquitetura geral relacionada: <a href="../../04_diagramas/D08-uma-escrita-seis-bancos.md">D08 — Uma escrita lógica, seis bancos</a></h3><p class="nota">Diagrama de <code>04_diagramas/</code> escolhido pelo site como contexto; o cenário fonte não faz essa associação.</p>
+<div class="diagrama"><pre class="mermaid">flowchart TD
+    W[&quot;Escrita lógica commitada e dentro do gate&quot;] --&gt; L[&quot;Célula líder: apply no banco depois do gate, o ACK espera&quot;]
+    W --&gt; F1[&quot;Célula AWS 2: apply a partir do log&quot;]
+    W --&gt; F2[&quot;Célula AWS 3: apply a partir do log&quot;]
+    W --&gt; Z1[&quot;Célula Azure 1: apply no Cosmos&quot;]
+    W --&gt; Z2[&quot;Célula Azure 2: apply no Cosmos&quot;]
+    W --&gt; Z3[&quot;Célula Azure 3: apply no Cosmos&quot;]
+    L --&gt; ACK[&quot;ACK ao cliente&quot;]
+    Z1 -.-&gt;|&quot;atraso de apply: ver R03 e PEND-18&quot;| RTO[&quot;Pode crescer e afetar o RTO&quot;]
+    ISO[&quot;Isolamento lógico por banco: cada applier só escreve na própria célula, e o rebuild é por célula&quot;] -.-&gt; W</pre></div>
+</section>
+<section id="etapas"><h2>3. Legenda e etapas</h2>
+<p class="nota">A fonte chama esta seção de <b>Fluxo proposto</b>: é proposta, não decisão fechada.</p>
+<div class="etapas"><ol>
+<li>Dimensionar RU para o pico <strong>com folga de catch-up</strong> (drenar mais rápido do que entra), com autoscale e teto de custo.</li>
+<li>SLO de atraso de apply na Azure (por exemplo &lt; 5 s) com alerta. Esse atraso é o <strong>RTO escondido</strong>.</li>
+<li>Alerta de ocupação de disco dos learners com projeção de tempo até encher, ligado ao atraso de apply.</li>
+<li>Teste periódico do tempo de drenagem de backlog (entra nos game days, <a href="R10-operador-lento-no-desastre.html">R10</a>).</li>
+<li><strong>Limite de lag de apply para a elegibilidade ao failover (PEND-18).</strong> Definir o atraso máximo entre <code>last_azure_durable</code> e <code>last_applied</code> na Azure acima do qual a Azure deixa de ser considerada elegível a assumir (o valor é <strong>a definir</strong>, com os testes de RU e a drenagem medida nos exercícios de falha). Acima do limite, o runbook de promoção (<a href="R10-operador-lento-no-desastre.html">R10</a>) exige decisão humana explícita, ciente de que as leituras fortes só abrem depois da drenagem. O limite é um alerta e um critério de decisão; ele <strong>não</strong> entra no gate (ver abaixo).</li>
+<li>Contagem de RU por operação deve vir de teste com o Cloud-Adapter real: escrita condicional e itens de 2 KB têm custo diferente do exemplo de catálogo.</li>
+</ol></div>
+</section>
+<section id="pontos"><h2>4. Pontos que precisam ser avaliados</h2>
+<p class="nota">Reescritos a partir das seções “Falhas e tratativas” e “Pontos em aberto” (e de outras seções de risco, quando existem). Em cada ponto, <b>O que a fonte define</b> vem da documentação; <b>Sugestão de encaminhamento</b> é <b>inferência do arquiteto</b>, não decisão registrada.</p>
+<article class="ponto">
+<h3><span class="num">1</span>Gate acoplado ao apply <span class="origem">Falhas e tratativas</span></h3>
+<dl>
+<dt>Contexto</dt><dd>O gate conta o fsync dos learners, não o apply no Cosmos, então RPO segue 0 mas o backlog de apply pode crescer sem limite. Acoplar o gate ao apply daria RPO e RTO previsíveis, mas amarraria a latência e a disponibilidade de escrita da AWS ao desempenho do Cosmos. O backlog sem limite vira RTO escondido e pode encher o disco dos learners.</dd>
+<dt>O que a fonte define</dt><dd class="">Não recomendado na fonte: manter a AWS independente com alerta e dimensionamento; o limite de lag (PEND-18) é critério de decisão e não entra no gate.</dd>
+<dt class="sug">Sugestão de encaminhamento <small>(inferência, não decidida)</small></dt><dd class="sug">Manter o desacoplamento, mas tratar o atraso de apply como SLO com dono e alerta, e incluir em game day a medição do tempo de drenagem em função do tamanho da fila. Documentar ao negócio que o RTO real depende desse backlog.</dd>
+</dl>
+</article>
+<article class="ponto">
+<h3><span class="num">2</span>Entrada venenosa na Azure <span class="origem">Falhas e tratativas</span></h3>
+<dl>
+<dt>Contexto</dt><dd>Uma entrada que o applier da Azure não consegue aplicar produz o mesmo sintoma do 429: backlog crescente. O diagnóstico pode confundir as duas causas, e a ação certa é diferente: mais RU no caso de 429, intervenção no item no caso de entrada venenosa. Enquanto o applier está parado, o RTO de failover cresce como no caso do 429.</dd>
+<dt>O que a fonte define</dt><dd class="">Ver <a href="../fail-path/C26-entrada-venenosa.html">C26</a> (skip por item, <a href="../../03_adr/ADR-048-skip-por-item.md">ADR-048</a>).</dd>
+<dt class="sug">Sugestão de encaminhamento <small>(inferência, não decidida)</small></dt><dd class="sug">Separar as métricas de atraso por causa (429 versus erro de aplicação) para que o alerta indique a ação certa. Ver <a href="../fail-path/C26-entrada-venenosa.html">C26</a>.</dd>
+</dl>
+</article>
+<article class="ponto">
+<h3><span class="num">3</span>Meta de atraso de apply, dono do alerta e limite de elegibilidade <span class="origem">Pontos em aberto</span></h3>
+<dl>
+<dt>Contexto</dt><dd>Sem meta e sem limite, não há como dizer se a Azure está apta a assumir com RTO previsível. O limite de elegibilidade define quando a promoção exige decisão humana explícita.</dd>
+<dt>O que a fonte define</dt><dd class="nd-fonte">Não decidido na fonte. PEND-18, a definir com testes de RU e exercícios de falha; a fonte cita como exemplo um SLO de atraso abaixo de 5 s.</dd>
+<dt class="sug">Sugestão de encaminhamento <small>(inferência, não decidida)</small></dt><dd class="sug">Atribuir o dono (time do Cloud-Adapter, segundo PEND-18) e medir RU por operação com o Cloud-Adapter real e itens reais. Definir o limite a partir do tempo de drenagem medido e incluí-lo no runbook de promoção (<a href="R10-operador-lento-no-desastre.html">R10</a>).</dd>
+</dl>
+</article>
+<article class="ponto">
+<h3><span class="num">4</span>Política quando o disco do learner passa do teto <span class="origem">Pontos em aberto</span></h3>
+<dl>
+<dt>Contexto</dt><dd>Backlog longo impede truncar o log da Azure e enche o disco dos learners. Learner sem disco falha o fsync e sai do gate, e a AWS pode entrar em modo degradado: um Cosmos lento causa RPO &gt; 0. Não está decidido se o learner pausa o recebimento de forma controlada ou continua até falhar.</dd>
+<dt>O que a fonte define</dt><dd class="nd-fonte">Não decidido na fonte. Proposta na fonte: saída controlada com alerta antes de falhar.</dd>
+<dt class="sug">Sugestão de encaminhamento <small>(inferência, não decidida)</small></dt><dd class="sug">Adotar a saída controlada com alerta de projeção de tempo até encher, e testar com Cosmos limitado em RU até o teto. Avaliar se a saída simultânea de dois learners pelo mesmo motivo deveria gerar alerta de alta severidade, já que leva a modo degradado.</dd>
+</dl>
+</article>
+</section>
+<section id="adrs"><h2>5. ADRs relacionados</h2>
+<div class="tabela"><table><thead><tr><th>ADR</th><th>Título</th><th>Decisão resumida</th><th>Arquivo</th></tr></thead><tbody>
+<tr><td class="nw"><a href="../../03_adr/ADR-017-azure-learners-e-gate.md">ADR-017</a></td><td>Azure como learners, com gate</td><td>Azure como learners; gateIndex = min(commit Raft, índice durável em 2 de 3 learners) controla ACK e applier.</td><td><a href="../../03_adr/ADR-017-azure-learners-e-gate.md">ADR-017-azure-learners-e-gate.md</a></td></tr>
+<tr><td class="nw"><a href="../../03_adr/ADR-018-dois-logs-raft-e-replicacao.md">ADR-018</a></td><td>Dois logs separados: o do Raft e o de replicação</td><td>Dois logs: o do Raft (curto, fsync antes do ACK) e o de replicação (longo, após o commit); revisado pelo <a href="../../03_adr/ADR-055-log-de-replicacao-segmentado-derivado-do-raft.md">ADR-055</a>.</td><td><a href="../../03_adr/ADR-018-dois-logs-raft-e-replicacao.md">ADR-018-dois-logs-raft-e-replicacao.md</a></td></tr>
+<tr><td class="nw"><a href="../../03_adr/ADR-023-modos-de-escrita-e-leitura.md">ADR-023</a></td><td>Modos de escrita (Strong serial, Eventual paralelo) e de leitura (padrão forte)</td><td>READ_MODE_DEFAULT obrigatória (padrão strong); a parte de escrita (WRITE_MODE) foi substituída pelo <a href="../../03_adr/ADR-053-eventual-sem-apply-paralelo-na-v1.md">ADR-053</a>.</td><td><a href="../../03_adr/ADR-023-modos-de-escrita-e-leitura.md">ADR-023-modos-de-escrita-e-leitura.md</a></td></tr>
+</tbody></table></div>
+<p class="nota">Lista extraída do cabeçalho “ADRs” do arquivo fonte. A decisão resumida condensa a seção “Decisão” de cada ADR.</p>
+</section>
+<section id="anexo"><h2>Anexo: texto original da fonte</h2><p class="nota">Seções do .md fonte reproduzidas sem reescrita, para conferência.</p>
+<details class="anexo"><summary>Falhas e tratativas</summary><ul>
+<li><strong>Gate acoplado ao apply?.</strong> Exigir que o apply da Azure esteja dentro de um limite para o gate liberar daria RPO e RTO previsíveis, mas amarraria o caminho de escrita da AWS ao desempenho do Cosmos. <strong>Não recomendado</strong>: o contrário (alerta e dimensionamento) mantém a AWS independente.</li>
+<li><strong>Entrada venenosa na Azure.</strong> Produz o mesmo sintoma. Ver <a href="../fail-path/C26-entrada-venenosa.html">C26</a>.</li>
+</ul></details>
+<details class="anexo"><summary>Pontos em aberto</summary><ul>
+<li>Meta de atraso de apply na Azure, dono do alerta e limite de elegibilidade ao failover (PEND-18; a definir com testes de RU e exercícios de falha).</li>
+<li>Política quando o disco do learner passa de um teto: pausar o recebimento (saindo do gate de forma controlada) ou continuar até o fsync falhar? <strong>Recomendação:</strong> saída controlada com alerta antes de falhar.</li>
+</ul></details>
+</section>
+<footer class="rodape">
+Gerado em 13/10/2026 a partir de <code>DataReplication_Versao_1/</code>. O conteúdo vem dos arquivos .md citados no código-fonte desta página;
+textos marcados como <em>sugestão</em> são inferência do arquiteto e não decisões registradas.
+</footer>
+</main>
+</div>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@11.4.1/dist/mermaid.min.js"></script>
+<script>mermaid.initialize({startOnLoad: true, theme: "neutral", securityLevel: "strict", flowchart: {htmlLabels: true, useMaxWidth: true}, sequence: {useMaxWidth: true}});</script>
+</body>
+</html>

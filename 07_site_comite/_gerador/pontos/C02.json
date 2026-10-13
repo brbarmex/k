@@ -1,0 +1,40 @@
+{
+ "id": "C02",
+ "pontos": [
+  {
+   "titulo": "Aplicação escreve direto no banco (bypass)",
+   "origem": "Falhas e tratativas",
+   "contexto": "Uma escrita feita direto no DynamoDB ou no Cosmos não passa pelo log do Raft: não é replicada, quebra a ordem e o RPO 0, e as células divergem sem que ninguém perceba. Como o apply usa condição de versão pelo índice, uma escrita fora do log pode ainda ser sobrescrita ou mascarar escritas posteriores.",
+   "na_fonte": "Barrado por IAM: a app não tem credencial de escrita no banco, só o applier do `DataReplication` escreve (C20).",
+   "sugestao": "Incluir na suíte de conformidade um teste negativo por instalação que tenta escrever com a credencial da app e espera recusa, e um alerta sobre qualquer escrita no banco feita por principal diferente do applier (por log de auditoria do provedor). Checar também os papéis humanos e de pipelines de dados, que costumam manter acesso de escrita e não são citados na fonte."
+  },
+  {
+   "titulo": "Aplicação escreve em tabela que não é dela, pelo proxy",
+   "origem": "Falhas e tratativas",
+   "contexto": "Com o banco fechado para as apps, o papel largo passa a ser o do `DataReplication`, que escreve em todas as tabelas da célula. Se a única barreira fosse a NetworkPolicy, qualquer pod do namespace escreveria em qualquer tabela, uma ampliação de privilégio em relação ao IAM por aplicação de hoje.",
+   "na_fonte": "Decidido: mTLS por aplicação e lista identidade → tabelas e operações; sem entrada, `403` (ADR-052, C34). A lista vem dos papéis IAM atuais e sem ela a instalação não sobe (PEND-19).",
+   "sugestao": "Validar a lista gerada a partir do IAM com um teste por aplicação (operação permitida passa, não permitida recebe `403`) e versionar a lista junto da configuração. Medir no spike o custo do handshake mTLS e da checagem no caminho quente, e definir o comportamento quando o cert-manager falha em renovar um certificado de app."
+  },
+  {
+   "titulo": "DataReplication cai ou reinicia",
+   "origem": "Falhas e tratativas",
+   "contexto": "Há um só `DataReplication` por célula e ele é o único caminho entre as apps e o banco. Se cai por crash, OOM ou deploy, as apps da célula ficam sem acesso e, se for a líder, há eleição. O pior caso é cair depois de propor a escrita, deixando o cliente com resultado desconhecido.",
+   "na_fonte": "Remete a C19: o SDK recebe conexão recusada e retenta, e o dedupe da líder pelo identificador estável reconhece a repetição.",
+   "sugestao": "Incluir nos exercícios de falha o kill do processo em cada fase da escrita (antes da proposta, após o commit, após o apply) medindo o tempo até o cliente voltar a ser atendido. Avaliar como os deploys sem HPA e com uma réplica por célula afetam a disponibilidade, já que todo rollout derruba o único caminho da célula."
+  },
+  {
+   "titulo": "Cache de líder desatualizado",
+   "origem": "Falhas e tratativas",
+   "contexto": "Cada célula mantém em cache qual é a líder e o termo para encaminhar escritas. Depois de uma eleição esse cache pode apontar para a líder antiga, gerando encaminhamentos errados e latência extra.",
+   "na_fonte": "A líder antiga recusa ou encaminha, e toda resposta traz a líder e o termo atuais para corrigir o cache (ADR-010). O loop durante eleição é limitado a 1 salto com espera de até 1 s (C27).",
+   "sugestao": "Expor métrica de encaminhamentos recusados por cache velho e o tempo até o cache convergir após eleição, e incluir no teste de eleição a verificação de que nenhuma requisição dá mais de um salto."
+  },
+  {
+   "titulo": "Autenticação e autorização entre apps e DataReplication",
+   "origem": "Pontos em aberto",
+   "contexto": "O ponto em aberto registra que a autenticação e autorização entre apps e `DataReplication` dependem da combinação de NetworkPolicy como primeira barreira e mTLS por aplicação com lista de permissões. Sem isso, a camada amplia o privilégio que as apps têm hoje. O tema é segurança, sem impacto direto em RPO, mas uma falha na emissão de certificados pode virar indisponibilidade.",
+   "na_fonte": "A fonte aponta C31 (uma instalação por cliente, identidade por configuração, ADR-043) e C34 (mTLS por aplicação e lista de permissões, ADR-052), com a lista pendente na PEND-19.",
+   "sugestao": "Fechar a PEND-19 com cada time cliente antes do primeiro cliente e incluir um teste de rotação e de expiração de certificado de app, garantindo que a falha seja visível e não silenciosa. Registrar o comportamento esperado se o cert-manager estiver fora durante um failover para a Azure."
+  }
+ ]
+}

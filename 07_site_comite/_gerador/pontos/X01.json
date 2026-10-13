@@ -1,0 +1,54 @@
+{
+ "id": "X01",
+ "pontos": [
+  {
+   "titulo": "Líder nova sem o valor do gate",
+   "origem": "Falhas e tratativas",
+   "contexto": "Logo após a eleição, a líder nova (termo T+1) ainda não tem progresso da Azure confirmado no seu termo, porque o `azureMajorityIndex` é estado em memória do líder. Se ela liberasse ACK com um gate zerado, menor ou reportado fora de banda, poderia confirmar escrita que a Azure ainda não tem, quebrando o RPO=0. Por isso há uma janela curta sem ACK, sem liberação do applier e sem leitura forte, que soma diretamente ao tempo de indisponibilidade de escrita da troca de líder.",
+   "na_fonte": "A líder nova só adota progresso confirmado no termo novo pelo `AppendEntries` (2º maior índice de 3) antes de ACKar, liberar o applier ou atender leitura forte (D9, ADR-029, ADR-046). A janela conta dentro da meta de 3 a 4 s de C08.",
+   "sugestao": "Medir em teste de caos a duração dessa janela (do fim da eleição até o primeiro ACK) como distribuição, separada do tempo de eleição, e checar se cabe na meta de C08. Incluir no TLA+ um estado em que a líder recebe índice fora de banda antes da primeira confirmação, para provar que P3 e P9 não dependem da ordem de chegada das mensagens."
+  },
+  {
+   "titulo": "Learner reporta índice menor que antes",
+   "origem": "Falhas e tratativas",
+   "contexto": "Um learner da Azure pode responder com índice durável menor do que já tinha reportado, por exemplo após reinício ou truncamento de cauda. Se o gate seguisse esse valor, ele recuaria e escritas já ACKadas deixariam de estar cobertas pela regra, violando a monotonicidade. Isso afeta a garantia de RPO=0 e a leitura forte, que usa o gate como barreira.",
+   "na_fonte": "O gate guarda o máximo e o learner volta a contar quando alcança o índice (D9, propriedade P3). Learner que perde o disco volta com identidade nova e não herda progresso (P13).",
+   "sugestao": "Distinguir no código e nas métricas o caso de regressão com a mesma identidade (que sugere perda de dado após fsync e deveria ser tratado como incidente) do caso de identidade nova. Criar um teste de caos que force a regressão de índice em um learner enquanto outro está fora, para confirmar que o gate não fica sustentado por um índice que não está mais durável em 2 de 3."
+  },
+  {
+   "titulo": "Azure inalcançável durante a reconstrução do gate",
+   "origem": "Falhas e tratativas",
+   "contexto": "Se a Azure estiver inalcançável justo quando a líder nova tenta reconstruir o gate, ela não consegue confirmar progresso nenhum no termo novo. Sem tratamento, as escritas ficariam paradas indefinidamente; com tratamento, o shard entra em modo degradado com RPO > 0 ou responde `503 PENDING`. É a interseção de duas falhas (troca de líder e partição) e afeta disponibilidade e RPO ao mesmo tempo.",
+   "na_fonte": "Passados `DEGRADE_AFTER`, com `DEGRADED_POLICY=accept` a líder propõe `DEGRADE` com lease (C12, C32, ADR-044); com `reject` a escrita responde `503 PENDING` (ADR-045, P8, P18).",
+   "sugestao": "Incluir no modelo TLA+ a sequência eleição seguida de partição antes da primeira confirmação, verificando que o `DEGRADE` proposto pela líder nova já nasce com lease expirado quando ela não tem `t_c`. Isso deixa claro que, nesse cenário, a líder nova provavelmente responde `503 LEASE_EXPIRED` e não degrada, o que precisa constar da expectativa de disponibilidade apresentada ao negócio."
+  },
+  {
+   "titulo": "Líder nova herda um lease em curso",
+   "origem": "Falhas e tratativas",
+   "contexto": "O `DEGRADE` é estado replicado no log, então a líder nova herda o modo degradado, mas o `t_c` (último contato com a maioria Azure) é medido no relógio monotônico de cada líder e não é replicado. Se a líder nova assumisse um `t_c` qualquer, poderia estender o lease além de D e abrir uma janela de escrita nas duas pontas. Tratar o lease como expirado protege a segurança, mas gera indisponibilidade de escrita em cada troca de líder durante a degradação.",
+   "na_fonte": "Decidido: a líder nova trata o lease como expirado até obter contato com a Azure ou um `RENEW` (ADR-044); a regra entra no modelo para prova.",
+   "sugestao": "Avaliar e medir o impacto operacional: em degradação longa, toda troca de líder (inclusive transferência planejada) vira parada de escrita até um `RENEW` humano, e isso precisa estar no runbook e em alerta específico. Considerar bloquear transferências planejadas de liderança enquanto o shard estiver degradado."
+  },
+  {
+   "titulo": "Modelo TLA+ ainda não escrito",
+   "origem": "Pontos em aberto",
+   "contexto": "O gate é lógica própria, fora de uma prova conhecida, e é o ponto de maior risco do consenso da v1. As propriedades P1 a P18 estão listadas, mas nenhuma está verificada, e várias decisões (lease, promoção, dedupe, I-DEL) dependem delas. Sem o modelo, a garantia de RPO=0 e a ausência de escrita nas duas pontas são argumentos informais.",
+   "na_fonte": "ADR-030 decide verificação formal; pela revisão de 13/10 o modelo nasce junto da fase 1 e o núcleo mínimo verificável vem antes de qualquer caminho de banco. O escopo mínimo está listado no X01.",
+   "sugestao": "Definir um critério de aceite da fase 1 com as propriedades que precisam passar no TLC (por exemplo P1 a P5, P9, P10) e quais podem vir depois, com tamanho de estado explícito. Exigir também que cada propriedade tenha um contraexemplo intencional (mutação do modelo) para mostrar que ela de fato detecta o erro."
+  },
+  {
+   "titulo": "Prorrogação x promoção (H-DR13) e partição assimétrica (H-DR14)",
+   "origem": "Pontos em aberto",
+   "contexto": "Prorrogar o lease com `RENEW` depois que a Azure já pode ser promovida reabre o risco de duas pontas aceitando escrita. Numa partição assimétrica, o último contato visto pela Azure e o gate visto pela AWS divergem, e a conta de D + M pode deixar de ser segura. As duas hipóteses tocam diretamente P11 e P12 e são o centro da segurança sem terceiro domínio.",
+   "na_fonte": "Não decidido na fonte. Proposta na fonte: uma regra como marcar a Azure como `promotion_blocked` antes de prorrogar, a fechar no TLA+ (R23).",
+   "sugestao": "Modelar explicitamente os dois sentidos do link como canais independentes e verificar P11 e P12 com `RENEW` concorrente a `ForcePromote`. Levar ao Bruno, antes da implementação do `RENEW`, a decisão de que a prorrogação exige um ato confirmado do lado Azure (o bloqueio de promoção) e não só uma entrada no Raft da AWS."
+  },
+  {
+   "titulo": "Regra de não herdar `t_c` a provar no modelo",
+   "origem": "Pontos em aberto",
+   "contexto": "A regra de que a líder nova não herda `t_c` é decidida, mas sua correção depende de detalhes de relógio monotônico, pausa de processo e reinício de nó. Se houver um caminho em que um nó reiniciado ou uma líder antiga reassuma com `t_c` antigo, o lease poderia ser estendido indevidamente. Isso afeta P10 e P11.",
+   "na_fonte": "Decidido (ADR-044); a fonte registra que a regra entra no modelo para prova.",
+   "sugestao": "Incluir no modelo eventos de reinício de nó e de líder que volta a ser líder em termo posterior, verificando que nenhum ACK ocorre depois de D sem `RENEW`. Complementar com teste de caos que congele o processo da líder (SIGSTOP) além de D e confirme `503 LEASE_EXPIRED` na volta."
+  }
+ ]
+}
