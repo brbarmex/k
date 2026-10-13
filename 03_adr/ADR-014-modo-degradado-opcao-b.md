@@ -18,6 +18,10 @@ Opção A: parar as escritas até a Azure voltar. Rejeitada pelo Bruno.
 
 O RPO é maior que 0 durante a degradação (PEND-02, bloqueante). A promoção da Azure durante a degradação perde dado declarado (cenário C15).
 
+## Atualização de 13/10/2026 (revisão crítica)
+
+O modo degradado passou a ter **validade (lease) de duração D**: ao fim dela a AWS para de aceitar escrita sozinha, e a Azure só pode ser promovida depois de D mais margem ([ADR-044](ADR-044-lease-do-modo-degradado-e-promocao-da-azure.md)). Além disso, cada instalação escolhe `DEGRADED_POLICY=accept` (esta opção B, com lease) ou `reject` (sem degradar, RPO 0 sempre) ([ADR-045](ADR-045-politica-de-degradacao-por-instalacao.md)).
+
 ## Onde está o detalhe
 
 - [X02-modo-degradado.md](../02_cenarios/complexos/X02-modo-degradado.md)

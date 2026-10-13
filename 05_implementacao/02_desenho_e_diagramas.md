@@ -15,7 +15,7 @@ flowchart LR
         direction TB
         PIN["port in<br/>Writer, Reader"]
         UC["usecase<br/>write, read, apply,<br/>degrade, recovery"]
-        DM["domain<br/>Entry, Gate, Mode"]
+        DM["domain<br/>Entry, Gate, Lease"]
         POUT["port out<br/>ReplicationLog, ConsensusEngine,<br/>StateStore, Forwarder"]
         PIN --> UC --> DM
         UC --> POUT
@@ -64,7 +64,7 @@ flowchart TD
     end
     RAFT -->|"grava e fsync"| RLOG
     RAFT <-->|"gRPC: AppendEntries"| PEERS["2 outros votantes AWS<br/>e 3 learners Azure"]
-    PEERS -->|"índice durável de cada learner"| GATE["Gate<br/>min Raft, maioria Azure"]
+    PEERS -->|"resposta do AppendEntries: termo, índice e learner, por evento"| GATE["Gate<br/>min Raft, maioria Azure"]
     RAFT -->|"commit Raft"| GATE
     RAFT -->|"entradas commitadas<br/>Committed"| PUMP["CommitPump<br/>usecase replicate"]
     PUMP -->|"da memória, sem esperar disco"| APP["Applier"]
@@ -79,9 +79,9 @@ flowchart TD
 **Passo a passo de uma escrita:**
 1. `WriteService` chama `Propose` no `RaftNode` (única porta que fala com o Raft).
 2. O Raft grava a entrada no **log do Raft** com fsync e a replica por gRPC: 2 de 3 votantes AWS decidem o commit, e os 3 learners da Azure recebem a mesma entrada.
-3. Cada learner informa o índice que já tornou durável. O `Gate` guarda `min(commit do Raft, maioria Azure)`. **Só aqui o ACK é liberado.**
-4. Os lotes commitados chegam ao `CommitPump`, que os entrega ao `Applier` **pela memória** e ao **log de replicação** em lote, fora do caminho do ACK.
-5. O `Applier` escreve no banco da célula com escrita condicional por versão.
+3. Cada learner informa o índice que já tornou durável **na resposta do `AppendEntries`**, com o termo e a identidade dele ([ADR-046](../03_adr/ADR-046-gate-so-conta-progresso-validado-pelo-raft.md)). Cada resposta alimenta o `Gate` na hora, sem esperar um commit novo; o gate só adota o termo atual e guarda `min(commit do Raft, maioria Azure)`. **Só aqui o ACK é liberado.**
+4. Os lotes commitados chegam ao `CommitPump`, que os entrega ao `Applier` **pela memória** e ao **log de replicação** em lote, fora do caminho do ACK. O progresso dos learners corre em outra goroutine do `CommitPump`: um `Append` lento não atrasa o gate.
+5. O `Applier` escreve no banco da célula com escrita condicional por versão, **sempre em série e depois do gate** ([ADR-053](../03_adr/ADR-053-eventual-sem-apply-paralelo-na-v1.md)); o checkpoint do applier é por item `(índice, ordem)` ([ADR-048](../03_adr/ADR-048-skip-por-item.md)).
 6. O log do Raft só é truncado até o `DurableIndex` do log de replicação (regra de segurança da 5.5.1).
 
 **Quem grava o quê, por escrita lógica:**
@@ -90,7 +90,8 @@ flowchart TD
 |---|---|---|---|
 | `raftlog` (cada réplica) | Entrada do consenso | Antes de responder ao líder, com fsync | **Sim** |
 | `replicationlog` (réplicas AWS) | Registro commitado, nosso formato | Depois do commit, em lote | Não |
-| Banco da célula (DynamoDB ou Cosmos) | Item com versão | Depois do gate | Não, em Strong o ACK espera o apply serial; em Eventual não |
+| Banco da célula (DynamoDB ou Cosmos) | Item com versão | Depois do gate, em série | **Sim**, na célula da líder o ACK espera o apply (o `t_apply` está no orçamento, [ADR-036](../03_adr/ADR-036-slo-de-50ms-exclui-a-escrita-no-banco.md)) |
+| Volume do log (checkpoint do applier) | Progresso por item `(índice, ordem)` | Depois de cada item aplicado | Não |
 
 **Visão do cluster:** quem replica para quem, e o que cada célula guarda.
 
@@ -154,7 +155,7 @@ sequenceDiagram
     L-->>G: commit Raft
     Az-->>G: maioria Azure durável
     G-->>W: gate alcançou o índice
-    G-->>AP: pode aplicar até o índice (Strong: em série)
+    G-->>AP: pode aplicar até o índice (sempre em série)
     AP->>DB: escrita condicional v menor que índice
     DB-->>AP: ok
     AP-->>W: WaitApplied liberado
@@ -162,36 +163,45 @@ sequenceDiagram
     API-->>App: 200 (header x-dr-mode se degradado)
 ```
 
-**O ACK sai só depois do gate e do apply na célula da líder** (6.9, item 4 do documento de arquitetura). A decisão de *quando* o apply começa é do `Applier`: no Strong, depois do gate; no Eventual, já no commit do Raft.
+**O ACK sai só depois do gate e do apply na célula da líder** (6.9, item 4 do documento de arquitetura). O apply é sempre serial e depois do gate, em todas as instalações; `WRITE_MODE` e o apply paralelo saíram da v1 ([ADR-053](../03_adr/ADR-053-eventual-sem-apply-paralelo-na-v1.md)). Antes de responder, a líder ainda confere a validade do lease se o shard estiver degradado ([ADR-044](../03_adr/ADR-044-lease-do-modo-degradado-e-promocao-da-azure.md)).
 
-### 5.1b Escrita em modo Eventual (caminho feliz)
+### 5.1b Escrita em modo degradado (política `accept`, com lease)
+
+O Eventual (E1) é só de **leitura** ([ADR-053](../03_adr/ADR-053-eventual-sem-apply-paralelo-na-v1.md)): a escrita tem um único caminho, o do 5.1. O que muda o caminho é a Azure fora do alcance, e só com `DEGRADED_POLICY=accept` ([ADR-045](../03_adr/ADR-045-politica-de-degradacao-por-instalacao.md)).
 
 ```mermaid
 sequenceDiagram
     participant App as App do cliente
     participant W as WriteService
+    participant D as DegradeService
     participant C as ConsensusEngine
-    participant Az as Learners Azure
     participant G as Gate
     participant AP as Applier
-    participant DB as StateStore
-    App->>W: PutItem (via dynamohttp)
+    App->>W: PutItem
     W->>C: Propose(entry)
-    C-->>AP: commit Raft (o apply começa já)
-    C->>Az: replica e fsync (2 de 3 Azure)
-    AP->>DB: escrita condicional v menor que índice
-    Az-->>G: maioria Azure durável
-    DB-->>AP: ok
-    G-->>W: gate alcançou o índice
+    C-->>G: commit Raft
+    Note over G: a Azure não confirma em DEGRADE_AFTER (2 s)
+    W->>D: Enter
+    D->>C: Propose(DEGRADE, epoch, D)
+    C-->>D: commit (o DEGRADE só marca o modo)
+    D->>G: SetDegraded(true) depois do modo marcado
+    G-->>AP: pode aplicar até o commit Raft
     AP-->>W: WaitApplied liberado
-    W-->>App: 200 (ACK só depois da Azure)
+    W->>D: CheckLease (a cada ACK): now menor que t_c + D?
+    alt lease válido
+        W-->>App: 200 com x-dr-mode: degraded
+    else lease vencido (t_c + D esgotado ou sem t_c)
+        W-->>App: 503 LEASE_EXPIRED (leitura e Raft seguem)
+    end
 ```
+
+O prazo D conta desde `t_c`, o último contato com a maioria dos learners da Azure, e não desde a proposta do `DEGRADE`: se o `DEGRADE` só é proposto muito depois de `t_c`, o lease já nasce vencido ([ADR-044](../03_adr/ADR-044-lease-do-modo-degradado-e-promocao-da-azure.md)). Com `reject` o `Enter` recusa sempre: o gate fica sem a Azure e o cliente recebe `503 PENDING` no fim do prazo, com RPO 0.
 
 ### 5.2 Ciclo de vida do processo (partida e parada)
 
 ```mermaid
 flowchart TD
-    A["Fx inicia"] --> B["config.Load: valida env e YAML"]
+    A["Fx inicia"] --> B["config.Load: valida env e YAML<br/>DEGRADED_POLICY obrigatória, DEGRADED_LEASE com accept"]
     B -->|inválida| X["processo sai com erro"]
     B --> C["abre o WAL e verifica CRC"]
     C -->|corrupção no meio| Y["recusa subir: rebuild manual"]
@@ -210,43 +220,49 @@ Ordem de `OnStart` no Fx: config, log, WAL, Raft, gate, applier, e **por último
 
 ## 6. Diagramas de fluxo
 
-### 6.1 Decisão de ACK (gate e modo degradado)
+### 6.1 Decisão de ACK (gate, política e lease)
 
 ```mermaid
 flowchart TD
-    A["entry commitada no Raft"] --> B{"modo degradado?"}
-    B -->|não| C["espera maioria Azure durável"]
+    A["entry commitada no Raft"] --> B{"shard degradado?"}
+    B -->|não| C["espera maioria Azure durável<br/>termo atual, por evento"]
     B -->|sim| D["gate = commit do Raft"]
     C -->|chegou| E["gate avança"]
-    C -->|timeout| F["DegradeController propõe DEGRADE"]
+    C -->|"DEGRADE_AFTER sem a Azure"| P{"DEGRADED_POLICY"}
+    P -->|accept| F["propõe DEGRADE, que marca o modo<br/>lease D desde t_c"]
+    P -->|reject| R["segue esperando<br/>até o prazo: 503 PENDING"]
     F --> D
     D --> E
-    E --> G["libera o ACK"]
-    G --> H{"Strong?"}
-    H -->|sim| I["aplica no banco em série depois do gate, depois responde"]
-    H -->|não| J["aplica em paralelo ao gate, ACK após a Azure e o apply local"]
-    I --> K["resposta"]
-    J --> K
-    K --> L["header x-dr-mode se degradado"]
+    E --> G["apply no banco, em série, depois do gate"]
+    G --> L{"degradado e<br/>now maior ou igual a t_c + D?"}
+    L -->|sim| X["503 LEASE_EXPIRED"]
+    L -->|não| K["resposta"]
+    K --> M["header x-dr-mode se degradado"]
 ```
 
 ### 6.2 Leitura (Strong x Eventual)
 
 ```mermaid
 flowchart TD
-    A["GetItem ou Query"] --> B{"ConsistentRead true<br/>ou default strong?"}
-    B -->|não| C["lê o banco local sem barreira"]
+    A["GetItem ou Query"] --> I0{"Query em GSI com<br/>ConsistentRead true?"}
+    I0 -->|sim| V["400 ValidationException"]
+    I0 -->|não| B{"tabela base e<br/>(ConsistentRead true ou default strong)?"}
+    B -->|não| C["lê o banco local sem barreira<br/>em GSI: header x-dr-consistency eventual"]
     C --> R["responde"]
-    B -->|sim| D["ReadIndex na líder"]
-    D -->|líder inalcançável| E["erro recuperável, SDK retenta"]
-    D --> F["R = índice de leitura"]
+    B -->|sim| D["ReadIndex e gate<br/>na mesma resposta da líder"]
+    D -->|líder inalcançável ou gate não reconstruído| E["erro recuperável, SDK retenta"]
+    D --> F["R = min(ReadIndex, gate)"]
     F --> G{"appliedIndex maior ou igual a R?"}
     G -->|sim| H["lê o banco local"]
-    G -->|não| I["espera o Applier avançar"]
+    G -->|não| J{"applier parado<br/>por entrada venenosa?"}
+    J -->|sim| E
+    J -->|não| I["espera o Applier avançar"]
     I -->|deadline| E
     I --> H
     H --> R
 ```
+
+A barreira é `min(ReadIndex, gate)` ([ADR-049](../03_adr/ADR-049-barreira-da-leitura-forte-e-o-gate.md)): toda escrita ACKada está abaixo do gate, então uma Azure lenta não atrasa a leitura forte. Isso exige que `applied` nunca passe do gate.
 
 ### 6.3 Estados do nó
 
@@ -258,11 +274,31 @@ stateDiagram-v2
     Follower --> Candidato: timeout de eleição
     Candidato --> Lider: ganhou a eleição
     Candidato --> Follower: perdeu
-    Lider --> ReconstruindoGate: assumiu
-    ReconstruindoGate --> Lider: azureMajority reconstruído
+    Lider --> ReconstruindoGate: assumiu (termo novo)
+    ReconstruindoGate --> Lider: 2 de 3 learners confirmaram no termo novo
     Lider --> Follower: transferência ou perda de quórum
     Follower --> Drenando: SIGTERM
     Lider --> Drenando: SIGTERM após transferir
     Drenando --> [*]
     Recusando --> [*]
 ```
+
+### 6.4 Estados do modo degradado (lease)
+
+```mermaid
+stateDiagram-v2
+    [*] --> Normal
+    Normal --> Degradado: DEGRADE marca o modo (só política accept)
+    Degradado --> Normal: RESTORE, a Azure alcançou o log
+    Degradado --> Degradado: RENEW humano ou novo contato com a maioria Azure
+    Degradado --> LeaseExpirado: now maior ou igual a t_c + D, conferido a cada ACK
+    Degradado --> LeaseExpirado: líder nova ou reinício herda o DEGRADE sem t_c
+    LeaseExpirado --> Degradado: contato com a maioria Azure ou RENEW humano
+    LeaseExpirado --> Normal: RESTORE
+    note right of LeaseExpirado
+        escrita recusa com 503 LEASE_EXPIRED
+        leitura e Raft seguem
+    end note
+```
+
+O estado `Normal` com política `reject` nunca sai para `Degradado`. O lease conta desde `t_c`, o último contato da líder com a maioria Azure. A Azure só é promovida (ação humana) depois de D mais a margem M (deriva máxima de relógio mais pausa máxima de processo) contados desde o último contato com a AWS; a regra de prorrogação contra promoção (H-DR13) está para o modelo TLA+.

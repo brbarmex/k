@@ -15,7 +15,7 @@ flowchart TD
     C -->|"não"| D["Reinicia e o retry funciona"]
     C -->|"sim, ainda não commitada"| E["Descartada, o retry é escrita nova"]
     C -->|"sim, já commitada"| F["O retry chega à líder"]
-    F --> G["Dedupe pelo identificador estável devolve o índice"]
+    F --> G["Dedupe pelo identificador estável da requisição devolve o índice"]
     A --> H{"Era a líder?"}
     H -->|"sim"| I["Eleição na AWS e gate reconstruído, ver C08"]
     H -->|"não"| J["Volta como follower e alcança o log"]
@@ -33,6 +33,7 @@ flowchart TD
 ## Falhas e tratativas
 
 - **Célula inteira sem DataReplication.** O Compass-Router (externo) pode desviar o tráfego; as apps toleram a indisponibilidade com retry do SDK.
+- **Reinício no meio do apply de um lote.** O progresso por item é lido do volume do log; os itens já aplicados são reaplicados de forma idempotente ([C23](C23-batchwriteitem-lote-uma-entrada.md)).
 - **Sem identificador estável no SDK.** Hash do conteúdo como último recurso, com falso positivo possível.
 
 ## Pontos em aberto

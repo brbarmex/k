@@ -2,20 +2,20 @@
 
 [Início](../00_COMECE_AQUI.md) · [Documento principal](../DataReplication_Versao_1.md)
 
-Todos os 78 diagramas **Mermaid** do pacote, por pasta. Os diagramas de cada cenário ficam junto do cenário; os de arquitetura estão em `D01` a `D08` (este diretório).
+Todos os 86 diagramas **Mermaid** do pacote, por pasta. Os diagramas de cada cenário ficam junto do cenário; os de arquitetura estão em `D01` a `D08` (este diretório).
 
 ## Diagramas de arquitetura (este diretório)
 
 | Arquivo | Assunto |
 |---|---|
-| [D01](D01-visao-do-sistema.md) | Contexto e regra do ACK |
-| [D02](D02-implantacao-da-celula.md) | Pod, namespace, volume, IAM |
+| [D01](D01-visao-do-sistema.md) | Contexto (mTLS por aplicação) e regra do ACK (gate por termo, `accept` com lease, `reject` com `503 PENDING`) |
+| [D02](D02-implantacao-da-celula.md) | Pod, namespace, volume, IAM e lista de permissões por aplicação |
 | [D03](D03-camadas-hexagonais.md) | Regra de dependência entre camadas |
-| [D04](D04-dois-logs-e-commitpump.md) | Caminho do dado e os dois logs |
-| [D05](D05-gate-e-quorum.md) | Composição do gate |
-| [D06](D06-estados-do-shard-e-do-no.md) | Modos do shard e estados do nó |
-| [D07](D07-prazos-em-cascata.md) | Prazos dentro dos 30 s do SDK |
-| [D08](D08-uma-escrita-seis-bancos.md) | Fan-out da escrita e onde está o ACK |
+| [D04](D04-dois-logs-e-commitpump.md) | Caminho do dado, os dois logs, gate por evento e progresso do applier por item |
+| [D05](D05-gate-e-quorum.md) | Composição do gate: termo atual, evento, lease e barreira da leitura forte |
+| [D06](D06-estados-do-shard-e-do-no.md) | Modos do shard (lease expirado, sem gate com `reject`, promoção depois de D + M) e estados do nó |
+| [D07](D07-prazos-em-cascata.md) | Prazos dentro dos 30 s do SDK e o lease D fora da cascata |
+| [D08](D08-uma-escrita-seis-bancos.md) | Fan-out da escrita (seis bancos mantidos, ADR-054) e onde está o ACK |
 
 > Os diagramas D03, D04 e D06 têm versão ilustrativa em [05_implementacao/02_desenho_e_diagramas](../05_implementacao/02_desenho_e_diagramas.md); ao mudar um, revisar o outro.
 
@@ -71,6 +71,12 @@ Todos os 78 diagramas **Mermaid** do pacote, por pasta. Os diagramas de cada cen
 | [C29-disco-do-log-em-degradacao-longa.md](../02_cenarios/atualizados/C29-disco-do-log-em-degradacao-longa.md) | Diagrama: Teto de retenção | fluxo |
 | [C30-aws-que-volta-boot-cercado.md](../02_cenarios/atualizados/C30-aws-que-volta-boot-cercado.md) | Diagrama: Boot cercado | fluxo |
 | [C31-implantacao-por-cliente-e-identidade.md](../02_cenarios/atualizados/C31-implantacao-por-cliente-e-identidade.md) | Diagrama: Fronteiras de confiança e o que é compartilhado | fluxo |
+| [C32-particao-e-lease-do-modo-degradado.md](../02_cenarios/atualizados/C32-particao-e-lease-do-modo-degradado.md) | Diagrama: linha do tempo da partição | sequência |
+| [C32-particao-e-lease-do-modo-degradado.md](../02_cenarios/atualizados/C32-particao-e-lease-do-modo-degradado.md) | Diagrama: o que cada ponta decide | fluxo |
+| [C33-reconstrucao-em-tabela-sombra.md](../02_cenarios/atualizados/C33-reconstrucao-em-tabela-sombra.md) | Diagrama: protocolo da reconstrução | sequência |
+| [C33-reconstrucao-em-tabela-sombra.md](../02_cenarios/atualizados/C33-reconstrucao-em-tabela-sombra.md) | Diagrama: por que a cópia difusa converge | fluxo |
+| [C34-autorizacao-por-aplicacao.md](../02_cenarios/atualizados/C34-autorizacao-por-aplicacao.md) | Diagrama: decisão de autorização na entrada | fluxo |
+| [C34-autorizacao-por-aplicacao.md](../02_cenarios/atualizados/C34-autorizacao-por-aplicacao.md) | Diagrama: privilégio hoje, sem lista e com a lista | fluxo |
 
 ## Cenários complexos
 
@@ -97,6 +103,7 @@ Todos os 78 diagramas **Mermaid** do pacote, por pasta. Os diagramas de cada cen
 | [R13-escritas-orfas-reconciliacao.md](../02_cenarios/a_rever/R13-escritas-orfas-reconciliacao.md) | Diagrama: Do episódio degradado ao relatório | fluxo |
 | [R16-leitura-forte-em-celulas-follower.md](../02_cenarios/a_rever/R16-leitura-forte-em-celulas-follower.md) | Diagrama: Caminho da leitura forte | fluxo |
 | [R17-atributo-de-versao-e-limite-400kb.md](../02_cenarios/a_rever/R17-atributo-de-versao-e-limite-400kb.md) | Diagrama: Validação de tamanho antes do commit | fluxo |
+| [R17-atributo-de-versao-e-limite-400kb.md](../02_cenarios/a_rever/R17-atributo-de-versao-e-limite-400kb.md) | Diagrama: O atributo não sai nas respostas | fluxo |
 | [R18-rto-nao-quantificado.md](../02_cenarios/a_rever/R18-rto-nao-quantificado.md) | Diagrama: De onde vem o RTO | fluxo |
 | [R20-custo-6x.md](../02_cenarios/a_rever/R20-custo-6x.md) | Diagrama: Onde o custo se multiplica | fluxo |
 | [R22-memoria-da-janela-de-dedupe.md](../02_cenarios/a_rever/R22-memoria-da-janela-de-dedupe.md) | Diagrama: Tabela mantida por todos os votantes | fluxo |
@@ -116,6 +123,7 @@ Todos os 78 diagramas **Mermaid** do pacote, por pasta. Os diagramas de cada cen
 | [02_desenho_e_diagramas.md](../05_implementacao/02_desenho_e_diagramas.md) | 6.2 Leitura (Strong x Eventual) | fluxo |
 | [02_desenho_e_diagramas.md](../05_implementacao/02_desenho_e_diagramas.md) | 6.3 Estados do nó | estados |
 | [03_exemplos_de_codigo.md](../05_implementacao/03_exemplos_de_codigo.md) | 7.6b Prazos em cascata (timeouts) | fluxo |
+| [07_fases_de_trabalho.md](../05_implementacao/07_fases_de_trabalho.md) | Visão geral das cinco fases | fluxo |
 
 ## Arquitetura
 

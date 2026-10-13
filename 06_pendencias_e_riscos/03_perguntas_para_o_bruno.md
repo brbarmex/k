@@ -4,6 +4,28 @@
 
 Nenhuma pergunta aberta no momento. Formato das respostas: `12a 13b 14a`. A coluna **Rec.** marca a **rec**omendação (a opção que eu recomendo); qualquer item pode ser discutido antes. Cada pergunta aponta para o cenário com o raciocínio e o diagrama.
 
+## Respondidas: revisão crítica de 13/10 (decisões 1 a 14, todas **a**)
+
+Resposta do Bruno em 13/10: **"alternativa a para todas"**; na 11, "manter um banco por célula". Análise completa: [revisao_critica_13_10](revisao_critica_13_10.md).
+
+| # | Decisão | Resposta | Onde ficou |
+|---|---|---|---|
+| 1 | Autoridade única na partição e promoção da Azure | **a** Lease D; a AWS para sozinha; a Azure só promove depois de D + M | [ADR-044](../03_adr/ADR-044-lease-do-modo-degradado-e-promocao-da-azure.md), [C32](../02_cenarios/atualizados/C32-particao-e-lease-do-modo-degradado.md) |
+| 2 | Política em modo degradado | **a** `DEGRADED_POLICY` obrigatória por instalação | [ADR-045](../03_adr/ADR-045-politica-de-degradacao-por-instalacao.md) |
+| 3 | Gate e prefixo | **a** Só progresso validado pelo Raft no termo atual; TLA+ ampliado | [ADR-046](../03_adr/ADR-046-gate-so-conta-progresso-validado-pelo-raft.md) |
+| 4 | DELETE e replay | **a** DELETE real com invariante e rebuild em tabela sombra | [ADR-047](../03_adr/ADR-047-delete-real-invariante-e-reconstrucao-em-tabela-sombra.md), [C33](../02_cenarios/atualizados/C33-reconstrucao-em-tabela-sombra.md) |
+| 5 | SKIP de lote | **a** Por item `(índice, ordem)` | [ADR-048](../03_adr/ADR-048-skip-por-item.md) |
+| 6 | Barreira da leitura forte | **a** `min(ReadIndex, gate)` | [ADR-049](../03_adr/ADR-049-barreira-da-leitura-forte-e-o-gate.md) |
+| 7 | Leitura forte em GSI | **a** Recusar `ConsistentRead` em GSI | [ADR-050](../03_adr/ADR-050-gsi-nao-tem-leitura-forte.md) |
+| 8 | Idempotência e condicional | **a** Documentar o limite e levantar o uso real | [ADR-051](../03_adr/ADR-051-compatibilidade-dynamodb-inventario-conformidade-e-idempotencia.md) |
+| 9 | Autorização por aplicação | **a** mTLS por aplicação com lista de permissões | [ADR-052](../03_adr/ADR-052-autorizacao-por-aplicacao-com-mtls.md), [C34](../02_cenarios/atualizados/C34-autorizacao-por-aplicacao.md) |
+| 10 | Modo Eventual de escrita | **a** Apply paralelo fora da v1 | [ADR-053](../03_adr/ADR-053-eventual-sem-apply-paralelo-na-v1.md) |
+| 11 | Banco por célula | **Manter um banco por célula** (a opção a: seis) | [ADR-054](../03_adr/ADR-054-banco-por-celula-mantido.md) |
+| 12 | Esboço de código | **a** Oito defeitos corrigidos, com testes de concorrência | [05_implementacao](../05_implementacao/README.md) |
+| 13 | Documentação | **a** Inconsistências corrigidas; P0 como riscos bloqueantes | [02_riscos](02_riscos.md), [Documento principal](../DataReplication_Versao_1.md) |
+| 15 | Contorno de emergência para a recusa do `ForcePromote` antes de D + M | **b** Sem contorno na v1 | [ADR-044](../03_adr/ADR-044-lease-do-modo-degradado-e-promocao-da-azure.md), [C32](../02_cenarios/atualizados/C32-particao-e-lease-do-modo-degradado.md) |
+| 14 | Ordem de trabalho | **a** Cinco fases com TLA+ ampliado e núcleo mínimo verificável | [Documento principal, seção 9](../DataReplication_Versao_1.md#9-implementação) |
+
 ## Respondidas: consequências do "1 para 1" (12 a 14)
 
 Respostas do Bruno em 13/10: **12a, 13a, 14a** ([ADR-043](../03_adr/ADR-043-uma-instalacao-por-cliente-identidade-por-configuracao.md)). A 14a (faixas de IP sem sobreposição) é uma premissa a confirmar com a rede.
@@ -32,8 +54,11 @@ Respostas do Bruno em 13/10: **12a, 13a, 14a** ([ADR-043](../03_adr/ADR-043-uma-
 
 ## Ações (não são escolhas)
 
-- **PEND-02 (bloqueante):** levar ao negócio o aceite formal do RPO > 0 no modo degradado, com um teto de duração. Esse teto também dimensiona o volume do log ([C29](../02_cenarios/atualizados/C29-disco-do-log-em-degradacao-longa.md)).
-- **PEND-01:** aguardar a resposta dos outros arquitetos; este pacote não reabre o tema. A regra de [R06](../02_cenarios/a_rever/R06-duas-azs-aws-caem.md) sai do modelo TLA+.
+- **PEND-02 (bloqueante):** levar ao negócio o aceite formal do RPO > 0 no modo degradado **e o valor de D**, a validade do lease ([ADR-044](../03_adr/ADR-044-lease-do-modo-degradado-e-promocao-da-azure.md)). D também dimensiona o RTO no pior caso (D + M) e o volume do log ([C29](../02_cenarios/atualizados/C29-disco-do-log-em-degradacao-longa.md)).
+- **PEND-01:** o desenho está decidido (lease); validar com os outros arquitetos e provar no modelo TLA+. A regra de [R06](../02_cenarios/a_rever/R06-duas-azs-aws-caem.md) sai do mesmo modelo.
+- **PEND-15 e PEND-16:** inventário real de chamadas e suíte de conformidade, antes de qualquer cliente entrar.
+- **PEND-19:** lista de permissões por aplicação, para o mTLS.
+- **Registrar o motivo** de manter um banco por célula no [ADR-054](../03_adr/ADR-054-banco-por-celula-mantido.md) (padrão de bulkhead da organização ou escolha do projeto).
 - **Verificar** o identificador estável do SDK em cada linguagem e se alguma aplicação retenta por cima do SDK ([R22](../02_cenarios/a_rever/R22-memoria-da-janela-de-dedupe.md)).
 - **Estimar o custo** das seis gravações por escrita lógica **por cliente**, já que cada cliente é uma instalação completa ([R20](../02_cenarios/a_rever/R20-custo-6x.md)).
 - **Segundo circuito privado** por outra operadora ou cabo único na v1: decisão de custo e risco, fora do software ([C25](../02_cenarios/atualizados/C25-link-lento-faixa-cinzenta.md)).

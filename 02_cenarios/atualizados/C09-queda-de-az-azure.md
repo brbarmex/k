@@ -1,10 +1,10 @@
 # C09 — Queda de uma AZ na Azure
 
-**Status:** ✅ Atualizado (modelo v1) · **ADRs:** [ADR-017](../../03_adr/ADR-017-azure-learners-e-gate.md)
+**Status:** ✅ Atualizado (modelo v1) · **ADRs:** [ADR-017](../../03_adr/ADR-017-azure-learners-e-gate.md), [ADR-046](../../03_adr/ADR-046-gate-so-conta-progresso-validado-pelo-raft.md), [ADR-045](../../03_adr/ADR-045-politica-de-degradacao-por-instalacao.md)
 
 ## Cenário
 
-Uma AZ da Azure cai (por exemplo, Z3). Z1 e Z2 seguem como maioria dos learners (2 de 3), então o gate segue satisfeito. Nada muda para o cliente. Quando Z3 volta, faz catch-up pelo log antes de contar de novo para o gate. Se **duas** AZs da Azure caem, é como a Azure inalcançável: entra o modo degradado ([C12](C12-modo-degradado.md)).
+Uma AZ da Azure cai (por exemplo, Z3). Z1 e Z2 seguem como maioria dos learners (2 de 3), então o gate segue satisfeito. Nada muda para o cliente. Quando Z3 volta, faz catch-up pelo log antes de contar de novo para o gate: só conta depois de responder ao `AppendEntries` no termo atual, com termo, índice e identidade. Se **duas** AZs da Azure caem, é como a Azure inalcançável: com `DEGRADED_POLICY=accept` entra o modo degradado com lease ([C12](C12-modo-degradado.md)); com `reject` a escrita responde `503 PENDING` e o RPO continua 0.
 
 ## Diagrama
 
@@ -22,11 +22,12 @@ sequenceDiagram
     L->>Z2: AppendEntries N
     L-->>Z3: AppendEntries N sem resposta
     AW-->>L: ok 2 de 3
-    Z1-->>L: fsync ok
-    Z2-->>L: fsync ok
-    Note over L: commit Raft e maioria Azure com Z1 e Z2, gate libera
+    Z1-->>L: fsync ok, resposta do AppendEntries
+    Z2-->>L: fsync ok, resposta do AppendEntries
+    Note over L: commit Raft e maioria Azure com Z1 e Z2, o gate é alimentado a cada resposta
     Z3->>L: volta e pede a partir do último índice
     L-->>Z3: catch-up pelo log de replicação
+    Z3-->>L: resposta do AppendEntries no termo atual, volta a contar para o gate
 ```
 
 ## Etapas
@@ -38,5 +39,5 @@ sequenceDiagram
 
 ## Falhas e tratativas
 
-- **Duas AZs da Azure caem.** Do ponto de vista da AWS é igual à Azure inalcançável: modo degradado (C12) e ressincronização depois (C13).
+- **Duas AZs da Azure caem.** Do ponto de vista da AWS é igual à Azure inalcançável: modo degradado com lease se `accept` (C12, [C32](C32-particao-e-lease-do-modo-degradado.md)) ou `503 PENDING` se `reject`; ressincronização depois (C13).
 - **Z3 volta com disco novo.** Identidade nova como learner e reconstrução ([C21](C21-disco-fsync-e-reconstrucao.md)).

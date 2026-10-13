@@ -30,7 +30,7 @@ O `etcd-io/raft` espera que o nosso código ofereça:
   - **Vitess** não é Raft: replica o binlog do MySQL (semi-síncrono) e usa um serviço de topologia (etcd/Consul/ZooKeeper) à parte. Não oferece um log de consenso reaproveitável.
   - A tendência é um **log segmentado dedicado para o Raft** e um banco LSM para o **estado**. Aqui o estado já está no DynamoDB/Cosmos.
 - **Custos práticos em Go:** RocksDB exige CGO (quebra o build estático/*distroless* e traz uma memória que o GC do Go não gerencia). O Pebble é Go puro, mas mantém as desvantagens do LSM acima.
-- **Onde um banco embutido poderia ajudar:** índice de dedupe ou checkpoints do applier. Hoje isso é derivado do log e cabe em memória (cerca de 12 MiB, seção 8.1), então não precisa.
+- **Onde um banco embutido poderia ajudar:** índice de dedupe ou checkpoints do applier. O índice de dedupe é derivado do log e cabe em memória (seção 8.1). O progresso do applier por item é um registro pequeno no **próprio volume do log** (6.3.1, ADR-048), então também não precisa de banco embutido.
 
 **Conclusão:** manter o WAL segmentado próprio (W2). O que reduz o fsync é o **meio de armazenamento** (volume dedicado e provisionado; o NVMe local foi descartado pelo Bruno), medido no spike S1.
 
@@ -42,13 +42,14 @@ O `etcd-io/raft` espera que o nosso código ofereça:
 - Diretório por nó: `segments/` com arquivos de tamanho fixo (ex.: 64 MiB), **pré-alocados** (`fallocate`) para evitar variação de latência por alocação no fsync.
 - Nome do segmento = primeiro índice global dele (ordenação trivial).
 - Índice por shard mantido **em memória** e reconstruído na partida varrendo os segmentos (ou a partir de um checkpoint leve).
+- **Progresso do applier por item** em registro próprio no mesmo volume (6.3.1).
 
 **Registro** (alinhado e com tamanho prefixado):
 ```
 | len u32 | crc32c u32 | type u8 | shardId u32 | term u64 | index u64 | payload ... |
 ```
 - `type`: ENTRY, HARDSTATE, SNAPSHOT_MARK, TRUNCATE, SEGMENT_HEADER.
-- `payload` de ENTRY: `commandId`, hash de dedupe, tabela, chave(s), **post-image**, **versão** (= índice Raft), tipo (PUT/DELETE/BATCH).
+- `payload` de ENTRY: `commandId`, hash de dedupe, tabela (**nome lógico**), chave(s), **post-image**, **versão** (= índice Raft), tipo (PUT/DELETE/BATCH). Cada item da entrada tem uma **ordem** (1 para entrada de um só item); o par `(índice, ordem)` identifica o item para o apply, o SKIP e a consulta de resultado ([ADR-048](../03_adr/ADR-048-skip-por-item.md)).
 - CRC32C (aceleração por hardware) sobre o cabeçalho e o payload.
 - Cabeçalho de segmento com **versão do formato** e UUID do nó (evita copiar segmento de outro nó por engano).
 
@@ -66,20 +67,37 @@ O `etcd-io/raft` espera que o nosso código ofereça:
 - Um segmento só é apagado quando: (a) todos os shards nele aplicaram e (b) nenhum follower/learner **dentro da janela de tolerância** precisa dele.
 - A janela de tolerância para a Azure atrasada é o ponto crítico (ver 6.5).
 
+### 6.3.1 Progresso do applier por item (ADR-048)
+
+O applier **persiste o progresso por item `(índice, ordem)` no volume do log, não no banco**. Assim:
+- Um replay depois de queda reaplica os itens anteriores de forma idempotente (condição `v < índice`) e **para ou pula só o item marcado**, e não a entrada inteira.
+- O `SKIP(index, ordem, motivo, autor)` é uma entrada replicada e auditada; a entrada original nunca é apagada. Pular a entrada inteira exige listar todas as ordens e continua sendo decisão humana ([ADR-038](../03_adr/ADR-038-skip-de-entrada-venenosa-sempre-humano.md)).
+- A consulta por identificador da requisição devolve o resultado **por item**: `APPLIED`, `REJECTED` ou `PENDING`.
+- O índice do item que trava o applier é exportado como `poison_entry_index` (métrica por shard e por item).
+- O arquivo local do ponto mais alto aplicado antes da queda (high-water mark, usado para abrir as leituras só depois do replay, ver 6.4.1) passa a fazer parte do mesmo registro de progresso.
+
 ### 6.5 Retenção versus Azure atrasada
 O disco do WAL enche quando a Azure fica muito tempo fora (já era a falha mais grave da revisão). Regras da v1:
 - Retenção por **tamanho máximo** (ex.: 70% do volume) e por **tempo mínimo** (cobrir a janela de manutenção planejada).
 - Alertas em 50% e 70%.
 - Ao passar do limite: o `DataReplication` **para de reter para a Azure**, a Azure é marcada como "fora de janela" e precisará de **reconstrução completa** (6.6) em vez de *catch-up* pelo log. Prefiro perder a elegibilidade da Azure a derrubar o disco da AWS.
+- **Retenção desde F para o rebuild (ADR-047).** Uma reconstrução em tabela sombra registra o índice **F** do log antes de começar e o log precisa estar retido **desde F** até o cutover. Se a varredura demorar mais que a retenção permitida pelo teto de 70% ([ADR-041](../03_adr/ADR-041-disco-do-log-teto-de-70-por-cento-sem-s3-na-v1.md)), o rebuild falha e recomeça com um F novo. O dimensionamento do disco ([C29](../02_cenarios/atualizados/C29-disco-do-log-em-degradacao-longa.md)) precisa contar esse caso.
 
 ### 6.6 "Snapshot" neste sistema e reconstrução de réplica
 No Raft comum, o snapshot é uma cópia da máquina de estados. Aqui o estado vive **no banco** (DynamoDB/Cosmos), não no `DataReplication`. Então:
 - O "snapshot" do Raft é só um **marcador** (`appliedIndex`, term, configuração) que permite descartar o prefixo do log.
 - Uma réplica atrasada **além do que o log retém** não consegue se alcançar pelo log. Ela precisa de uma **transferência de estado**: copiar os itens do banco de um par (varredura consistente em um índice conhecido) ou restaurar um backup/export e então aplicar o log a partir dali.
-- **Isso não está resolvido nesta versão.** Para a v1: retenção longa (6.5) e reconstrução **manual assistida** por uma ferramenta `drctl rebuild`. A automação completa vira hipótese aberta (H-DR1, seção 15).
+- **Protocolo de reconstrução em tabela sombra (ADR-047, [C33](../02_cenarios/atualizados/C33-reconstrucao-em-tabela-sombra.md)).** Cópia difusa mais replay do log, que converge porque o apply é condicional por versão:
+  1. registrar o índice **F** do log e reter o log desde F (6.5);
+  2. criar a tabela sombra (com GSIs) e copiá-la por varredura, gravando cada item com a condição de versão;
+  3. reaplicar o log a partir de F até a cabeça (o DELETE é reaplicado em ordem);
+  4. com o lag abaixo do limite, pausar a escrita da célula, fechar o último trecho e fazer o **cutover** do nome lógico para a tabela sombra, com nova **geração** (ver 6.4.3);
+  5. verificar por **checksum por faixa de chaves** antes de religar as leituras (`last_reconciled`).
+- Custos: WCU/RU durante a varredura, no DynamoDB e no Cosmos (o Cosmos precisa do mesmo protocolo pelo Cloud-Adapter). A anti-entropia por checksum detecta divergência, não a previne.
+- Para a v1 a execução é **assistida**: o `drctl rebuild` conduz os passos e uma pessoa aprova o cutover (matriz em 9.5). A automação completa segue como hipótese aberta (H-DR1, seção 15).
 
 ### 6.7 Entradas e tamanho
-- Um `BatchWriteItem` vira **uma entrada** ([ADR-035](../03_adr/ADR-035-lote-batchwriteitem-uma-entrada-e-apply-condicional.md), [C23](../02_cenarios/atualizados/C23-batchwriteitem-lote-uma-entrada.md)); transações estão fora do escopo da v1.
+- Um `BatchWriteItem` vira **uma entrada** ([ADR-035](../03_adr/ADR-035-lote-batchwriteitem-uma-entrada-e-apply-condicional.md), [C23](../02_cenarios/atualizados/C23-batchwriteitem-lote-uma-entrada.md)), com os itens numerados por ordem (6.3.1); o dedupe é **por requisição**, não por item; transações estão fora do escopo da v1.
 - Limite de **4 MiB** por entrada (A4), configurável (decidido pelo Bruno, 12/10, que deixou a escolha comigo). Acima, a escrita é recusada com erro de validação, sem entrar no log. Um item do DynamoDB tem no máximo 400 KB, e um batch grande pode passar de 4 MiB; esses casos são recusados.
 
 ---

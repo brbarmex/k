@@ -10,7 +10,7 @@ Com apply serial por shard no Strong, o applier não pode pular uma entrada. Uma
 
 1. **Validar antes do commit** contra as regras dos dois bancos (DynamoDB e Cosmos). O que nenhum aceita nunca vira entrada do log.
 2. **Classificar o erro do apply:** transitório (throttling, 5xx, timeout) tenta de novo; permanente para o applier com parada explícita, métrica `poison_entry_index` e alerta.
-3. **`SKIP(index, motivo, autor)` é decidido sempre por uma pessoa** e entra como entrada replicada: todas as células pulam a mesma entrada, a divergência fica registrada e a entrada original nunca é apagada.
+3. **`SKIP(index, ordem, motivo, autor)` (por item, ADR-048) é decidido sempre por uma pessoa** e entra como entrada replicada: todas as células pulam a mesma entrada, a divergência fica registrada e a entrada original nunca é apagada.
 
 ## Alternativas consideradas
 
@@ -21,6 +21,10 @@ Com apply serial por shard no Strong, o applier não pode pular uma entrada. Uma
 - O shard fica parado até alguém agir. Em segundos, todas as escritas do shard viram `503 PENDING`: precisa de plantão e de um circuito que rejeite rápido enquanto o shard está parado.
 - A consulta por identificador precisa devolver `REJECTED` para a escrita pulada.
 - Recusa que só existe no Cosmos é silenciosa até o failover: métrica `applied_lag` por cloud e teste de contrato do Cloud-Adapter.
+
+## Atualização de 13/10/2026 (revisão crítica)
+
+O `SKIP` agora identifica **o item** `(índice, ordem)` e não a entrada inteira; o progresso do applier é persistido por item e a consulta devolve o resultado por item ([ADR-048](ADR-048-skip-por-item.md)). Continua sempre humano e auditado.
 
 ## Onde está o detalhe
 

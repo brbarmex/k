@@ -24,6 +24,10 @@ Depois da promoção da Azure (epoch E+1), os DynamoDBs da AWS guardam o estado 
 - A revogação de credenciais depende do console da AWS estar acessível ([R11](../02_cenarios/a_rever/R11-api-de-promocao-depende-da-aws.md)).
 - O retorno à AWS é uma transferência planejada depois da célula reconstruída e validada ([C16](../02_cenarios/atualizados/C16-aws-volta-apos-promocao.md)).
 
+## Atualização de 13/10/2026 (revisão crítica)
+
+O gatilho da promoção agora é o do [ADR-044](ADR-044-lease-do-modo-degradado-e-promocao-da-azure.md): a Azure só é promovida depois de D + M, então a AWS antiga já parou de aceitar escrita (lease expirado) antes de a Azure aceitar a primeira. O fencing por boot e credenciais continua necessário para o retorno da célula.
+
 ## Onde está o detalhe
 
 - [C30-aws-que-volta-boot-cercado.md](../02_cenarios/atualizados/C30-aws-que-volta-boot-cercado.md)

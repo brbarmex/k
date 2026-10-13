@@ -24,7 +24,8 @@ flowchart TD
 - DNS e roteamento (Route 53 x Azure DNS), Compass-Router e Agent (dependência externa, já confirmada nas duas clouds);
 - repositório e pipeline que aplicam manifests (GitOps hospedado na AWS?);
 - federação de identidade (IAM x Entra ID) e acesso do operador ao console da Azure;
-- observabilidade e alertas: se o painel está na AWS, o operador fica cego no desastre.
+- observabilidade e alertas: se o painel está na AWS, o operador fica cego no desastre;
+- o contador de D + M da `ForcePromote`: o instante do último contato e o relógio monotônico ficam na própria Azure, sem consultar a AWS ([ADR-044](../../03_adr/ADR-044-lease-do-modo-degradado-e-promocao-da-azure.md)).
 
 ## Pontos em aberto
 

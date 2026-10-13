@@ -1,6 +1,6 @@
 # Índice de ADRs
 
-Um arquivo por decisão. ADR-001 a 015 são herdados das versões anteriores da documentação (revisados); ADR-016 a 043 registram as decisões da v1 do DataReplication (12 e 13/10/2026). O status **Provisório** indica pendência aberta.
+Um arquivo por decisão. ADR-001 a 015 são herdados das versões anteriores da documentação (revisados); ADR-016 a 054 registram as decisões da v1 do DataReplication (12 e 13/10/2026; os ADRs 044 a 054 vêm da revisão crítica de 13/10). O status **Provisório** indica pendência aberta.
 
 | ADR | Título | Status |
 |---|---|---|
@@ -12,7 +12,7 @@ Um arquivo por decisão. ADR-001 a 015 são herdados das versões anteriores da 
 | [ADR-006](ADR-006-consenso-por-shard-eleicao-na-aws.md) | Consenso por shard; eleição só na AWS | Aceito |
 | [ADR-007](ADR-007-sidecar-e-coordenacao-compartilhada.md) | Sidecar com coordenação compartilhada | Substituído pelo ADR-016 |
 | [ADR-008](ADR-008-terceiro-dominio.md) | Terceiro domínio com WAL integral | Descartado |
-| [ADR-009](ADR-009-eventual-e1.md) | Modo Eventual = E1 (mesma escrita, leitura local) | Decidido (Bruno) |
+| [ADR-009](ADR-009-eventual-e1.md) | Modo Eventual = E1 (mesma escrita, leitura local) | Decidido (Bruno); apply paralelo retirado (ADR-053) |
 | [ADR-010](ADR-010-follower-encaminha-para-lider.md) | Follower encaminha para a líder | Aceito (Bruno, 11/10/2026) |
 | [ADR-011](ADR-011-witness-manifesto-snapshots.md) | Witness = manifesto assinado, snapshots e WAL | Mantido |
 | [ADR-012](ADR-012-sem-downgrade-strong-eventual.md) | Sem downgrade automático de Strong para Eventual | Confirmado (requisito) |
@@ -26,7 +26,7 @@ Um arquivo por decisão. ADR-001 a 015 são herdados das versões anteriores da 
 | [ADR-020](ADR-020-raft-etcd-io-camada-multigrupo.md) | Raft: etcd-io/raft com camada multi-grupo própria | Decidido (Bruno) |
 | [ADR-021](ADR-021-grpc-entre-celulas.md) | gRPC entre as células | Decidido (Bruno) |
 | [ADR-022](ADR-022-banco-por-celula-nome-logico.md) | Um banco por célula; nome lógico com {cell} | Decidido (Bruno) |
-| [ADR-023](ADR-023-modos-de-escrita-e-leitura.md) | Modos de escrita (Strong serial, Eventual paralelo) e de leitura (padrão forte) | Decidido (Bruno) |
+| [ADR-023](ADR-023-modos-de-escrita-e-leitura.md) | Modos de escrita (Strong serial, Eventual paralelo) e de leitura (padrão forte) | Escrita substituída pelo ADR-053; leitura vigente |
 | [ADR-024](ADR-024-delete-real-ttl-local-gsi.md) | DELETE real com ordem por chave; TTL local; GSI | Decidido (Bruno) |
 | [ADR-025](ADR-025-escopo-da-api-v1-e-sdks.md) | Escopo da API v1 e SDKs suportados | Decidido (Bruno) |
 | [ADR-026](ADR-026-dedupe-de-retry-id-estavel.md) | Dedupe de retry na líder por identificador estável | Decidido (Bruno) |
@@ -36,7 +36,7 @@ Um arquivo por decisão. ADR-001 a 015 são herdados das versões anteriores da 
 | [ADR-030](ADR-030-verificacao-formal-tla.md) | Modelo TLA+ do gate antes do código do gate | Decidido (Bruno) |
 | [ADR-031](ADR-031-hexagonal-e-bibliotecas.md) | Arquitetura hexagonal e bibliotecas | Decidido (Bruno) |
 | [ADR-032](ADR-032-parse-json-completo-e-rust.md) | Parse completo do JSON na v1; Rust como alternativa registrada | Decidido (Bruno); problema conhecido |
-| [ADR-033](ADR-033-promocao-da-azure-humana.md) | Promoção da Azure sempre humana (provisório) | Provisório (PEND-01 aberta) |
+| [ADR-033](ADR-033-promocao-da-azure-humana.md) | Promoção da Azure sempre humana, só depois de D + M | Decidido o desenho (ADR-044); PEND-01 fecha com D e o TLA+ |
 | [ADR-034](ADR-034-fsync-fatal-e-identidade-nova.md) | Falha de fsync é fatal; disco perdido volta com identidade nova | Decidido (Bruno) |
 | [ADR-035](ADR-035-lote-batchwriteitem-uma-entrada-e-apply-condicional.md) | BatchWriteItem vira uma entrada; o apply é por item e condicional | Decidido (Bruno) |
 | [ADR-036](ADR-036-slo-de-50ms-exclui-a-escrita-no-banco.md) | O SLO de 50 ms exclui a escrita no banco; publicado como overhead + banco | Decidido (Bruno) |
@@ -47,3 +47,14 @@ Um arquivo por decisão. ADR-001 a 015 são herdados das versões anteriores da 
 | [ADR-041](ADR-041-disco-do-log-teto-de-70-por-cento-sem-s3-na-v1.md) | Disco do log: teto de 70% e reconstrução completa; sem S3 na v1 | Decidido (Bruno) |
 | [ADR-042](ADR-042-aws-que-volta-boot-cercado-e-recriacao-da-celula.md) | AWS que volta depois da promoção: boot cercado, credenciais revogadas, célula recriada | Decidido (Bruno) |
 | [ADR-043](ADR-043-uma-instalacao-por-cliente-identidade-por-configuracao.md) | Uma instalação por cliente; o cliente é conhecido na configuração | Decidido (Bruno) |
+| [ADR-044](ADR-044-lease-do-modo-degradado-e-promocao-da-azure.md) | Modo degradado com lease: a AWS para sozinha e a Azure só promove depois de D mais margem | Decidido (Bruno); D depende da PEND-02 |
+| [ADR-045](ADR-045-politica-de-degradacao-por-instalacao.md) | `DEGRADED_POLICY` obrigatória por instalação (`accept` ou `reject`) | Decidido (Bruno) |
+| [ADR-046](ADR-046-gate-so-conta-progresso-validado-pelo-raft.md) | O gate só conta progresso validado pelo Raft no termo atual | Decidido (Bruno) |
+| [ADR-047](ADR-047-delete-real-invariante-e-reconstrucao-em-tabela-sombra.md) | DELETE real com invariante formal; reconstrução em tabela sombra | Decidido (Bruno) |
+| [ADR-048](ADR-048-skip-por-item.md) | O SKIP identifica o item: (índice, ordem) | Decidido (Bruno) |
+| [ADR-049](ADR-049-barreira-da-leitura-forte-e-o-gate.md) | A leitura forte espera `min(ReadIndex, gate)` | Decidido (Bruno) |
+| [ADR-050](ADR-050-gsi-nao-tem-leitura-forte.md) | `ConsistentRead=true` em GSI é recusada, como no DynamoDB | Decidido (Bruno) |
+| [ADR-051](ADR-051-compatibilidade-dynamodb-inventario-conformidade-e-idempotencia.md) | Compatibilidade com o DynamoDB: inventário, conformidade e limite da idempotência | Decidido (Bruno) |
+| [ADR-052](ADR-052-autorizacao-por-aplicacao-com-mtls.md) | Autorização por aplicação com mTLS | Decidido (Bruno) |
+| [ADR-053](ADR-053-eventual-sem-apply-paralelo-na-v1.md) | O modo Eventual é só de leitura; o apply paralelo sai da v1 | Decidido (Bruno) |
+| [ADR-054](ADR-054-banco-por-celula-mantido.md) | Um banco por célula mantido, com o trade-off registrado | Decidido (Bruno) |

@@ -30,6 +30,10 @@ Era preciso definir como a API identifica o cliente (`Access Key Id` do SigV4 ou
 - Versões, correções e a operação de N instalações viram um processo de frota; a definição de pronto vale por instalação.
 - Recomendação: nome do cliente como variável de configuração, usada em rótulos de métricas, auditoria e chave de dedupe (nome da variável a definir).
 
+## Atualização de 13/10/2026 (revisão crítica)
+
+O item 3 (NetworkPolicy como fronteira) é completado pela **autorização por aplicação com mTLS** ([ADR-052](ADR-052-autorizacao-por-aplicacao-com-mtls.md)): o ADR-043 resolve "quem é o cliente", não "quem pode escrever o quê".
+
 ## Onde está o detalhe
 
 - [C31-implantacao-por-cliente-e-identidade.md](../02_cenarios/atualizados/C31-implantacao-por-cliente-e-identidade.md)

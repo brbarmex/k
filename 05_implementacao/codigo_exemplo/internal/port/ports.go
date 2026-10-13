@@ -2,6 +2,7 @@ package port
 
 import (
 	"context"
+	"time"
 
 	"example.com/datareplication/internal/domain"
 )
@@ -24,7 +25,26 @@ type ConsensusEngine interface {
 	Leader() (LeaderInfo, bool)
 	TransferLeadership(ctx context.Context, to string) error
 	Committed() <-chan CommitBatch // entradas já commitadas, entregues da memória
-	LearnerDurable() [3]domain.Index
+	// Term é o termo atual da líder local (ADR-046: o gate só adota progresso desse termo).
+	Term() domain.Term
+	// LearnerEvents entrega CADA resposta de AppendEntries dos learners da Azure, no
+	// momento em que chega (o gate é alimentado por evento, ADR-046). O progresso da
+	// Azure não tem outro canal.
+	LearnerEvents() <-chan LearnerProgress
+	// LearnerDurable é o retrato atual do progresso: (termo, índice, identidade) por learner.
+	LearnerDurable() []LearnerProgress
+}
+
+// LearnerProgress é o índice de casamento devolvido por um learner depois do fsync,
+// com o termo em que foi confirmado e a identidade do learner (ADR-046, ADR-034).
+type LearnerProgress struct {
+	Term    domain.Term
+	Index   domain.Index
+	Learner string
+	// SentAt é o instante de ENVIO (relógio monotônico da líder) da mensagem que o
+	// learner confirmou, heartbeat ou AppendEntries. Alimenta t_c, o último contato com a
+	// maioria Azure, de onde o lease do modo degradado conta (ADR-044).
+	SentAt time.Time
 }
 
 // CommitBatch é um lote de entradas commitadas pelo Raft, em ordem.
@@ -67,11 +87,14 @@ type WriteRequest struct {
 	Ops      []domain.Op
 	ClientID string // id estável do SDK, se houver
 	Deadline int64  // unix nano
+	// Forwarded marca a requisição que já foi encaminhada por um follower: nunca é
+	// reencaminhada (limite de um salto, ADR-039).
+	Forwarded bool
 }
 
 type WriteResult struct {
 	Index    domain.Index
-	Degraded bool // vira o header x-dr-mode: degraded (D10)
+	Degraded bool // vira o header x-dr-mode: degraded (D10); vem do estado real do shard
 }
 
 type Writer interface {

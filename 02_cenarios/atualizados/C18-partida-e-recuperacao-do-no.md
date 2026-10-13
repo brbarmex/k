@@ -1,6 +1,6 @@
 # C18 — Partida, recuperação e parada limpa do nó
 
-**Status:** ✅ Atualizado (modelo v1) · **ADRs:** [ADR-018](../../03_adr/ADR-018-dois-logs-raft-e-replicacao.md), [ADR-019](../../03_adr/ADR-019-wal-proprio-volume-dedicado.md), [ADR-034](../../03_adr/ADR-034-fsync-fatal-e-identidade-nova.md), [ADR-028](../../03_adr/ADR-028-timeouts-em-cascata.md) · **Relacionados:** [X04 Partida e dois logs](../complexos/X04-partida-recuperacao-e-dois-logs.md)
+**Status:** ✅ Atualizado (modelo v1) · **ADRs:** [ADR-018](../../03_adr/ADR-018-dois-logs-raft-e-replicacao.md), [ADR-019](../../03_adr/ADR-019-wal-proprio-volume-dedicado.md), [ADR-034](../../03_adr/ADR-034-fsync-fatal-e-identidade-nova.md), [ADR-028](../../03_adr/ADR-028-timeouts-em-cascata.md), [ADR-045](../../03_adr/ADR-045-politica-de-degradacao-por-instalacao.md), [ADR-047](../../03_adr/ADR-047-delete-real-invariante-e-reconstrucao-em-tabela-sombra.md), [ADR-048](../../03_adr/ADR-048-skip-por-item.md) · **Relacionados:** [X04 Partida e dois logs](../complexos/X04-partida-recuperacao-e-dois-logs.md)
 
 ## Cenário
 
@@ -17,7 +17,7 @@ flowchart TD
     C -->|"cauda rasgada"| C2["trunca a cauda e segue"]
     C2 --> D
     C --> D["RaftNode inicia e completa o log de replicação a partir do Raft"]
-    D --> E["Applier retoma até o high-water mark anterior"]
+    D --> E["Applier retoma pelo progresso por item até o high-water mark anterior"]
     E --> F["readyz verde"]
     F --> G["porta de API abre"]
     G --> H(("em serviço"))
@@ -48,13 +48,14 @@ stateDiagram-v2
 
 ## Etapas
 
-1. **Configuração:** `CELL_ID`, `WRITE_MODE` e `READ_MODE_DEFAULT` são obrigatórias; chaves desconhecidas no YAML são recusadas; prazos fora de ordem recusam a partida.
+1. **Configuração:** `CELL_ID`, `DEGRADED_POLICY` (`accept` ou `reject`, sem valor padrão) e `READ_MODE_DEFAULT` são obrigatórias; com `accept`, a validade `DEGRADED_LEASE` (D) também. `WRITE_MODE` saiu da v1 ([ADR-053](../../03_adr/ADR-053-eventual-sem-apply-paralelo-na-v1.md)). Chaves desconhecidas no YAML são recusadas; prazos fora de ordem recusam a partida.
 2. **Logs:** verifica o CRC; cauda rasgada é truncada; corrupção no meio faz o nó recusar subir.
 3. **Completar o log de replicação:** se estiver atrás do índice commitado, é completado a partir do log do Raft antes de aceitar tráfego.
-4. **Applier:** retoma até o high-water mark anterior; as leituras fortes só abrem depois (evita ler dado velho e ressuscitar DELETE).
+4. **Applier:** retoma pelo progresso **por item** `(índice, ordem)`, persistido no volume do log ([ADR-048](../../03_adr/ADR-048-skip-por-item.md)), até o high-water mark anterior; as leituras fortes só abrem depois (evita ler dado velho e ressuscitar DELETE). A regra é imposta por código e coberta por teste de propriedade ([ADR-047](../../03_adr/ADR-047-delete-real-invariante-e-reconstrucao-em-tabela-sombra.md), invariante `I-DEL`). Líder recém-eleita só atende leitura forte depois de reconstruir o gate ([C08](C08-queda-de-celula-lider-ou-az-aws.md)).
 5. **Probes:** `startupProbe` cobre a recuperação; `readinessProbe` não depende de quórum; `livenessProbe` só diz se o loop trava.
 6. **Parada:** SIGTERM fecha a API, transfere a liderança, drena com prazo menor que o `terminationGracePeriodSeconds` e fecha os logs.
 
 ## Falhas e tratativas
 
 - **Tempo de recuperação longo.** Não quantificado: [R18](../a_rever/R18-rto-nao-quantificado.md).
+- **Reinício durante o modo degradado.** O contador do lease (`t_c`) vive em memória e se perde. Um nó que volta e encontra `DEGRADE` sem `RESTORE` não herda `t_c`: trata o lease como expirado até obter contato com a Azure ou um `RENEW` ([ADR-044](../../03_adr/ADR-044-lease-do-modo-degradado-e-promocao-da-azure.md), [C32](C32-particao-e-lease-do-modo-degradado.md)).

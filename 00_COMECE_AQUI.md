@@ -7,6 +7,7 @@
 1. **[DataReplication_Versao_1.md](DataReplication_Versao_1.md)** é o documento principal: problema, solução, decisões, arquitetura, fluxos, falhas e links para tudo o que tem mais detalhe.
 2. **[02_cenarios/INDEX.md](02_cenarios/INDEX.md)** mostra cada cenário (com diagrama) e a sua situação: atualizado, complexo ou **a rever**.
 3. **[06_pendencias_e_riscos/03_perguntas_para_o_bruno.md](06_pendencias_e_riscos/03_perguntas_para_o_bruno.md)** lista as decisões que dependem do Bruno, no formato `1a 2b`.
+4. **[06_pendencias_e_riscos/revisao_critica_13_10.md](06_pendencias_e_riscos/revisao_critica_13_10.md)** resume a revisão crítica de 13/10 (parecer: candidata a protótipo, não a produção) e onde cada achado foi tratado.
 
 ## Para cada perfil
 
@@ -23,11 +24,11 @@
 | Pasta | O que tem |
 |---|---|
 | [`01_arquitetura/`](01_arquitetura/README.md) | Detalhe de arquitetura por assunto e o [glossário](01_arquitetura/00_glossario.md) |
-| [`02_cenarios/`](02_cenarios/INDEX.md) | `atualizados/` (C01–C31), `complexos/` (X01–X06) e `a_rever/` (14 cenários ainda sem decisão, R03 a R23) |
-| [`03_adr/`](03_adr/INDEX.md) | 43 decisões de arquitetura, um arquivo por decisão |
+| [`02_cenarios/`](02_cenarios/INDEX.md) | `atualizados/` (C01–C34), `complexos/` (X01–X06) e `a_rever/` (14 cenários ainda sem decisão completa, R03 a R23) |
+| [`03_adr/`](03_adr/INDEX.md) | 54 decisões de arquitetura, um arquivo por decisão |
 | [`04_diagramas/`](04_diagramas/INDEX.md) | Diagramas de arquitetura (D01–D08) e catálogo de todos os diagramas |
 | [`05_implementacao/`](05_implementacao/README.md) | Guia de código, exemplos compilados, structs, testes e spikes |
-| [`06_pendencias_e_riscos/`](06_pendencias_e_riscos/README.md) | Perguntas, pendências, riscos e revisão crítica |
+| [`06_pendencias_e_riscos/`](06_pendencias_e_riscos/README.md) | Perguntas, pendências, riscos e as revisões críticas de 12 e 13/10 |
 
 ## Mapa de seções da arquitetura
 
@@ -48,7 +49,7 @@ Os arquivos de `01_arquitetura/` mantêm a numeração original das seções (5.
 | 13, 14 (testes e spikes) | [05_implementacao/06_testes_e_spikes](05_implementacao/06_testes_e_spikes.md) |
 | 15 (hipóteses) | [R23](02_cenarios/a_rever/R23-hipoteses-gerais.md) |
 | 16 (definição de pronto) | [Documento principal, seção 11](DataReplication_Versao_1.md#11-definição-de-pronto-da-v1) |
-| 17 (revisão crítica) | [revisao_critica_12_10](06_pendencias_e_riscos/revisao_critica_12_10.md) |
+| 17 (revisão crítica) | [revisao_critica_12_10](06_pendencias_e_riscos/revisao_critica_12_10.md) e [revisao_critica_13_10](06_pendencias_e_riscos/revisao_critica_13_10.md) |
 
 ## Como ler os status
 

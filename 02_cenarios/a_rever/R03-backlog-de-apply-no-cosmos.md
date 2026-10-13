@@ -1,6 +1,6 @@
 # R03 — Backlog de apply no Cosmos (429 e RU insuficiente)
 
-**Status:** 🟡 A rever · parcialmente tratado · **ADRs:** [ADR-017](../../03_adr/ADR-017-azure-learners-e-gate.md), [ADR-018](../../03_adr/ADR-018-dois-logs-raft-e-replicacao.md), [ADR-023](../../03_adr/ADR-023-modos-de-escrita-e-leitura.md) · **Relacionados:** [C13](../atualizados/C13-ressincronizacao-da-azure.md), [C05](../atualizados/C05-leitura-strong-e-eventual.md), [X04](../complexos/X04-partida-recuperacao-e-dois-logs.md)
+**Status:** 🟡 A rever · parcialmente tratado; o limite de lag de apply para a elegibilidade ao failover é a PEND-18 (valor a definir) · **ADRs:** [ADR-017](../../03_adr/ADR-017-azure-learners-e-gate.md), [ADR-018](../../03_adr/ADR-018-dois-logs-raft-e-replicacao.md), [ADR-023](../../03_adr/ADR-023-modos-de-escrita-e-leitura.md) · **Relacionados:** [C13](../atualizados/C13-ressincronizacao-da-azure.md), [C05](../atualizados/C05-leitura-strong-e-eventual.md), [X04](../complexos/X04-partida-recuperacao-e-dois-logs.md)
 
 ## Cenário
 
@@ -21,6 +21,9 @@ flowchart TD
     E --> H["Log da Azure não pode ser truncado: disco enche"]
     H --> I["Learner falha o fsync e sai do gate"]
     I --> J["AWS pode entrar em modo degradado: RPO maior que 0"]
+    E --> K{"Lag de apply acima do limite de elegibilidade? PEND-18"}
+    K -->|"sim"| L["Alerta: Azure não elegível ao failover sem decisão humana explícita"]
+    K -->|"não"| M["Azure elegível: RTO previsível"]
 ```
 
 ## Fluxo proposto
@@ -29,7 +32,8 @@ flowchart TD
 2. SLO de atraso de apply na Azure (por exemplo < 5 s) com alerta. Esse atraso é o **RTO escondido**.
 3. Alerta de ocupação de disco dos learners com projeção de tempo até encher, ligado ao atraso de apply.
 4. Teste periódico do tempo de drenagem de backlog (entra nos game days, [R10](R10-operador-lento-no-desastre.md)).
-5. Contagem de RU por operação deve vir de teste com o Cloud-Adapter real: escrita condicional e itens de 2 KB têm custo diferente do exemplo de catálogo.
+5. **Limite de lag de apply para a elegibilidade ao failover (PEND-18).** Definir o atraso máximo entre `last_azure_durable` e `last_applied` na Azure acima do qual a Azure deixa de ser considerada elegível a assumir (o valor é **a definir**, com os testes de RU e a drenagem medida nos exercícios de falha). Acima do limite, o runbook de promoção ([R10](R10-operador-lento-no-desastre.md)) exige decisão humana explícita, ciente de que as leituras fortes só abrem depois da drenagem. O limite é um alerta e um critério de decisão; ele **não** entra no gate (ver abaixo).
+6. Contagem de RU por operação deve vir de teste com o Cloud-Adapter real: escrita condicional e itens de 2 KB têm custo diferente do exemplo de catálogo.
 
 ## Falhas e tratativas
 
@@ -38,5 +42,5 @@ flowchart TD
 
 ## Pontos em aberto
 
-- Meta de atraso de apply na Azure e dono do alerta (a definir com testes de RU).
+- Meta de atraso de apply na Azure, dono do alerta e limite de elegibilidade ao failover (PEND-18; a definir com testes de RU e exercícios de falha).
 - Política quando o disco do learner passa de um teto: pausar o recebimento (saindo do gate de forma controlada) ou continuar até o fsync falhar? **Recomendação:** saída controlada com alerta antes de falhar.

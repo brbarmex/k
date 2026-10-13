@@ -18,6 +18,10 @@ Suportar condicionais e transações na v1.
 
 Rejeição é HTTP 400 não retentável. Reavaliar na v1.1.
 
+## Atualização de 13/10/2026 (revisão crítica)
+
+O recorte da API é decisão do Bruno, não defeito. Antes de cada cliente entrar, são obrigatórios o inventário real de chamadas, o levantamento do uso de escrita condicional e a suíte de conformidade ([ADR-051](ADR-051-compatibilidade-dynamodb-inventario-conformidade-e-idempotencia.md)).
+
 ## Onde está o detalhe
 
 - [09_12factors_cloud_native_e_sdks.md](../01_arquitetura/09_12factors_cloud_native_e_sdks.md)

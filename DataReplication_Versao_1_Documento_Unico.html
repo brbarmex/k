@@ -82,6 +82,8 @@ footer{margin-top:50px;color:var(--mut);font-size:14px;border-top:1px solid var(
 <h1>DataReplication v1: documento único</h1>
 <div class="meta">Estado em 13/10/2026 · Dono: Bruno · Reúne em um só arquivo o resumo, os requisitos e os diagramas numerados de todos os cenários. Os links levam aos documentos do pacote <code>DataReplication_Versao_1</code> (este arquivo fica na raiz dele).</div>
 
+<div class="meta" style="border-left:4px solid var(--warn);background:var(--warnbg);color:var(--fg);padding:10px 14px;border-radius:6px;margin:14px 0"><strong>Aviso de versão.</strong> Este documento único foi gerado antes das decisões da revisão crítica de 13/10 (ADR-044 a ADR-054). Os diagramas e as legendas ainda mostram o desenho anterior em pontos como o apply paralelo do modo Eventual, o modo degradado sem validade (lease), o <code>SKIP</code> por entrada, a leitura forte com <code>ReadIndex</code> simples e a leitura forte em GSI. Os cenários novos C32 (lease), C33 (tabela sombra) e C34 (mTLS) ainda não estão aqui. Vale o pacote em Markdown: veja <a href="06_pendencias_e_riscos/revisao_critica_13_10.md">revisao_critica_13_10.md</a>.</div>
+
 <section id="resumo">
 <h2>1 Resumo executivo</h2>
 

@@ -18,6 +18,10 @@ Rejeitar escritas durante a degradação (desfaz a opção B).
 
 Os SDKs ignoram o header; apps que o leem precisam de interceptor. PEND-02 passa a bloqueante.
 
+## Atualização de 13/10/2026 (revisão crítica)
+
+O header **não é o aceite de risco**: os SDKs o ignoram. O aceite é a variável `DEGRADED_POLICY` por instalação ([ADR-045](ADR-045-politica-de-degradacao-por-instalacao.md)), e o modo degradado tem validade ([ADR-044](ADR-044-lease-do-modo-degradado-e-promocao-da-azure.md)). Ao fim do lease a resposta é `503 LEASE_EXPIRED`.
+
 ## Onde está o detalhe
 
 - [X02-modo-degradado.md](../02_cenarios/complexos/X02-modo-degradado.md)

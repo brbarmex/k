@@ -1,12 +1,12 @@
 # C28 — Leitura eventual na Azure durante a degradação (antes R04)
 
-**Status:** ✅ Atualizado (decidido pelo Bruno em 13/10/2026) · **ADRs:** [ADR-040](../../03_adr/ADR-040-leitura-eventual-na-azure-acima-do-limite.md), [ADR-009](../../03_adr/ADR-009-eventual-e1.md), [ADR-023](../../03_adr/ADR-023-modos-de-escrita-e-leitura.md), [ADR-027](../../03_adr/ADR-027-sinalizacao-do-modo-degradado.md) · **Relacionados:** [C05](C05-leitura-strong-e-eventual.md), [C12](C12-modo-degradado.md), [X02](../complexos/X02-modo-degradado.md)
+**Status:** ✅ Atualizado (decidido pelo Bruno em 13/10/2026) · **ADRs:** [ADR-040](../../03_adr/ADR-040-leitura-eventual-na-azure-acima-do-limite.md), [ADR-009](../../03_adr/ADR-009-eventual-e1.md), [ADR-023](../../03_adr/ADR-023-modos-de-escrita-e-leitura.md), [ADR-027](../../03_adr/ADR-027-sinalizacao-do-modo-degradado.md), [ADR-044](../../03_adr/ADR-044-lease-do-modo-degradado-e-promocao-da-azure.md), [ADR-053](../../03_adr/ADR-053-eventual-sem-apply-paralelo-na-v1.md) · **Relacionados:** [C32](C32-particao-e-lease-do-modo-degradado.md), [C05](C05-leitura-strong-e-eventual.md), [C12](C12-modo-degradado.md), [X02](../complexos/X02-modo-degradado.md)
 
 ## Cenário
 
-No modo degradado a Azure deixa de receber entradas. Uma leitura **eventual** servida por uma célula Azure lê o Cosmos local e pode devolver dado com horas ou dias de atraso, sem que o cliente saiba. Para um banco, isso pode ser um saldo antigo apresentado como atual.
+No modo degradado a Azure deixa de receber entradas. Uma leitura **eventual** servida por uma célula Azure lê o Cosmos local e pode devolver dado atrasado sem que o cliente saiba. Com o lease do modo degradado ([ADR-044](../../03_adr/ADR-044-lease-do-modo-degradado-e-promocao-da-azure.md)) a AWS para de aceitar escrita ao fim de D, então a defasagem de dados novos tem um teto de cerca de D, **a menos que uma pessoa prorrogue** (`RENEW`); se a Azure ficar horas fora com o lease prorrogado, o atraso volta a crescer. Para um banco, isso pode ser um saldo antigo apresentado como atual.
 
-O padrão de leitura é **forte** (`READ_MODE_DEFAULT`); este caso só ocorre quando o cliente pede leitura eventual de forma explícita ([C05](C05-leitura-strong-e-eventual.md)).
+O padrão de leitura é **forte** (`READ_MODE_DEFAULT`, só na tabela base); este caso só ocorre quando o cliente pede leitura eventual de forma explícita, ou lê um GSI, que é sempre eventual ([C05](C05-leitura-strong-e-eventual.md)). O Eventual é só de leitura na v1: não existe apply paralelo de escrita ([ADR-053](../../03_adr/ADR-053-eventual-sem-apply-paralelo-na-v1.md)). Com `DEGRADED_POLICY=reject` a Azure nunca fica defasada por degradação, só por lentidão.
 
 ## Decisão
 
@@ -28,7 +28,7 @@ flowchart TD
 
 1. A defasagem é `max(idade do último heartbeat da líder, tempo estimado para aplicar o que já chegou)`, medida **com relógio monotônico local**, sem depender do relógio da AWS (H9).
 2. Quando o link caiu, a defasagem é **desconhecida**, e desconhecida conta como acima do limite.
-3. Toda resposta eventual da Azure devolve `x-dr-observed-index` e `x-dr-staleness-ms`; a aplicação decide se serve.
+3. Toda resposta eventual da Azure devolve `x-dr-observed-index` e `x-dr-staleness-ms` (e `x-dr-consistency: eventual` em GSI); a aplicação decide se serve.
 4. `MAX_STALENESS` é configuração obrigatória por tabela ou global (valor inicial sugerido: 5 s, a medir).
 
 ## Falhas e tratativas

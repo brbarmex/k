@@ -34,7 +34,7 @@ sequenceDiagram
 1. O Agent manda rotear o shard para a Azure.
 2. A app em Z1 chama o `DataReplication` local.
 3. Ele encaminha à líder AWS (1 salto) pelo link dedicado.
-4. A líder executa a escrita completa (C03 ou C04) e responde.
+4. A líder executa a escrita completa (C03) e responde.
 5. Se a líder não for alcançável, o erro é recuperável; nenhuma escrita local.
 
 ## Falhas e tratativas

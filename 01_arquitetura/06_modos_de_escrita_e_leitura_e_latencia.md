@@ -1,4 +1,4 @@
-# Orçamento de latência e modos Strong e Eventual
+# Orçamento de latência, escrita serial e modos de leitura Strong e Eventual
 
 > Detalhe de arquitetura do **DataReplication v1**. A numeração das seções (ex.: 5.3, 6.8) vem do documento de origem e é usada nas referências cruzadas; o mapa está em [00_COMECE_AQUI](../00_COMECE_AQUI.md). Visão geral e decisões: [documento principal](../DataReplication_Versao_1.md).
 
@@ -16,36 +16,47 @@ A premissa A1 foi retirada (Bruno, 12/10): a tabela abaixo é só um alvo de tra
 | Gate + disparo do applier | ≤ 1 ms | |
 | **Escrita no DynamoDB** | P99 do DynamoDB | Fora desta soma por enquanto; a reavaliar nos testes |
 | Resposta à aplicação | ≤ 1 ms | |
-| **Total de overhead** | **≈ 15–20 ms + RTT Azure** | Margem para os 50ms |
+| **Total de overhead** | **≈ 15–20 ms + RTT Azure** | Margem para os 50ms. **Soma de metas por etapa, não o P99 da operação** (ver abaixo) |
 
-**Tradeoff que o Bruno deve conhecer:** o applier só roda **depois** do gate, ou seja, depois da Azure. A escrita no DynamoDB poderia rodar em paralelo à confirmação da Azure e economizar um RTT. Mas então uma leitura forte veria um dado que ainda **não está durável na Azure**, e uma perda da AWS logo em seguida criaria um RPO > 0 sem aviso. Recomendo **serial na v1**, medir, e só então avaliar a versão paralela como otimização (D5).
+**Decisão sobre o apply (ADR-053, 13/10):** o applier só roda **depois** do gate, ou seja, depois da Azure, **em todas as instalações**. Rodar a escrita no DynamoDB em paralelo à confirmação da Azure economizaria um RTT, mas um leitor veria um dado que ainda **não está durável na Azure**, e uma perda da AWS logo em seguida criaria um RPO > 0 sem aviso. O apply paralelo só volta como opt-in, com contrato "pode ler escrita não confirmada", se a medição (spike S5) mostrar que `t_apply` estoura o orçamento.
 
-**Outros ganhos possíveis:** `ReadIndex` em lote (uma confirmação para várias leituras fortes), e *pipelining* de propostas do mesmo shard.
+**SLO ponta a ponta, medido sobre a operação completa (decisão 13, 13/10).** A tabela acima é um orçamento por etapa, útil para achar onde o tempo vai; ela **não** é o contrato. O contrato é um SLO ponta a ponta de **latência, erro e recuperação**, medido sobre a operação completa, da chegada da requisição à resposta ao cliente, com os tempos `t_parse`, `t_raft`, `t_azure` e `t_apply` registrados à parte. Somar percentis de etapas não dá o percentil da soma. Ao cliente publica-se `overhead + escrita no banco` ([ADR-036](../03_adr/ADR-036-slo-de-50ms-exclui-a-escrita-no-banco.md)), e o P99 do banco entra no contrato. Os números só são fixados depois do spike S1 e dos testes de carga.
+
+**RTO como distribuição medida em exercícios.** O RTO de um cenário não é a soma dos P99 de etapas sequenciais: é a **distribuição medida em exercícios de falha** (mediana, P95 e pior caso), repetidos em game days. Os componentes servem para diagnosticar, não para prometer. Há um piso que não vem de medição: com `DEGRADED_POLICY=accept`, se a AWS morre em modo degradado, o RTO é **pelo menos D + M** ([ADR-044](../03_adr/ADR-044-lease-do-modo-degradado-e-promocao-da-azure.md); [R18](../02_cenarios/a_rever/R18-rto-nao-quantificado.md), [C32](../02_cenarios/atualizados/C32-particao-e-lease-do-modo-degradado.md)).
+
+**Outros ganhos possíveis:** `ReadIndex` em lote (uma confirmação para várias leituras fortes, sempre limitada por `min(ReadIndex, gate)`, 7.2), e *pipelining* de propostas do mesmo shard.
 
 ---
 
-### 7.1 Modo de escrita: Strong serial, Eventual paralelo (decisão do Bruno, 12/10)
+### 7.1 Escrita sempre serial; o Eventual é só de leitura (ADR-053, substitui a decisão de 12/10)
 
-**Decisão:** no modo **Strong**, a escrita no banco da célula líder só começa depois do gate (maioria AWS + maioria Azure). No modo **Eventual**, a escrita no banco começa assim que a AWS confirma, **em paralelo** à confirmação da Azure. **Nos dois modos o ACK só sai depois da confirmação da Azure** (RPO = 0 do que foi ACKado). O que o Eventual muda é só a janela em que o dado fica visível no banco antes de estar durável na Azure.
+**Decisão atual:** a escrita é a mesma em todas as instalações. A líder replica, espera o gate (maioria AWS + maioria Azure) e só então aplica no banco da célula; o ACK sai depois do apply. **O apply é sempre serial e depois do gate.** O modo Eventual (E1, [ADR-009](../03_adr/ADR-009-eventual-e1.md)) muda **só a leitura** (7.2).
 
-**Como o modo é escolhido (decisão do Bruno):** por **variável de ambiente** do `DataReplication`, aplicada a todas as tabelas daquele processo. A variável é **obrigatória**: sem ela, ou com valor inválido, o app **não sobe**. Não há valor padrão. A configuração geral vem de um arquivo YAML carregado com a lib `viper` (ver 10.1).
+**O que saiu da v1:**
+- O **apply paralelo** do Eventual (escrever no banco assim que a AWS confirma, em paralelo à Azure). Um leitor podia ver uma escrita ainda não durável na Azure, que nunca seria ACKada se a AWS caísse antes, e quem leu agiu sobre um valor que depois "não aconteceu". O ganho era esconder `t_apply` (alguns ms) atrás da Azure; o risco é desproporcional.
+- A variável **`WRITE_MODE`**, o requisito de que o modo fosse igual nas células do grupo e o alerta de divergência dele. Não há mais dois caminhos no applier.
 
-**Aceito pelo Bruno (12/10):** no modo Eventual, o leitor pode ver um dado à frente da durabilidade da Azure por poucos ms.
+**Consequências:**
+1. O ACK inclui `t_apply` em todos os casos; o SLO publicado como overhead + banco ([ADR-036](../03_adr/ADR-036-slo-de-50ms-exclui-a-escrita-no-banco.md)) já absorve isso.
+2. `applied` nunca passa do gate. Isso sustenta a barreira `min(ReadIndex, gate)` da leitura forte (7.2, [ADR-049](../03_adr/ADR-049-barreira-da-leitura-forte-e-o-gate.md)) e a invariante I-DEL (05, 6.4.3).
+3. O applier continua aplicando as operações da mesma chave na ordem do log (05, 6.4.1) e o `appliedIndex` só avança até o último índice **contíguo** aplicado. A falha da Azure depois da gravação deixou de existir como caso, porque o apply só acontece depois do gate (a degradação é tratada pelo lease, 5.3.2).
+4. O cenário [C04](../02_cenarios/atualizados/C04-escrita-eventual.md) descreve o Eventual de leitura, sem escrita paralela.
 
-**Consequências e cuidados:**
-1. **O modo é por processo, não por tabela.** Todas as tabelas de uma instância têm o mesmo modo.
-2. **O modo deve ser igual nas células de um grupo.** O modo determina o comportamento da célula **líder**, e a liderança muda. Se uma célula tiver modo diferente, o comportamento muda silenciosamente quando ela virar líder. Na conexão entre células, trocar o valor do modo e exportar uma métrica/alerta de divergência.
-3. **Leitores veem dado "adiantado" no Eventual.** Isso não é o atraso (staleness) que o E1 já aceita: é ver algo à frente da durabilidade. Se a AWS inteira cair dentro desse intervalo (poucos ms), esse dado some. Aceitável só onde isso for tolerado.
-4. **Ordem por chave no applier paralelo.** Com várias escritas em voo, a condição de versão (6.4) descarta a que chegar atrasada para a mesma chave. O `appliedIndex` só avança até o último índice **contíguo** aplicado, para a barreira das leituras fortes continuar correta.
-5. **Falha da Azure depois da gravação.** Não dá para desfazer a gravação já feita no banco. O desfecho segue o modo degradado (opção B).
-6. **Dois caminhos no applier.** Recomendo implementar o serial primeiro e o paralelo depois, atrás do valor da variável, medindo o ganho real nos testes de carga.
+**Reavaliação:** o apply paralelo pode voltar como opt-in por instalação, com o contrato "pode ler escrita não confirmada", só se a medição do spike S5 mostrar que `t_apply` estoura o orçamento.
 
-### 7.2 Modo de leitura: padrão forte (decisão do Bruno, 12/10)
+### 7.2 Modo de leitura: padrão forte (decisão do Bruno, 12/10; barreira revista em 13/10)
 
 O `ConsistentRead` do SDK será usado para pedir leitura forte, **mas não pode ser a única regra**, porque o cliente pode esquecê-lo. Sem a flag, o SDK pede leitura eventual por padrão, e uma app descuidada leria dado atrasado sem perceber.
 
 **Decidido pelo Bruno (12/10):**
-- Variável de ambiente obrigatória, como a do modo de escrita: `READ_MODE_DEFAULT=strong|eventual` (o app não sobe sem ela).
-- `ConsistentRead=true` **sempre** vira leitura forte.
+- Variável de ambiente obrigatória: `READ_MODE_DEFAULT=strong|eventual` (o app não sobe sem ela).
+- `ConsistentRead=true` **sempre** vira leitura forte, **na tabela base**.
 - `ConsistentRead` ausente ou `false` segue o `READ_MODE_DEFAULT`. Com o padrão `strong`, uma app que esquece a flag recebe leitura forte; a leitura eventual só existe onde a configuração a permitir.
-- Custo: a leitura forte espera a barreira de `appliedIndex` (ReadIndex), que soma ~1 RTT ao líder na célula seguidora. O Eventual lê a tabela local e informa o atraso (E1).
+- **Em GSI não há leitura forte** ([ADR-050](../03_adr/ADR-050-gsi-nao-tem-leitura-forte.md)): `ConsistentRead=true` em `Query` de GSI é recusada com `ValidationException` (400), como no DynamoDB. Sem o parâmetro, `READ_MODE_DEFAULT=strong` vale só para a tabela base; em GSI a leitura é sempre eventual, com o header `x-dr-consistency: eventual`.
+
+**Barreira da leitura forte: `min(ReadIndex, gate)` ([ADR-049](../03_adr/ADR-049-barreira-da-leitura-forte-e-o-gate.md)).** A leitura forte espera que o `appliedIndex` da célula alcance **`min(ReadIndex, gate)`**, e não só o `ReadIndex` do commit do Raft. Motivo: o apply só roda depois do gate; com a barreira antiga, uma Azure lenta atrasava as leituras fortes mesmo sem escrita pendente. Como um cliente só pode ter visto escritas já ACKadas, e toda escrita ACKada está abaixo do gate, o `min` mantém a leitura-do-que-escrevi e desacopla a leitura da saúde da Azure.
+- Na célula follower, a líder devolve o `ReadIndex` **e** o gate na mesma resposta. Um gate antigo guardado na follower enfraqueceria a garantia.
+- A líder recém-eleita só atende leitura forte **depois de reconstruir o gate** ([ADR-029](../03_adr/ADR-029-gate-monotonico-na-troca-de-lider.md), [ADR-046](../03_adr/ADR-046-gate-so-conta-progresso-validado-pelo-raft.md)).
+- Com o applier parado por entrada venenosa, a leitura forte do shard **falha rápido com `503`** em vez de esperar o timeout.
+- Custo: soma ~1 RTT ao líder na célula seguidora. O Eventual lê a tabela local e informa o atraso (E1).
+- Cenários: [C05](../02_cenarios/atualizados/C05-leitura-strong-e-eventual.md) e [R16](../02_cenarios/a_rever/R16-leitura-forte-em-celulas-follower.md).

@@ -8,8 +8,8 @@ Gravidade pela consequência para o dado ou para a disponibilidade; a ordem é a
 |---|---|---|---|---|
 | 1 | Entrada venenosa trava o shard (apply serial não pode pular) | Alta | Validação pré-commit e `SKIP` sempre por pessoa e auditado ([ADR-038](../03_adr/ADR-038-skip-de-entrada-venenosa-sempre-humano.md)) | [C26](../02_cenarios/atualizados/C26-entrada-venenosa.md) |
 | 2 | Disco do log esgota em degradação longa e derruba o commit | Alta | Teto de 70% e reconstrução completa; sem S3 na v1 ([ADR-041](../03_adr/ADR-041-disco-do-log-teto-de-70-por-cento-sem-s3-na-v1.md)) | [C29](../02_cenarios/atualizados/C29-disco-do-log-em-degradacao-longa.md) |
-| 3 | RPO > 0 sem teto e sem aceite formal | Alta (negócio) | **Bloqueante** | [R23](../02_cenarios/a_rever/R23-hipoteses-gerais.md) |
-| 4 | Split-brain na promoção com a AWS viva | Alta | Promoção só humana; discussão externa | [R12](../02_cenarios/a_rever/R12-promocao-com-aws-viva.md) |
+| 3 | RPO > 0 sem aceite formal e sem o valor de D (validade do lease) | Alta (negócio) | **Bloqueante** (PEND-02) | [R23](../02_cenarios/a_rever/R23-hipoteses-gerais.md) |
+| 4 | Split-brain na promoção com a AWS viva | Alta | Mitigado por desenho: lease e promoção só depois de D + M ([ADR-044](../03_adr/ADR-044-lease-do-modo-degradado-e-promocao-da-azure.md)); falta D e a prova no TLA+ | [R12](../02_cenarios/a_rever/R12-promocao-com-aws-viva.md), [C32](../02_cenarios/atualizados/C32-particao-e-lease-do-modo-degradado.md) |
 | 5 | Cosmos lento enche o disco do learner e degrada a AWS | Alta | Achado desta revisão; precisa de alerta e política de saída | [R03](../02_cenarios/a_rever/R03-backlog-de-apply-no-cosmos.md) |
 | 6 | Bug sutil no gate/consenso customizado | Alta | Modelo TLA+ antes do código | [R23](../02_cenarios/a_rever/R23-hipoteses-gerais.md) (H8), [X01](../02_cenarios/complexos/X01-gate-e-troca-de-lider.md) |
 | 7 | `BatchWriteItem` não aceita condição: o applier não pode usar o lote do DynamoDB | Média | Decidido: lote = uma entrada, condicionais por item ([ADR-035](../03_adr/ADR-035-lote-batchwriteitem-uma-entrada-e-apply-condicional.md)) | [C23](../02_cenarios/atualizados/C23-batchwriteitem-lote-uma-entrada.md) |
@@ -24,3 +24,21 @@ Gravidade pela consequência para o dado ou para a disponibilidade; a ordem é a
 | 16 | Cabo dedicado compartilhado entre as instalações dos clientes: um cliente satura a banda dos outros | Alta | Decidido 13a: banda reservada ou limitada por cliente; falta implementar e medir | [C31](../02_cenarios/atualizados/C31-implantacao-por-cliente-e-identidade.md), [C25](../02_cenarios/atualizados/C25-link-lento-faixa-cinzenta.md) |
 | 17 | Faixas de IP sobrepostas entre contas de clientes quebram o tráfego transitivo pelo cabo | Média | Premissa de plano central (14a); confirmar com a rede | [C31](../02_cenarios/atualizados/C31-implantacao-por-cliente-e-identidade.md) |
 | 18 | Operar N instalações isoladas (versões, certificados, plantão de promoção) | Média | Novo (13/10); processo de frota a definir | [C31](../02_cenarios/atualizados/C31-implantacao-por-cliente-e-identidade.md) |
+
+## Riscos da revisão crítica de 13/10 (bloqueantes até haver prova)
+
+Os itens P0 do relatório do Bruno ficam registrados como **bloqueantes**: a v1 não vai a produção sem a prova ou o teste correspondente.
+
+| # | Risco | Gravidade | Situação | Cenário |
+|---|---|---|---|---|
+| 19 | Duas pontas aceitando escrita na partição (opção B + promoção) | Alta, **bloqueante** | Lease D e promoção depois de D + M ([ADR-044](../03_adr/ADR-044-lease-do-modo-degradado-e-promocao-da-azure.md)); falta provar no TLA+ e aprovar D | [C32](../02_cenarios/atualizados/C32-particao-e-lease-do-modo-degradado.md) |
+| 20 | Relógio do lease: pausa de processo, salto de tempo, deriva | Alta | Checagem a cada ACK e relógio monotônico; medir deriva e pausas nos clusters (H-DR13, H-DR14) | [X02](../02_cenarios/complexos/X02-modo-degradado.md) |
+| 21 | Prefixo do gate e reconstrução do gate na troca de líder | Alta, **bloqueante** | Progresso só pelo Raft no termo atual ([ADR-046](../03_adr/ADR-046-gate-so-conta-progresso-validado-pelo-raft.md)); falta o TLA+ | [X01](../02_cenarios/complexos/X01-gate-e-troca-de-lider.md) |
+| 22 | DELETE e replay sem prova; caminhos fora do checkpoint | Alta, **bloqueante** | Invariante `I-DEL` e teste de propriedade ([ADR-047](../03_adr/ADR-047-delete-real-invariante-e-reconstrucao-em-tabela-sombra.md)); falta provar | [X06](../02_cenarios/complexos/X06-delete-ttl-gsi.md) |
+| 23 | Reconstrução de banco sem protocolo | Alta | Protocolo em tabela sombra desenhado; falta implementar e testar com volume real | [C33](../02_cenarios/atualizados/C33-reconstrucao-em-tabela-sombra.md) |
+| 24 | Compatibilidade com o DynamoDB sem inventário nem suíte; escrita condicional excluída | Alta, **bloqueante** | PEND-15 e PEND-16 ([ADR-051](../03_adr/ADR-051-compatibilidade-dynamodb-inventario-conformidade-e-idempotencia.md)) | [R17](../02_cenarios/a_rever/R17-atributo-de-versao-e-limite-400kb.md), [R22](../02_cenarios/a_rever/R22-memoria-da-janela-de-dedupe.md) |
+| 25 | Ampliação de privilégio pelo proxy (qualquer pod escreve em qualquer tabela) | Alta | Decidido: mTLS por aplicação ([ADR-052](../03_adr/ADR-052-autorizacao-por-aplicacao-com-mtls.md)); falta a lista de permissões (PEND-19) | [C34](../02_cenarios/atualizados/C34-autorizacao-por-aplicacao.md) |
+| 26 | Leitura forte acoplada à saúde da Azure | Média | Corrigida por desenho: `min(ReadIndex, gate)` ([ADR-049](../03_adr/ADR-049-barreira-da-leitura-forte-e-o-gate.md)) | [C05](../02_cenarios/atualizados/C05-leitura-strong-e-eventual.md) |
+| 27 | Semântica do Cosmos depois do failover (tamanho, `Number`, índices, TTL) | Média | Entra na suíte de conformidade (PEND-16, PEND-08) | [R17](../02_cenarios/a_rever/R17-atributo-de-versao-e-limite-400kb.md) |
+| 28 | Seis bancos por escrita: o isolamento lógico custa seis materializações, seis reconciliações e seis rebuilds | Média | Decidido manter ([ADR-054](../03_adr/ADR-054-banco-por-celula-mantido.md)); estimar o custo por cliente | [R20](../02_cenarios/a_rever/R20-custo-6x.md) |
+

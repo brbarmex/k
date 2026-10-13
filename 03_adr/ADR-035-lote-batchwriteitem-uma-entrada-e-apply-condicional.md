@@ -25,6 +25,10 @@ O `BatchWriteItem` carrega até 25 itens. Se cada item virasse uma entrada, uma 
 - Um lote cuja soma passa de **4 MiB** (limite de entrada) é recusado antes do commit, mesmo que o DynamoDB aceitasse (o `BatchWriteItem` real chega a 16 MB). Os clientes com itens grandes precisam saber disso.
 - Um item que o banco recusa para sempre trava o shard, como em [ADR-038](ADR-038-skip-de-entrada-venenosa-sempre-humano.md).
 
+## Atualização de 13/10/2026 (revisão crítica)
+
+O SKIP de um item ruim do lote pula **só o item** `(índice, ordem)`; os demais itens são aplicados ([ADR-048](ADR-048-skip-por-item.md)). O dedupe continua sendo por requisição inteira.
+
 ## Onde está o detalhe
 
 - [C23-batchwriteitem-lote-uma-entrada.md](../02_cenarios/atualizados/C23-batchwriteitem-lote-uma-entrada.md)

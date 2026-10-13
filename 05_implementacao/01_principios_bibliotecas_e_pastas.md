@@ -11,6 +11,8 @@ Este guia diz **como o código é organizado**. As decisões de arquitetura (Raf
 3. **Lean:** poucas pastas, poucas camadas, nada de abstração sem uso. Uma interface só existe se há pelo menos dois motivos para trocar a implementação (produção e teste contam).
 4. **Regra de dependência, sempre para dentro:** `adapter → usecase → domain`, `adapter → port`. O núcleo nunca importa um adaptador, nem `fx`, nem a lib de Raft.
 5. **Caminho quente sem surpresa:** sem reflexão, sem log e sem alocação evitável entre a chegada da requisição e o ACK. O Fx e a reflexão ficam só na partida.
+6. **Falha fechada, estado real:** configuração sem `DEGRADED_POLICY` (ou sem `DEGRADED_LEASE` com `accept`) não sobe ([ADR-045](../03_adr/ADR-045-politica-de-degradacao-por-instalacao.md)); política desconhecida recusa o `DEGRADE`; o header `x-dr-mode` vem do estado real do shard (lease ativo), nunca de um valor fixo; relógio, rede e disco entram por porta ou por função injetável, para que o lease e os prazos sejam testáveis sem dormir.
+7. **Concorrência provada por teste:** toda estrutura compartilhada do núcleo (`Gate`, `Lease`, `DegradeService`, `CommitPump`) tem teste de concorrência rodando com `go test -race` no CI.
 
 ## 2. Escolha das bibliotecas (com os tradeoffs)
 
@@ -19,11 +21,11 @@ A pedida foi a biblioteca mais performática. Antes da tabela, uma ressalva hone
 | Papel | Escolha | Alternativas | Por quê / risco |
 |---|---|---|---|
 | **Injeção de dependência** | `go.uber.org/fx` (decisão do Bruno) | `wire` (geração em compilação) | Fx usa reflexão **só na partida**, custo zero no caminho quente. Riscos: erros de grafo só aparecem na execução (mitigar com `fx.ValidateApp` num teste) e a tentação de espalhar `fx` pelo código. Regra: **só `internal/bootstrap` e `cmd/` importam `fx`** |
-| **HTTP da API** (compatível com DynamoDB) | `github.com/valyala/fasthttp` atrás do adaptador `dynamohttp` | `net/http`; `fiber` (é fasthttp com framework por cima, sem ganho aqui) | Menos alocação e menos GC que `net/http`. Serve porque o SDK da AWS fala HTTP/1.1 e a API tem poucas rotas. **Riscos reais:** o corpo da requisição é **reutilizado** após o handler (copiar o que for ao log); não suporta HTTP/2; semântica diferente da biblioteca padrão em casos de borda (`Expect: 100-continue`, chunked, timeouts). Mitigação: suíte de compatibilidade com os SDKs Java, Go e .NET (X3) e **benchmark `net/http` x `fasthttp` no spike S1** antes de congelar |
+| **HTTP da API** (compatível com DynamoDB) | `github.com/valyala/fasthttp` atrás do adaptador `dynamohttp` | `net/http`; `fiber` (é fasthttp com framework por cima, sem ganho aqui) | Menos alocação e menos GC que `net/http`. Serve porque o SDK da AWS fala HTTP/1.1 e a API tem poucas rotas. O mTLS por aplicação ([ADR-052](../03_adr/ADR-052-autorizacao-por-aplicacao-com-mtls.md)) usa o TLS do `fasthttp` com certificado de cliente exigido; a identidade extraída do certificado é conferida contra a lista de tabelas e operações antes do `Write`, e entra no S7. **Riscos reais:** o corpo da requisição é **reutilizado** após o handler (copiar o que for ao log); não suporta HTTP/2; semântica diferente da biblioteca padrão em casos de borda (`Expect: 100-continue`, chunked, timeouts). Mitigação: suíte de compatibilidade com os SDKs Java, Go e .NET (X3) e **benchmark `net/http` x `fasthttp` no spike S1** antes de congelar |
 | **HTTP de admin** (probes, métricas) | `net/http` padrão, porta separada | — | Tráfego irrisório; usar o padrão evita um segundo conjunto de quirks. O Bruno já definiu uma porta de **API**; a de admin é outra, só interna |
 | **gRPC entre células** | `google.golang.org/grpc` + `vtprotobuf` | `connectrpc` | Única opção madura com streaming bidirecional e keepalive controlável. `vtprotobuf` gera marshal/unmarshal sem reflexão e com pool. Sem compressão (decisão 4) |
 | **Logger** | `github.com/rs/zerolog` | `zap`; `log/slog` (padrão) | Zerolog é JSON com zero alocação e API simples; `zap` empata em velocidade com API maior; `slog` não tem dependência, mas aloca mais. Qualquer um serve se **o caminho quente não loga** (só contadores e histogramas); log de erro com amostragem |
-| **Variáveis de ambiente** | Ver nota abaixo | `caarlos0/env`, `koanf` | Ler env acontece **uma vez na partida**: desempenho é irrelevante. O que importa é validar tudo na partida e falhar rápido |
+| **Variáveis de ambiente** | Ver nota abaixo | `caarlos0/env`, `koanf` | Ler env acontece **uma vez na partida**: desempenho é irrelevante. O que importa é validar tudo na partida e falhar rápido. `DEGRADED_POLICY` é obrigatória e sem padrão; `DEGRADED_LEASE` não tem padrão e é obrigatória só com `accept`; `WRITE_MODE` foi removida e uma configuração que ainda a define falha na partida (proposta a confirmar) ([ADR-053](../03_adr/ADR-053-eventual-sem-apply-paralelo-na-v1.md)) |
 | **JSON do DynamoDB** | A decidir no H-DR6 | `encoding/json` (v2 se estável no Go 1.27), `bytedance/sonic`, `goccy/go-json` | É o único item de biblioteca com ganho mensurável. Fica atrás da interface `codec`. Decidir com benchmark sobre itens reais dos clientes, incluindo ARM se usarem Graviton (o `sonic` tem restrições de arquitetura) |
 | **Métricas** | `prometheus/client_golang` ou OpenTelemetry | — | Contadores atômicos no caminho quente; exportação fora dele |
 | **Raft** | `go.etcd.io/raft/v3` | `dragonboat` (plano B) | Já decidido; importado **só** em `adapter/out/etcdraft` |
@@ -41,8 +43,9 @@ datareplication/
 ├── internal/
 │   ├── domain/                        # regras puras: sem I/O, sem libs externas
 │   │   ├── entry.go                   # Entry, Op, Index, Term, EntryKind
-│   │   ├── gate.go                    # Gate: min(Raft, Azure) monotônico
-│   │   ├── mode.go                    # WriteMode, ReadMode, ClusterMode
+│   │   ├── gate.go                    # Gate: min(Raft, Azure) monotônico, só adota o termo atual (ADR-046)
+│   │   ├── lease.go                   # Lease do modo degradado (t_c + D), Clock injetável, DegradedPolicy (ADR-044, ADR-045)
+│   │   ├── mode.go                    # ReadMode, ClusterMode (WriteMode saiu da v1, ADR-053)
 │   │   ├── tablemap.go                # nome lógico {cell} <-> nome físico
 │   │   └── errors.go                  # erros de negócio
 │   ├── port/                          # contratos (interfaces)
@@ -50,23 +53,23 @@ datareplication/
 │   │   └── out.go                     # ReplicationLog, ConsensusEngine, StateStore,
 │   │                                  # Forwarder, DedupeIndex, Clock, Metrics (driven)
 │   ├── usecase/                       # um arquivo por intenção de negócio
-│   │   ├── write.go                   # escrever: dedupe, propor, esperar o gate, ACK
-│   │   ├── batchwrite.go              # lote vira uma Entry
-│   │   ├── read.go                    # leitura strong (ReadIndex + appliedIndex) e eventual
-│   │   ├── replicate.go               # CommitPump: commit do Raft -> gate, applier e log de replicação
-│   │   ├── apply.go                   # aplicar no banco com ordem por chave
-│   │   ├── degrade.go                 # DEGRADE/RESTORE com histerese
+│   │   ├── write.go                   # escrever: líder (WAIT_LEADER), dedupe por requisição, propor, gate, apply, lease, ACK
+│   │   ├── batchwrite.go              # lote vira uma Entry; dedupe por requisição inteira (ADR-035)
+│   │   ├── read.go                    # leitura forte (barreira min(ReadIndex, gate), ADR-049) só na tabela base; GSI sempre eventual (ADR-050)
+│   │   ├── replicate.go               # CommitPump: progresso dos learners -> gate (por evento); commit do Raft -> gate, applier e log de replicação
+│   │   ├── apply.go                   # aplicar no banco, serial depois do gate, ordem por chave, checkpoint por item (índice, ordem), SKIP por item (ADR-048)
+│   │   ├── degrade.go                 # DegradeService: política, DEGRADE/RESTORE/RENEW e lease (ADR-044, ADR-045)
 │   │   ├── leadership.go              # transferência planejada (ADR-013)
 │   │   └── recovery.go                # partida: completar o log, reabrir leitura
 │   ├── adapter/
 │   │   ├── in/
-│   │   │   ├── dynamohttp/            # API HTTP compatível com DynamoDB (fasthttp)
+│   │   │   ├── dynamohttp/            # API HTTP compatível com DynamoDB (fasthttp); mTLS e lista identidade -> tabelas (ADR-052)
 │   │   │   ├── peergrpc/              # servidor gRPC entre células
 │   │   │   └── adminhttp/             # /livez /readyz /metrics (net/http)
 │   │   └── out/
 │   │       ├── etcdraft/              # ÚNICO pacote que importa go.etcd.io/raft; guarda o LOG DO RAFT (raftlog)
 │   │       ├── wal/                   # LOG DE REPLICAÇÃO (ReplicationLog), group commit
-│   │       ├── dynamodb/              # StateStore da AWS (aws-sdk-go-v2)
+│   │       ├── dynamodb/              # StateStore da AWS (aws-sdk-go-v2); também a tabela sombra do rebuild (ADR-047)
 │   │       ├── cosmos/                # StateStore da Azure via Cloud-Adapter
 │   │       ├── peerclient/            # cliente gRPC (forward, replicação)
 │   │       └── discovery/             # DNS da Route53 privada
@@ -80,9 +83,9 @@ datareplication/
 │       └── modules.go                 # um fx.Option por adaptador
 ├── api/proto/                         # .proto do gRPC interno (versionado)
 ├── test/
-│   ├── conformance/                   # suítes por porta (ReplicationLog, ConsensusEngine, StateStore)
+│   ├── conformance/                   # suítes por porta (ReplicationLog, ConsensusEngine, StateStore) e a suíte DynamoDB real x camada x Cosmos (ADR-051)
 │   ├── fault/                         # injeção de falha (disco, rede, relógio)
-│   └── tla/                           # modelo TLA+ (D12)
+│   └── tla/                           # modelo TLA+ ampliado (D12, ADR-046): lease, promoção, troca de membros, dedupe, DELETE e replay
 └── .golangci.yml                      # depguard: impõe a regra de dependência
 ```
 

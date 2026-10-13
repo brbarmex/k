@@ -18,6 +18,10 @@ Persistir o índice no log Raft (um commit a mais por atualização).
 
 Janela curta sem ACK logo após a eleição.
 
+## Atualização de 13/10/2026 (revisão crítica)
+
+A líder nova só adota progresso **confirmado no termo novo**; valores reportados fora de banda são ignorados até a primeira confirmação ([ADR-046](ADR-046-gate-so-conta-progresso-validado-pelo-raft.md)). A líder recém-eleita também só atende leitura forte depois de reconstruir o gate ([ADR-049](ADR-049-barreira-da-leitura-forte-e-o-gate.md)).
+
 ## Onde está o detalhe
 
 - [X01-gate-e-troca-de-lider.md](../02_cenarios/complexos/X01-gate-e-troca-de-lider.md)

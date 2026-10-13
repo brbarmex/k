@@ -1,6 +1,6 @@
 # R07 — Link oscilando (flapping)
 
-**Status:** ⚠️ A rever · proposta ainda não aprovada · **ADRs:** [ADR-014](../../03_adr/ADR-014-modo-degradado-opcao-b.md), [ADR-028](../../03_adr/ADR-028-timeouts-em-cascata.md) · **Relacionados:** [C12](../atualizados/C12-modo-degradado.md), [C13](../atualizados/C13-ressincronizacao-da-azure.md), [X02](../complexos/X02-modo-degradado.md)
+**Status:** ⚠️ A rever · proposta ainda não aprovada · **ADRs:** [ADR-014](../../03_adr/ADR-014-modo-degradado-opcao-b.md), [ADR-044](../../03_adr/ADR-044-lease-do-modo-degradado-e-promocao-da-azure.md), [ADR-028](../../03_adr/ADR-028-timeouts-em-cascata.md) · **Relacionados:** [C12](../atualizados/C12-modo-degradado.md), [C13](../atualizados/C13-ressincronizacao-da-azure.md), [X02](../complexos/X02-modo-degradado.md)
 
 ## Cenário
 
@@ -28,13 +28,14 @@ flowchart TD
 
 1. **Histerese de saída:** `RESTORE` só depois de os learners ficarem dentro de `RESTORE_LAG` por `RESTORE_STABLE` (por exemplo 60 s; valores a medir).
 2. **Episódio de degradação:** enquanto o gate não voltar ao normal por tempo estável, o `fromIndex` do episódio **não muda**. Isso mantém definida a janela de RPO e o conjunto de órfãs ([R13](R13-escritas-orfas-reconciliacao.md)).
-3. **Contador de transições** por hora (`degraded_transitions`); acima de um limite, o shard fica degradado até decisão humana.
+3. **Contador de transições** por hora (`degraded_transitions`); acima de um limite, o shard fica degradado até decisão humana. O lease do modo degradado continua valendo nesse período: ele conta desde o último contato com a maioria Azure (`t_c`) do episódio e só uma pessoa prorroga (`RENEW`); ao fim de D a escrita para (`503 LEASE_EXPIRED`), mesmo que o link esteja oscilando ([X02](../complexos/X02-modo-degradado.md)).
 4. **Tempo mínimo em degradado** (`MIN_DEGRADED`) para evitar entrar e sair em segundos.
 
 ## Falhas e tratativas
 
 - **Histerese longa demais.** Quanto maior a histerese, mais tempo com RPO > 0 depois que o link já voltou. É escolha entre estabilidade e janela de risco; valores saem do spike de link.
+- **Histerese x lease.** Se `RESTORE_STABLE` mais o catch-up não couberem em D, o lease expira antes do `RESTORE` e as escritas param. Os valores de `RESTORE_STABLE`, `RESTORE_LAG` e D precisam ser escolhidos juntos.
 
 ## Pontos em aberto
 
-- Valores de `RESTORE_STABLE`, `RESTORE_LAG`, `COOLDOWN` e limite de transições (PEND-12).
+- Valores de `RESTORE_STABLE`, `RESTORE_LAG`, `COOLDOWN` e limite de transições (PEND-12), escolhidos junto com D (PEND-02).

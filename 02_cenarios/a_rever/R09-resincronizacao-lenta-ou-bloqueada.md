@@ -4,7 +4,7 @@
 
 ## Cenário
 
-O catch-up do **log** (em bytes) é o único que bloqueia o `RESTORE`. Se a banda disponível para o catch-up for menor ou igual à taxa de entrada nova, a Azure **nunca alcança** a AWS e o shard fica degradado indefinidamente. O atraso de **apply** no Cosmos não bloqueia o `RESTORE`, mas afeta o RTO ([R03](R03-backlog-de-apply-no-cosmos.md)).
+O catch-up do **log** (em bytes) é o único que bloqueia o `RESTORE`. Se a banda disponível para o catch-up for menor ou igual à taxa de entrada nova, a Azure **nunca alcança** a AWS e o shard fica degradado até o fim do lease D, quando as escritas param (`503 LEASE_EXPIRED`) em instalações `accept` ([ADR-044](../../03_adr/ADR-044-lease-do-modo-degradado-e-promocao-da-azure.md)). O atraso de **apply** no Cosmos não bloqueia o `RESTORE`, mas afeta o RTO ([R03](R03-backlog-de-apply-no-cosmos.md)).
 
 ## Diagrama: Convergência do catch-up
 
@@ -30,6 +30,7 @@ flowchart TD
 ## Falhas e tratativas
 
 - **Catch-up consome o link.** Se o catch-up usar toda a banda, o encaminhamento e a replicação ao vivo pioram ([C25](../atualizados/C25-link-lento-faixa-cinzenta.md)).
+- **Catch-up mais lento que o lease.** Se o ETA do `RESTORE` passa de D, as escritas param antes de a Azure alcançar a AWS; a pessoa decide entre `RENEW` e a reconstrução (`drctl rebuild`, [C33](../atualizados/C33-reconstrucao-em-tabela-sombra.md) para o banco). O ETA entra no alerta junto com o tempo restante do lease.
 
 ## Pontos em aberto
 

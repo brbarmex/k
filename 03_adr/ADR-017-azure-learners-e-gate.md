@@ -18,6 +18,10 @@ Joint consensus do etcd raft: a eleição exigiria a Azure e a saída do degrada
 
 O gate é lógica nossa fora de uma prova conhecida: exige modelo TLA+ (ADR-030).
 
+## Atualização de 13/10/2026 (revisão crítica)
+
+O progresso da Azure só chega pelas respostas do `AppendEntries` e só conta no termo atual da líder; o gate é alimentado por evento ([ADR-046](ADR-046-gate-so-conta-progresso-validado-pelo-raft.md)).
+
 ## Onde está o detalhe
 
 - [03_consenso_raft_quorum_e_gate.md](../01_arquitetura/03_consenso_raft_quorum_e_gate.md)

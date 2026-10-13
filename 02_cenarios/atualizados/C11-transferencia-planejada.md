@@ -1,10 +1,10 @@
 # C11 — Transferência planejada de liderança (manutenção)
 
-**Status:** ✅ Atualizado (modelo v1) · **ADRs:** [ADR-013](../../03_adr/ADR-013-transferencia-planejada-de-lideranca.md), [ADR-010](../../03_adr/ADR-010-follower-encaminha-para-lider.md)
+**Status:** ✅ Atualizado (modelo v1) · **ADRs:** [ADR-013](../../03_adr/ADR-013-transferencia-planejada-de-lideranca.md), [ADR-010](../../03_adr/ADR-010-follower-encaminha-para-lider.md), [ADR-046](../../03_adr/ADR-046-gate-so-conta-progresso-validado-pelo-raft.md), [ADR-049](../../03_adr/ADR-049-barreira-da-leitura-forte-e-o-gate.md)
 
 ## Cenário
 
-Uma célula vai entrar em manutenção (uma por vez). O Agent dispara a transferência. A sincronização pesada acontece **antes** da pausa; a pausa dura cerca de 1 RTT (meta de 50 ms, janela de exceção fora do P99). As escritas voltam quando a nova líder confirma o no-op; as leituras fortes esperam o banco da célula nova aplicar tudo. O roteamento muda por último. RPO = 0. Detalhes das 5 fases no [ADR-013](../../03_adr/ADR-013-transferencia-planejada-de-lideranca.md).
+Uma célula vai entrar em manutenção (uma por vez). O Agent dispara a transferência. A sincronização pesada acontece **antes** da pausa; a pausa dura cerca de 1 RTT (meta de 50 ms, janela de exceção fora do P99). As escritas voltam quando a nova líder confirma o no-op; as leituras fortes esperam a nova líder reconstruir o gate e o banco da célula nova aplicar até `min(ReadIndex, gate)`. O roteamento muda por último. RPO = 0. Detalhes das 5 fases no [ADR-013](../../03_adr/ADR-013-transferencia-planejada-de-lideranca.md).
 
 ## Diagrama
 
@@ -29,7 +29,7 @@ sequenceDiagram
     Q-->>NT: confirmado
     end
     Note over NT: Fase 3 - escritas retomadas, a fila é reenviada e o dedupe protege
-    NT->>NT: reconstrói o gate e abre leituras fortes com appliedIndex maior ou igual a L
+    NT->>NT: reconstrói o gate no termo novo e abre leituras fortes com appliedIndex maior ou igual ao mínimo de ReadIndex e gate
     NT->>AG: liderança confirmada
     AG->>CR: Fase 4 - rotear para A2
     Note over OL: A1 vira follower e entra em manutenção
@@ -40,7 +40,7 @@ sequenceDiagram
 1. **Pedido:** o Agent pede a transferência para A2. Fase 0 confere trava por shard, cooldown, quórum e votante substituto (add-then-remove).
 2. **Fase 1:** A2 alcança o log e o apply até o lag ficar abaixo do limiar, sem pausa.
 3. **Fase 2:** A1 enfileira escritas novas, replica até L e envia `TimeoutNow`; A2 vence a eleição no termo T+1 e grava o no-op.
-4. **Fase 3:** as escritas voltam em A2 e a fila é reenviada; o dedupe evita duplicação. A2 reconstrói o gate (ADR-029).
+4. **Fase 3:** as escritas voltam em A2 e a fila é reenviada; o dedupe evita duplicação. A2 reconstrói o gate (ADR-029) só com respostas do termo T+1 (ADR-046) e abre as leituras fortes depois disso.
 5. **Fase 4:** o Agent roteia para A2; A1 vira follower e entra em manutenção.
 
 ## Falhas e tratativas

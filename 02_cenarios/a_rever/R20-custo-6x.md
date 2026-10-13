@@ -1,10 +1,10 @@
 # R20 — Custo: cada escrita lógica vira seis gravações
 
-**Status:** ⚠️ A rever · proposta ainda não aprovada · **ADRs:** [ADR-022](../../03_adr/ADR-022-banco-por-celula-nome-logico.md), [ADR-017](../../03_adr/ADR-017-azure-learners-e-gate.md) · **Relacionados:** [C01](../atualizados/C01-visao-geral.md)
+**Status:** 🟡 A rever · decidido em 13/10 manter seis bancos ([ADR-054](../../03_adr/ADR-054-banco-por-celula-mantido.md)); falta a estimativa de custo por cliente e o teto aceito · **ADRs:** [ADR-054](../../03_adr/ADR-054-banco-por-celula-mantido.md), [ADR-022](../../03_adr/ADR-022-banco-por-celula-nome-logico.md), [ADR-017](../../03_adr/ADR-017-azure-learners-e-gate.md) · **Relacionados:** [C01](../atualizados/C01-visao-geral.md)
 
 ## Cenário
 
-Cada escrita lógica é aplicada em **seis bancos**: 3 DynamoDB (um por célula AWS) e 3 Cosmos (um por célula Azure). A decisão de um banco por célula ([ADR-022](../../03_adr/ADR-022-banco-por-celula-nome-logico.md)) trouxe independência entre células, mas multiplica o custo de gravação por seis, além de volumes de disco, tráfego pelo link e seis clusters.
+Cada escrita lógica é aplicada em **seis bancos**: 3 DynamoDB (um por célula AWS) e 3 Cosmos (um por célula Azure). A decisão de um banco por célula ([ADR-022](../../03_adr/ADR-022-banco-por-celula-nome-logico.md)) foi **mantida** na revisão de 13/10 ([ADR-054](../../03_adr/ADR-054-banco-por-celula-mantido.md)). Ela multiplica o custo de gravação por seis, além de volumes de disco, tráfego pelo link e seis clusters. O argumento que a sustenta é de **isolamento lógico**: corrupção ou throttling de uma tabela não atinge as outras, e o applier de cada célula não depende das demais. Ela não compra domínios de falha físicos: o DynamoDB é regional e já replica por três AZs, então três tabelas na mesma região não são três domínios físicos (o mesmo vale para o Cosmos com redundância de zona). A durabilidade por AZ vem dos três logs Raft.
 
 ## Diagrama: Onde o custo se multiplica
 
@@ -24,13 +24,14 @@ flowchart TD
 
 1. Estimativa do custo mensal com os números reais: tamanho médio do item, TPS de escrita por tabela e preços vigentes de DynamoDB sob demanda e Cosmos em RU.
 2. Medir as RU por escrita no Cosmos com o Cloud-Adapter (escrita condicional incluída).
-3. Se o custo for alto, comparar alternativas **sem trocar o requisito de RPO 0**: DynamoDB com menos cópias por cloud, ou apenas o líder escrevendo no banco enquanto as demais ficam só com o log.
+3. A alternativa de **um banco regional por nuvem** (duas materializações, com a líder como única aplicadora) foi considerada e **não adotada** ([ADR-054](../../03_adr/ADR-054-banco-por-celula-mantido.md)). Se o custo medido for inaceitável, ela pode ser reaberta, sem trocar o requisito de RPO 0; os riscos dela são um ponto lógico de corrupção na AWS e throttling compartilhado entre escrita ao vivo e replay.
+4. Cada fluxo que o ADR-054 multiplica por seis entra na estimativa: reconciliação, fencing, e o rebuild em tabela sombra ([ADR-047](../../03_adr/ADR-047-delete-real-invariante-e-reconstrucao-em-tabela-sombra.md), [C33](../atualizados/C33-reconstrucao-em-tabela-sombra.md)), que gasta WCU e RU extras durante a varredura.
 
 ## Falhas e tratativas
 
 - **Escrita condicional.** Condições de versão podem custar o mesmo que uma escrita simples, mas confirmar no teste. `TransactWriteItems` custaria o dobro ([C23](../atualizados/C23-batchwriteitem-lote-uma-entrada.md)).
 - **Multiplicado por cliente (13/10).** Cada cliente é uma instalação completa e isolada ([ADR-043](../../03_adr/ADR-043-uma-instalacao-por-cliente-identidade-por-configuracao.md)): os seis bancos, os seis clusters e os volumes se repetem por time. A estimativa precisa de um custo por cliente e de um custo fixo mínimo, não só da fórmula por escrita.
-- **Apply de leitura.** Leituras fortes em célula follower lêem o banco local, então a carga de leitura se espalha, mas cada célula tem a sua cobrança.
+- **Apply de leitura.** Leituras fortes em célula follower leem o banco local, então a carga de leitura se espalha, mas cada célula tem a sua cobrança.
 
 ## Ordem de grandeza (sem preços)
 
@@ -49,3 +50,5 @@ Preços e RU por escrita ficam para a estimativa de custo; os números acima só
 ## Pontos em aberto
 
 - Quem estima e valida o custo (FinOps) e o teto aceitável por mês.
+- Estimativa por cliente: custo variável por escrita e custo fixo mínimo da instalação (seis bancos, seis clusters, volumes), com os preços vigentes.
+- O motivo de manter seis bancos (padrão de bulkhead da organização ou escolha do projeto) não foi registrado; se for regra da organização, citar a fonte no ADR-054.

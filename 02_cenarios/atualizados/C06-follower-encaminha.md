@@ -27,7 +27,7 @@ sequenceDiagram
 
 1. A app chama o `DataReplication` local.
 2. Ele consulta a líder e o termo conhecidos e encaminha a escrita à líder, marcando que já houve um salto.
-3. A líder executa o fluxo de escrita (C03 ou C04).
+3. A líder executa o fluxo de escrita (C03).
 4. A resposta volta com a líder e o termo atuais, para corrigir o cache da célula.
 
 ## Falhas e tratativas

@@ -13,8 +13,8 @@
 
 | Critério do Bruno | Meta proposta (a calibrar) | Observação |
 |---|---|---|
-| Extrema performance | Overhead P99 ≤ 50ms por transação completa, a ~3.000 TPS. Alvo interno de 30–35ms para ter margem. | "Performance" aqui é **latência de cauda**, não vazão. 3.000 TPS × 2 KB ≈ 6 MB/s: o disco e a CPU não são o gargalo. O gargalo são o fsync, o RTT AWS↔Azure e o P99 do DynamoDB. |
-| Resistente a falha e autocurável | Reiniciar qualquer processo sem perda de dado ACKado; reconvergência automática sem humano para falhas de 1 célula. | Falhas que exigem humano ficam explícitas (PEND-01). |
+| Extrema performance | Overhead P99 ≤ 50ms por transação completa, a ~3.000 TPS. Alvo interno de 30–35ms para ter margem. O contrato ao cliente é um **SLO ponta a ponta medido sobre a operação completa** (overhead + escrita no banco, ADR-036), não uma soma de metas por etapa (06, seção 7). | "Performance" aqui é **latência de cauda**, não vazão. 3.000 TPS × 2 KB ≈ 6 MB/s: o disco e a CPU não são o gargalo. O gargalo são o fsync, o RTT AWS↔Azure e o P99 do DynamoDB. |
+| Resistente a falha e autocurável | Reiniciar qualquer processo sem perda de dado ACKado; reconvergência automática sem humano para falhas de 1 célula. O RTO de desastre é a **distribuição medida em exercícios** (mediana, P95, pior caso), com piso D + M se a AWS morrer em modo degradado (ADR-044). | Falhas que exigem humano ficam explícitas na **matriz automático, assistido e manual** (08, 9.5): promoção, `SKIP`, `drctl rebuild`, órfãs, prorrogação de lease e recriação da célula (PEND-01, ADR-044). |
 | Leve e baixo consumo de memória | `DataReplication` ≤ 256 MiB RSS, partida em segundos. | Sem sidecar por pod (R1), o critério vale para o único app da célula. |
 
 ### 2.2.1 Notas: possível alternativa em Rust (registrado a pedido do Bruno, 12/10)
@@ -42,7 +42,7 @@
 | A3 | **Poucos shards lógicos** por cliente (Bruno, 12/10). A evolução para plataforma multi-cliente **não será considerada na v1**. | Com muitos grupos, seria preciso coalescer heartbeats e o Dragonboat ganharia peso (seção 5). |
 | A4 | Item médio ≈ poucos KB. Limite de entrada do log: 4 MiB. | O DynamoDB aceita item de até 400 KB e batch de até 16 MB; acima do limite, a v1 recusa. |
 | A5 | **Confirmada pelo Bruno (12/10):** há um **link dedicado físico (cabo de rede)** entre AWS e Azure, com tráfego transitivo entre contas e VPCs, descrito como "extremamente rápido". O RTT ainda deve ser medido (S1). | O custo do RTT entra em todo ACK. Medir antes de fixar qualquer timeout. |
-| A6 | **Confirmada pelo Bruno (12/10):** há **um DynamoDB (tabelas) por célula**. O applier de cada célula escreve só nas tabelas da própria célula. Exemplo: a célula `cell-120321` tem `cliente_cell_120321`. | Ver 6.9: nome lógico × físico, custo de escrita multiplicado e um único escritor por tabela. |
+| A6 | **Confirmada pelo Bruno (12/10) e mantida em 13/10 ([ADR-054](../03_adr/ADR-054-banco-por-celula-mantido.md)):** há **um DynamoDB (tabelas) por célula**. O applier de cada célula escreve só nas tabelas da própria célula. Exemplo: a célula `cell-120321` tem `cliente_cell_120321`. O DynamoDB é regional: o ganho é **isolamento lógico**, não domínio físico de falha. | Ver 6.9: nome lógico (com geração) × físico, custo de escrita multiplicado e um único escritor por tabela. |
 
 ---
 
@@ -53,7 +53,7 @@
 ### 3.1 Modelo de implantação
 - **Célula = um cluster Kubernetes (EKS ou AKS) numa única AZ.** Há 3 células na AWS e 3 na Azure.
 - Em cada célula, um **namespace** agrupa logicamente as aplicações do cliente (por exemplo, 10 microsserviços) e **um único app `DataReplication`** (1 pod).
-- As aplicações apontam o endpoint do AWS SDK para o Service interno do `DataReplication`. O tráfego entre pods fica restrito ao namespace (NetworkPolicy).
+- As aplicações apontam o endpoint do AWS SDK para o Service interno do `DataReplication` e apresentam um **certificado cliente** (mTLS por aplicação, [ADR-052](../03_adr/ADR-052-autorizacao-por-aplicacao-com-mtls.md)): "só trocar o endpoint" deixou de ser verdade. O tráfego entre pods fica restrito ao namespace (NetworkPolicy).
 - Entre células (clusters diferentes), só trafega a replicação `DataReplication` ↔ `DataReplication`, por um endpoint interno exposto (balanceador interno ou private link) com mTLS.
 
 ```mermaid
@@ -63,18 +63,18 @@ flowchart LR
     A2["App 2 ... App 10"]
     DR["DataReplication<br/>API + Raft + WAL + applier"]
     DB[("Banco da célula<br/>DynamoDB ou Cosmos")]
-    A1 -->|"HTTP DynamoDB-compatível"| DR
-    A2 -->|"HTTP DynamoDB-compatível"| DR
+    A1 -->|"HTTP DynamoDB-compatível com mTLS"| DR
+    A2 -->|"HTTP DynamoDB-compatível com mTLS"| DR
     DR --> DB
   end
   DR <-->|"gRPC mTLS entre clusters"| DR2["DataReplication das outras células"]
 ```
 
 Etapas:
-1. A aplicação chama o endpoint do Service como chamaria o DynamoDB.
-2. O `DataReplication` valida, classifica (escrita / leitura forte / leitura eventual), canonicaliza e calcula o hash de dedupe.
+1. A aplicação chama o endpoint do Service como chamaria o DynamoDB, com a sua identidade mTLS.
+2. O `DataReplication` autentica a aplicação e confere a lista identidade → tabelas e operações (`403` sem entrada), valida, classifica (escrita / leitura forte / leitura eventual), canonicaliza e calcula o hash de dedupe.
 3. Se esta célula não for a líder do shard, **encaminha** para a líder ([ADR-010](../03_adr/ADR-010-follower-encaminha-para-lider.md)).
-4. A líder replica, espera o gate (seção 5.3) e aplica no banco.
+4. A líder replica, espera o gate (seção 5.3) e aplica no banco (sempre depois do gate, [ADR-053](../03_adr/ADR-053-eventual-sem-apply-paralelo-na-v1.md)).
 5. A resposta volta traduzida para o formato do DynamoDB (incluindo os erros que o SDK entende).
 
 ### 3.2 Monolito modular (decisão do Bruno, 12/10)
@@ -82,8 +82,8 @@ O `DataReplication` é **um monolito modular**: um único binário e um único p
 
 | Módulo | Responsabilidade | Depende de |
 |---|---|---|
-| `api` | HTTP compatível com DynamoDB, parse, classificação, dedupe, tradução de erros | `core` (interfaces) |
-| `core` | Orquestra escrita, leitura forte, gate (5.3), modo degradado e applier | `ReplicationLog`, `ConsensusEngine`, `StateStore` (interfaces) |
+| `api` | HTTP compatível com DynamoDB, mTLS e autorização por aplicação, parse, classificação, dedupe, remoção do `_dr_v` das respostas, tradução de erros | `core` (interfaces) |
+| `core` | Orquestra escrita, leitura forte (`min(ReadIndex, gate)`), gate (5.3), modo degradado com lease e applier | `ReplicationLog`, `ConsensusEngine`, `StateStore` (interfaces) |
 | `replicationlog` | WAL próprio (seção 6), group commit, recuperação | disco |
 | `consensus/etcdraft` | Adaptador do Raft (5.5). **Único** pacote que importa a biblioteca Raft | `replicationlog` |
 | `transport` | gRPC entre células, descoberta/DNS, mTLS | `consensus` |
@@ -105,7 +105,7 @@ Regras para o monolito continuar modular:
 | **CPU compartilhada** | O parse de JSON das 10 apps disputa CPU com fsync e heartbeats; atraso de heartbeat vira eleição. **Problema conhecido, aceito na v1 (H-DR6):** será medido nos testes e tratado depois. | Pools separados para a API e para o Raft, QoS *Guaranteed*, limite de tamanho de requisição antes de tocar no Raft, limite de vazão por aplicação. |
 | **Raio de estrago** | Requisição com bug que derrube o processo derruba uma réplica do quórum. | Validação rígida antes do `core`, limites de memória por requisição, testes de fuzz da API. |
 | **Sem escala horizontal** | O número de réplicas é o quórum; HPA não se aplica. | Escala vertical e shards; medir no spike de carga a ~3.000 TPS. |
-| **Autenticação** | Sem `localhost`, a API é acessível por qualquer pod do namespace. | NetworkPolicy fechando o namespace na v1; identidade por aplicação fica para depois. |
+| **Autenticação e autorização** | Sem `localhost`, a API é acessível por qualquer pod do namespace, e o papel largo passa a ser o do `DataReplication` (ampliação de privilégio). | NetworkPolicy fechando o namespace **e mTLS por aplicação com lista identidade → tabelas e operações** ([ADR-052](../03_adr/ADR-052-autorizacao-por-aplicacao-com-mtls.md), PEND-19). |
 | **Isolamento entre as 10 apps** | Uma app em rajada atrasa as outras. | Shard por aplicação/tabela e limite de vazão por origem (depende de D4). |
 
 ### 3.4 Alternativa que continua possível
