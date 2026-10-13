@@ -9,7 +9,9 @@ import (
 
 // ---- Portas de saída (driven): o núcleo pede, o adaptador implementa ----
 
-// ReplicationLog é o log de replicação próprio (5.5.1). Append só retorna após fsync.
+// ReplicationLog é o log de replicação (5.5.1), no Pebble desde o ADR-055. Append grava
+// sem fsync (fora do caminho do ACK); DurableIndex é o maior índice coberto pelo último
+// checkpoint com sync, e é o limite até onde o log do Raft pode ser compactado.
 type ReplicationLog interface {
 	Append(ctx context.Context, batch []domain.Entry) error
 	Read(ctx context.Context, from, to domain.Index) ([]domain.Entry, error)

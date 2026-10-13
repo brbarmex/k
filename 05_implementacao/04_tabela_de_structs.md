@@ -30,17 +30,15 @@ Nomes, pacote e o que cada struct (ou interface) faz. Os nomes de pacote seguem 
 | `Rebuilder` | `usecase` | Reconstrução em tabela sombra: índice F, cópia difusa condicional, replay do log desde F, cutover do nome lógico com geração, checksum por faixa ([ADR-047](../03_adr/ADR-047-delete-real-invariante-e-reconstrucao-em-tabela-sombra.md)) |
 | `DegradeController` | `usecase` | Na versão final, o monitor que decide DEGRADE e RESTORE com histerese e chama o `DegradeService` (no esboço, quem espera a Azure por `DEGRADE_AFTER` dispara o `Enter`) |
 | `LeadershipService` | `usecase` | Transferência planejada de liderança e detecção de disco lento |
-| `Recovery` | `usecase` | Na partida: completa o log de replicação a partir do Raft e reabre leitura no high-water mark |
+| `Recovery` | `usecase` | Na partida: completa o log de replicação a partir do Raft e reabre leitura quando o applier alcança o commit do `HardState` (proposta do [X04](../02_cenarios/complexos/X04-partida-recuperacao-e-dois-logs.md)) |
 | `DedupeIndex` | `usecase` | Janela de dedupe por id do SDK (hash como fallback), mantida por todos os votantes a partir do log ([R22](../02_cenarios/a_rever/R22-memoria-da-janela-de-dedupe.md)) |
 | `Server` | `adapter/in/dynamohttp` | Servidor fasthttp, tradução de protocolo e de erros do DynamoDB (JSON por `json.Marshal`, `APIError` tipado, `WriteTimeout` = `REQUEST_DEADLINE` + folga, `IdleTimeout` da configuração, `x-dr-mode`, `x-dr-code`). Recusa `ConsistentRead` em GSI. Aplica a lista identidade -> tabelas do mTLS ([ADR-052](../03_adr/ADR-052-autorizacao-por-aplicacao-com-mtls.md)); `_dr_v` nunca sai nas respostas ([ADR-051](../03_adr/ADR-051-compatibilidade-dynamodb-inventario-conformidade-e-idempotencia.md)) |
 | `PeerServer` | `adapter/in/peergrpc` | Recebe replicação e forward de outras células |
 | `AdminServer` | `adapter/in/adminhttp` | `/livez`, `/readyz`, `/metrics` |
-| `WAL` | `adapter/out/wal` | Implementa `ReplicationLog` (log de replicação, vida longa): lote, retenção, leitura para Azure e `drctl` |
-| `Segment` | `adapter/out/wal` | Um arquivo pré-alocado de 64 MiB com índice esparso |
+| `PebbleLog` | `adapter/out/pebblelog` | Implementa `ReplicationLog` no Pebble (log de replicação, vida longa): gravação `NoSync`, checkpoint com `Sync` que define o `DurableIndex`, `DeleteRange` por retenção, leitura por faixa para Azure e `drctl`, progresso do applier por item ([ADR-055](../03_adr/ADR-055-log-de-replicacao-em-pebble-derivado-do-raft.md)) |
 | `RaftNode` | `adapter/out/etcdraft` | Implementa `ConsensusEngine` sobre `etcd raft`; mantém os learners |
-| `RaftStorage` | `adapter/out/etcdraft` | Log do Raft: armazenamento que a lib exige, em arquivo próprio (`raftlog`), com fsync antes do ACK |
+| `RaftStorage` | `adapter/out/etcdraft` | Log do Raft: `wal` do etcd por shard mais `raft.MemoryStorage`, fsync antes do ACK; compacta só até o `DurableIndex` do `PebbleLog`, com folga `RAFT_RETAIN_MAX` |
 | `CommitPump` | `usecase` | Duas goroutines: **progresso** (cada resposta de learner alimenta o gate e o `t_c` do lease na hora) e **commits** (distribui os lotes a gate, applier e log de replicação). Ignora lote vazio e devolve `ErrStreamClosed` com canal fechado |
-| `SegFile` | `platform/segfile` | Motor de arquivo segmentado compartilhado pelos dois logs, sem regra de negócio |
 | `DynamoStore` | `adapter/out/dynamodb` | Implementa `StateStore` com escrita condicional por `_dr_v`; cria a tabela sombra e executa o cutover por geração |
 | `CosmosStore` | `adapter/out/cosmos` | Implementa `StateStore` pelo Cloud-Adapter, tratando RU e 429 |
 | `PeerClient` | `adapter/out/peerclient` | Streams gRPC por par de nós, canais separados para replicação e forward |

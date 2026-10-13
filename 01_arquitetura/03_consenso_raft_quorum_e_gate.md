@@ -119,7 +119,7 @@ O modelo cobre, além do gate monotônico: promoção entre nuvens com lease, tr
 - **Segurança e estabilidade:** o `etcd-io/raft` é a base do etcd (o armazenamento do Kubernetes) e foi adotado por outros bancos distribuídos; é uma biblioteca pequena e muito exercitada, com a exatidão do algoritmo como foco.
 - **Comunidade:** mantido pela comunidade do etcd, ligada ao ecossistema do Kubernetes. O Dragonboat é muito bom em vazão, mas, pelo que sei, depende de poucos mantenedores e teve ritmo menor de evolução recentemente. **Verificar a atividade dos dois repositórios no spike S6 antes de fixar a versão.**
 - **Desempenho:** o Dragonboat se destaca em vazão com muitos grupos. Com poucos shards e ~3.000 TPS, o limite é o fsync e o RTT, não o motor Raft, então a vantagem dele não pesa aqui.
-- **Encaixe com as decisões já tomadas:** com WAL próprio, dois logs (5.5.1) e o gate (5.3), precisamos controlar armazenamento e transporte. O `etcd-io/raft` deixa isso conosco; o Dragonboat traz o log e o transporte dele.
+- **Encaixe com as decisões já tomadas:** com dois logs (5.5.1, armazenamento revisto no ADR-055) e o gate (5.3), precisamos controlar armazenamento e transporte. O `etcd-io/raft` deixa isso conosco; o Dragonboat traz o log e o transporte dele.
 - **Preço:** escrever o laço de `Ready`, o transporte gRPC e a camada multi-grupo (pequena, por haver poucos grupos).
 
 
@@ -155,7 +155,9 @@ O modelo cobre, além do gate monotônico: promoção entre nuvens com lease, tr
 
 **Tradeoff do L2 (registrado quando a decisão foi tomada):** separar fisicamente pareceria mais limpo, mas obriga a gravar os dados e a referência de ordem com durabilidade (dados primeiro, referência depois, para nunca haver referência sem dado) e a replicar o dado por um canal que também precisa de quórum. Em troca de uma flexibilidade que o L1 já dá quase toda, pagaríamos latência no orçamento de 50ms.
 
-### 5.5.1 Desenho dos dois logs (decisão do Bruno, 12/10)
+### 5.5.1 Desenho dos dois logs (decisão do Bruno, 12/10; armazenamento revisto em 13/10)
+
+> **Revisão de 13/10 ([ADR-055](../03_adr/ADR-055-log-de-replicacao-em-pebble-derivado-do-raft.md)).** Log do Raft no pacote `wal` do etcd, um por shard; log de replicação no **Pebble**, derivado do Raft, **sem fsync**, com checkpoint com sync periódico, em **volume separado**. A regra 1 abaixo passa a ler: o Raft só é compactado até o **`DurableIndex` do Pebble, que é o índice coberto por um checkpoint com sync**. A retenção longa para a Azure fica no Pebble; o Raft guarda só a folga `RAFT_RETAIN_MAX` ([04_wal_e_fsync](04_wal_e_fsync.md), 6.9).
 
 **Ideia:** o **log do Raft** é interno ao consenso e de vida curta; o **log de replicação** é nosso, de formato próprio, de vida longa, independente da biblioteca Raft.
 
@@ -163,9 +165,10 @@ O modelo cobre, além do gate monotônico: promoção entre nuvens com lease, tr
 |---|---|---|
 | **Dono** | A biblioteca Raft (pelo adaptador) | O `DataReplication` |
 | **Conteúdo** | Entradas e estado do consenso (term, voto, configuração), com o payload para poder replicar | Registros de escrita já **commitados**, no nosso formato (post-image, versão, nome lógico da tabela) |
-| **Quando é gravado** | Antes de responder ao líder (caminho do ACK, fsync obrigatório) | **Depois do commit**, na ordem do log, em lote |
+| **Quando é gravado** | Antes de responder ao líder (caminho do ACK, fsync obrigatório) | **Depois do commit**, na ordem do log, sem fsync; checkpoint com sync periódico (ADR-055) |
 | **Quem lê** | Só o Raft | Applier, ressincronização da Azure, `drctl`, reconstrução de réplica |
-| **Retenção** | Curta: até o marcador de compactação | Longa: pela janela de tolerância da Azure e da manutenção (6.5) |
+| **Retenção** | Curta: até o `DurableIndex` do Pebble, mais a folga `RAFT_RETAIN_MAX` | Longa: pela janela de tolerância da Azure e da manutenção (6.5), teto de 70% |
+| **Armazenamento (13/10)** | Pacote `wal` do etcd, um por shard, volume pequeno e rápido | Pebble, volume próprio |
 | **Se trocarmos o Raft** | Muda | **Não muda** |
 
 **Por que não adiciona latência ao ACK:** o payload já foi gravado com fsync no log do Raft antes do commit. O applier consome as entradas commitadas **da memória**, e a gravação no log de replicação segue em paralelo, em lote. Duas regras mantêm a segurança:
@@ -173,7 +176,7 @@ O modelo cobre, além do gate monotônico: promoção entre nuvens com lease, tr
 2. **Na partida**, se o log de replicação estiver atrás do índice commitado, ele é completado a partir do log do Raft antes de aceitar tráfego.
 
 **Custos e riscos:**
-- **Escrita em dobro** em cada réplica. A ~6 MB/s é pouco volume, mas o segundo fsync disputa o mesmo volume e pode piorar a **cauda do fsync do log do Raft** (6.8). Mitigação: lote maior e menos frequente no log de replicação (ele não está no caminho do ACK) e, se a medição mostrar interferência, **volume separado** para cada log.
+- **Escrita em dobro** em cada réplica. A ~6 MB/s é pouco volume. Desde o ADR-055 o segundo log não faz fsync por entrada e fica em **volume separado**, então não disputa a cauda do fsync do log do Raft (6.8); a compactação do Pebble fica no volume dele.
 - **Duas coisas para manter consistentes**: o índice do log de replicação é o próprio índice Raft (sem sequência paralela), e a suíte de conformidade (5.5) passa a testar também a recuperação nos casos de queda entre os dois logs.
 - **O gate (5.3) não muda**: a durabilidade que conta para o ACK é a do log do Raft.
 - **Interface `ReplicationLog` (5.5)**: passa a ser a interface do log de replicação, e o adaptador do Raft recebe os registros commitados por um callback.

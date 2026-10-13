@@ -2,7 +2,24 @@
 
 [Início](../00_COMECE_AQUI.md) · [Documento principal](../DataReplication_Versao_1.md) · [Pendências e riscos](README.md)
 
-Nenhuma pergunta aberta no momento. Formato das respostas: `12a 13b 14a`. A coluna **Rec.** marca a **rec**omendação (a opção que eu recomendo); qualquer item pode ser discutido antes. Cada pergunta aponta para o cenário com o raciocínio e o diagrama.
+Perguntas abertas: **16 e 17** (abaixo). Formato das respostas: `16a 17a`. A coluna **Rec.** marca a **rec**omendação (a opção que eu recomendo); qualquer item pode ser discutido antes. Cada pergunta aponta para o cenário com o raciocínio e o diagrama.
+
+## Abertas: log de replicação no Pebble (13/10)
+
+Contexto: [ADR-055](../03_adr/ADR-055-log-de-replicacao-em-pebble-derivado-do-raft.md). Já aplicado no pacote com a recomendação; responder só se discordar.
+
+| # | Pergunta | Opções | Rec. |
+|---|---|---|---|
+| 16 | Armazenamento do **log do Raft** | **a** pacote `wal` do etcd, um por shard (um fsync por shard, sem group commit entre shards; dependência pesada do módulo do etcd); **b** manter o WAL próprio segmentado só para o Raft (um fsync para todos os shards, mas o código de armazenamento volta a ser nosso) | **a** (com poucos shards, tirar o código de armazenamento próprio reduz o maior risco de perda de dado; medir k fsyncs no S1) |
+| 17 | Nó que perde **só o volume do Pebble** | **a** tratar como disco perdido: volta com identidade nova ([ADR-034](../03_adr/ADR-034-fsync-fatal-e-identidade-nova.md)); **b** manter a identidade e recarregar o histórico do Pebble de um par antes de voltar a ser elegível | **a** (uma regra só para disco perdido; o b cria um estado novo de nó a modelar) |
+
+## Respondidas: Pebble no log de replicação (13/10)
+
+| # | Decisão | Resposta | Onde ficou |
+|---|---|---|---|
+| 1 | Log de replicação no Pebble | **a** Derivado do Raft, sem fsync, refeito a partir do Raft depois de queda | [ADR-055](../03_adr/ADR-055-log-de-replicacao-em-pebble-derivado-do-raft.md), [ADR-018](../03_adr/ADR-018-dois-logs-raft-e-replicacao.md), [X04](../02_cenarios/complexos/X04-partida-recuperacao-e-dois-logs.md) |
+| 2 | Disco do Pebble | **b** Volume separado em cada nó, nas duas nuvens | [ADR-055](../03_adr/ADR-055-log-de-replicacao-em-pebble-derivado-do-raft.md), [ADR-019](../03_adr/ADR-019-wal-proprio-volume-dedicado.md) |
+| 3 | Teto de 70% | **b** Mantido como está (espaço lógico); risco do espaço físico registrado | [ADR-041](../03_adr/ADR-041-disco-do-log-teto-de-70-por-cento-sem-s3-na-v1.md), [C29](../02_cenarios/atualizados/C29-disco-do-log-em-degradacao-longa.md), risco 30 |
 
 ## Respondidas: revisão crítica de 13/10 (decisões 1 a 14, todas **a**)
 

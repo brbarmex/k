@@ -4,6 +4,10 @@
 
 ## 6. Como será o WAL
 
+### 6.0 Revisão de 13/10: Pebble no log de replicação e WAL do etcd no Raft ([ADR-055](../03_adr/ADR-055-log-de-replicacao-em-pebble-derivado-do-raft.md))
+
+> **Decisão do Bruno (13/10, respostas 1a 2b 3b).** O WAL próprio (W2) **saiu**. O **log do Raft** usa o pacote `wal` do etcd (W1), um por shard, com fsync antes do ACK, em volume pequeno e rápido. O **log de replicação** usa o **Pebble**, derivado do Raft, **sem fsync** no caminho do ACK, com checkpoint com sync periódico, em **outro volume**. O teto de 70% (ADR-041) vale para o volume do Pebble e mede o espaço lógico. O desenho do Pebble está em **6.9**. As seções 6.2 a 6.3 ficam como registro da análise que levou ao W2; onde contradizem a 6.9, vale a 6.9.
+
 ### 6.1 O que o Raft pede do armazenamento
 O `etcd-io/raft` espera que o nosso código ofereça:
 1. **Anexar** entradas (em lote) e estado (term, voto, commit) de forma **durável** antes de enviar a confirmação (`Ready` → persistir → só então responder).
@@ -32,11 +36,11 @@ O `etcd-io/raft` espera que o nosso código ofereça:
 - **Custos práticos em Go:** RocksDB exige CGO (quebra o build estático/*distroless* e traz uma memória que o GC do Go não gerencia). O Pebble é Go puro, mas mantém as desvantagens do LSM acima.
 - **Onde um banco embutido poderia ajudar:** índice de dedupe ou checkpoints do applier. O índice de dedupe é derivado do log e cabe em memória (seção 8.1). O progresso do applier por item é um registro pequeno no **próprio volume do log** (6.3.1, ADR-048), então também não precisa de banco embutido.
 
-**Conclusão:** manter o WAL segmentado próprio (W2). O que reduz o fsync é o **meio de armazenamento** (volume dedicado e provisionado; o NVMe local foi descartado pelo Bruno), medido no spike S1.
+**Conclusão (12/10, substituída em 13/10 pela 6.0 e 6.9):** manter o WAL segmentado próprio (W2). O que reduz o fsync é o **meio de armazenamento** (volume dedicado e provisionado; o NVMe local foi descartado pelo Bruno), medido no spike S1.
 
 **Recomendação:** W2 **atrás da interface `ReplicationLog` (5.5)**, para poder trocar por W1 se os testes de falha ou o spike mostrarem problema. Eu **não** recomendo W2 sem a bateria de testes da seção 13: o WAL próprio só é aceitável se o orçamento de teste for tão sério quanto o de código.
 
-### 6.3 Desenho do WAL (W2)
+### 6.3 Desenho do WAL (W2) — substituído em 13/10 (ver 6.9)
 
 **Arquivos**
 - Diretório por nó: `segments/` com arquivos de tamanho fixo (ex.: 64 MiB), **pré-alocados** (`fallocate`) para evitar variação de latência por alocação no fsync.
@@ -69,7 +73,7 @@ O `etcd-io/raft` espera que o nosso código ofereça:
 
 ### 6.3.1 Progresso do applier por item (ADR-048)
 
-O applier **persiste o progresso por item `(índice, ordem)` no volume do log, não no banco**. Assim:
+O applier **persiste o progresso por item `(índice, ordem)` no Pebble do log de replicação (desde o ADR-055), não no banco**. Assim:
 - Um replay depois de queda reaplica os itens anteriores de forma idempotente (condição `v < índice`) e **para ou pula só o item marcado**, e não a entrada inteira.
 - O `SKIP(index, ordem, motivo, autor)` é uma entrada replicada e auditada; a entrada original nunca é apagada. Pular a entrada inteira exige listar todas as ordens e continua sendo decisão humana ([ADR-038](../03_adr/ADR-038-skip-de-entrada-venenosa-sempre-humano.md)).
 - A consulta por identificador da requisição devolve o resultado **por item**: `APPLIED`, `REJECTED` ou `PENDING`.
@@ -77,6 +81,9 @@ O applier **persiste o progresso por item `(índice, ordem)` no volume do log, n
 - O arquivo local do ponto mais alto aplicado antes da queda (high-water mark, usado para abrir as leituras só depois do replay, ver 6.4.1) passa a fazer parte do mesmo registro de progresso.
 
 ### 6.5 Retenção versus Azure atrasada
+
+> Desde o ADR-055 a retenção para a Azure fica **no Pebble**, em volume próprio. O log do Raft é compactado até o checkpoint do Pebble e guarda só a folga `RAFT_RETAIN_MAX` (6.9).
+
 O disco do WAL enche quando a Azure fica muito tempo fora (já era a falha mais grave da revisão). Regras da v1:
 - Retenção por **tamanho máximo** (ex.: 70% do volume) e por **tempo mínimo** (cobrir a janela de manutenção planejada).
 - Alertas em 50% e 70%.
@@ -158,3 +165,35 @@ No Raft comum, o snapshot é uma cópia da máquina de estados. Aqui o estado vi
 2. Registrar P50, P99, P99.9 e o máximo. Repetir em horário de pico da conta/região.
 3. Repetir com carga paralela (leituras do applier e checkpoint) no mesmo volume.
 4. Critério de saída: o P99 de fsync cabe no orçamento de commit da seção 7, com folga para o RTT AWS↔Azure.
+
+---
+
+### 6.9 Log de replicação no Pebble (ADR-055, 13/10)
+
+**Por que o Pebble serve aqui e não servia para o Raft.** A objeção da 6.2 ao LSM (W3) era para o **log do Raft**, que está no caminho do ACK. O log de replicação é lido **por faixa** (catch-up, `drctl`, rebuild desde F) e truncado por prefixo, e passa a ficar **fora** do caminho do ACK. O LSM continua amplificando escrita e precisando de compactação; o que muda é que esse custo vai para um volume que não é o do fsync do Raft.
+
+**Chaves e valores**
+| Prefixo | Chave | Valor | Escrita |
+|---|---|---|---|
+| `r/` | `r/{shard u32 BE}/{índice u64 BE}` | Registro DataReplication (post-image, versão, nome lógico, itens com ordem), com CRC32C próprio | `NoSync`, depois do commit |
+| `p/` | `p/{shard}` | Progresso do applier por item `(índice, ordem)` e high-water mark | `NoSync`, depois do apply |
+| `m/` | `m/{shard}/durable` | `DurableIndex` do último checkpoint | `Sync` (é o próprio checkpoint) |
+
+**Checkpoint durável.** A cada `PEBBLE_SYNC_INTERVAL` (proposta: 100 ms ou 8 MiB, o que vier antes), uma gravação com `pebble.Sync` em `m/{shard}/durable`. Como o WAL do Pebble é sequencial, esse sync torna duráveis todas as gravações anteriores. O valor gravado é o `DurableIndex`.
+
+**Três regras de retenção**
+1. **Raft (segurança):** compactar o log do Raft só até o `DurableIndex` do Pebble.
+2. **Raft (desempenho):** manter uma folga até o menor índice confirmado por seguidores e learners, limitada por `RAFT_RETAIN_MAX` (proposta: 64 MiB ou 30 s de escrita). Isso evita que um atraso curto do link jogue o learner no caminho de snapshot do `etcd-io/raft`, que pausa o envio para aquele par e atrasaria o gate. Passada a folga, o catch-up é pelo Pebble.
+3. **Pebble:** `DeleteRange` só até `min(applied local, índice durável da maioria Azure, F de um rebuild em curso)`, com tempo mínimo que cubra a janela de dedupe (5 min) e o teto de 70% do ADR-041.
+
+**Catch-up com sync no learner.** O learner que recebe entradas pelo canal de catch-up grava no Pebble com `pebble.Sync` **antes** de informar ao Raft o índice alcançado (C13). Nesse caminho, o Pebble é a única cópia durável dessas entradas no nó.
+
+**Configuração inicial (a medir no spike S1 e S2)**
+- `MemTableSize` 32 MiB, `MemTableStopWritesThreshold` 2; cache de blocos 64 a 128 MiB (entra no orçamento do pod, seção 8.1).
+- `DisableWAL=false`; gravações com `NoSync`, checkpoint com `Sync`.
+- `L0CompactionThreshold` e o número de compactações simultâneas ajustados para leitura sequencial e apagamento por faixa.
+- Volume próprio: classe mais barata que a do Raft é aceitável, porque o Pebble não está no caminho do ACK; mas a vazão precisa cobrir a escrita (~6 MB/s por shard) mais a compactação e a leitura do catch-up.
+
+**Métricas novas:** `pebble_durable_index_lag` (commit − `DurableIndex`), `raft_log_bytes`, `pebble_logical_retained_bytes` (o que o teto mede), `pebble_disk_used_bytes` (físico), `pebble_compaction_debt_bytes`.
+
+**Riscos:** 29 a 32 em [02_riscos](../06_pendencias_e_riscos/02_riscos.md).

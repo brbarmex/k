@@ -22,8 +22,8 @@ var ErrStreamClosed = errors.New("canal do consenso fechado")
 //  2. commits: cada lote commitado vai (a) para o gate (commit Raft), (b) para o Applier,
 //     da memória, e (c) para o log de replicação.
 //
-// Ponto de atenção: Log.Append continua SÍNCRONO dentro da goroutine de commits (fsync
-// do segundo log). Ele atrasa a entrega do próximo lote ao Applier, mas não atrasa o
+// Ponto de atenção: Log.Append continua SÍNCRONO dentro da goroutine de commits (gravação
+// sem fsync no Pebble, ADR-055). Ele atrasa a entrega do próximo lote ao Applier, mas não atrasa o
 // gate, que tem goroutine própria. Na versão final o Append roda numa goroutine com
 // fila limitada (backpressure), e o Applier espera o gate, não o Append.
 type CommitPump struct {
@@ -98,7 +98,7 @@ func (p *CommitPump) runCommits(ctx context.Context) error {
 				return ctx.Err()
 			}
 			if err := p.Log.Append(ctx, b.Entries); err != nil {
-				return err // falha de disco do log de replicação é fatal
+				return err // erro de escrita no log de replicação (Pebble) é fatal (ADR-055)
 			}
 		}
 	}

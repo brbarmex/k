@@ -29,6 +29,8 @@ A pedida foi a biblioteca mais performática. Antes da tabela, uma ressalva hone
 | **JSON do DynamoDB** | A decidir no H-DR6 | `encoding/json` (v2 se estável no Go 1.27), `bytedance/sonic`, `goccy/go-json` | É o único item de biblioteca com ganho mensurável. Fica atrás da interface `codec`. Decidir com benchmark sobre itens reais dos clientes, incluindo ARM se usarem Graviton (o `sonic` tem restrições de arquitetura) |
 | **Métricas** | `prometheus/client_golang` ou OpenTelemetry | — | Contadores atômicos no caminho quente; exportação fora dele |
 | **Raft** | `go.etcd.io/raft/v3` | `dragonboat` (plano B) | Já decidido; importado **só** em `adapter/out/etcdraft` |
+| **Log do Raft** | pacote `wal` do etcd (`go.etcd.io/etcd/server/v3/storage/wal`), um por shard | WAL próprio segmentado (W2, desenho anterior) | Decidido em 13/10 ([ADR-055](../03_adr/ADR-055-log-de-replicacao-em-pebble-derivado-do-raft.md)). Muito testado; custa um fsync por shard e traz o módulo do servidor etcd e o `zap` como dependência. Importado **só** em `adapter/out/etcdraft` |
+| **Log de replicação** | `github.com/cockroachdb/pebble` | — | Decidido em 13/10 ([ADR-055](../03_adr/ADR-055-log-de-replicacao-em-pebble-derivado-do-raft.md)): Go puro, sem CGO; gravações com `NoSync` e checkpoint com `Sync`; volume próprio. Importado **só** em `adapter/out/pebblelog`. Versão fixada no spike S6 |
 | **Config YAML** | `spf13/viper` (decisão do Bruno) | `koanf` | Ver nota |
 
 > **Nota sobre config e env.** Você decidiu `viper` para o YAML e variáveis de ambiente obrigatórias. O `viper` também lê env, então **uma lib basta**. Minha crítica: `viper` é pesado (muitas dependências, binário maior, e historicamente aceita chaves desconhecidas sem reclamar, o que você já proibiu). Dá para usá-lo com `UnmarshalExact`, e a medição do peso dele já está prevista nos spikes. Se pesar, o `koanf` é o plano B e a troca é barata porque a lib fica atrás de `platform/config`. **Recomendo manter `viper` até a medição.**
@@ -67,14 +69,13 @@ datareplication/
 │   │   │   ├── peergrpc/              # servidor gRPC entre células
 │   │   │   └── adminhttp/             # /livez /readyz /metrics (net/http)
 │   │   └── out/
-│   │       ├── etcdraft/              # ÚNICO pacote que importa go.etcd.io/raft; guarda o LOG DO RAFT (raftlog)
-│   │       ├── wal/                   # LOG DE REPLICAÇÃO (ReplicationLog), group commit
+│   │       ├── etcdraft/              # ÚNICO pacote que importa go.etcd.io/raft e o wal do etcd; LOG DO RAFT (volume do Raft)
+│   │       ├── pebblelog/             # LOG DE REPLICAÇÃO (ReplicationLog) no Pebble, NoSync + checkpoint com Sync (volume do Pebble)
 │   │       ├── dynamodb/              # StateStore da AWS (aws-sdk-go-v2); também a tabela sombra do rebuild (ADR-047)
 │   │       ├── cosmos/                # StateStore da Azure via Cloud-Adapter
 │   │       ├── peerclient/            # cliente gRPC (forward, replicação)
 │   │       └── discovery/             # DNS da Route53 privada
 │   ├── platform/                      # utilitários transversais, sem regra de negócio
-│   │   ├── segfile/                   # motor de arquivo segmentado (pré-alocação, CRC32C, fdatasync), usado pelos DOIS logs
 │   │   ├── config/                    # viper, validação estrita
 │   │   ├── logx/                      # zerolog
 │   │   └── metrics/
@@ -89,7 +90,7 @@ datareplication/
 └── .golangci.yml                      # depguard: impõe a regra de dependência
 ```
 
-**Por que grita:** em `usecase/` você lê `write`, `read`, `apply`, `degrade`, `leadership`, `recovery`: é o que o produto faz. Em `adapter/out/` você lê `etcdraft`, `wal`, `dynamodb`, `cosmos`: são as tecnologias, empurradas para a borda.
+**Por que grita:** em `usecase/` você lê `write`, `read`, `apply`, `degrade`, `leadership`, `recovery`: é o que o produto faz. Em `adapter/out/` você lê `etcdraft`, `pebblelog`, `dynamodb`, `cosmos`: são as tecnologias, empurradas para a borda.
 
 ### 3.1 Mapa para os módulos do documento base (3.2)
 
@@ -97,7 +98,7 @@ datareplication/
 |---|---|
 | `api` | `adapter/in/dynamohttp` + parse/validação em `usecase/write.go` |
 | `core` | `domain` + `usecase` + `port` |
-| `replicationlog` | `adapter/out/wal` |
+| `replicationlog` | `adapter/out/pebblelog` |
 | `consensus/etcdraft` | `adapter/out/etcdraft` |
 | `transport` | `adapter/in/peergrpc` + `adapter/out/peerclient` + `adapter/out/discovery` |
 | `applier` | `usecase/apply.go` (regra) + `adapter/out/dynamodb` e `cosmos` (I/O) |
@@ -118,7 +119,11 @@ linters-settings:
         allow: ["$gostd", "example.com/datareplication/internal/domain", "example.com/datareplication/internal/port"]
       raft-only-in-adapter:
         files: ["!**/internal/adapter/out/etcdraft/**"]
-        deny: [{pkg: "go.etcd.io/raft", desc: "só o adaptador pode importar o Raft"}]
+        deny: [{pkg: "go.etcd.io/raft", desc: "só o adaptador pode importar o Raft"},
+               {pkg: "go.etcd.io/etcd/server/v3", desc: "o wal do etcd só no adaptador do Raft"}]
+      pebble-only-in-adapter:
+        files: ["!**/internal/adapter/out/pebblelog/**"]
+        deny: [{pkg: "github.com/cockroachdb/pebble", desc: "só o adaptador do log de replicação importa o Pebble (ADR-055)"}]
       fx-only-in-bootstrap:
         files: ["!**/internal/bootstrap/**", "!**/cmd/**"]
         deny: [{pkg: "go.uber.org/fx", desc: "DI só no bootstrap"}]

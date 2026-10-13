@@ -38,6 +38,8 @@ O plano de **spikes e testes de sistema** está em [06_testes_e_spikes.md](06_te
 6. **Contexto sem prazo:** toda chamada de porta recebe `context` com deadline herdado da requisição, sempre menor que o timeout de 30 s do SDK ([9.4](../01_arquitetura/08_resiliencia_autocura_e_timeouts.md)).
 7. **Waiter que vaza:** `Gate.WaitFor` remove o waiter quando o contexto expira; sob Azure fora, milhares de requisições expiradas não deixam registros.
 8. **Gate alimentado só por commit:** o progresso dos learners entra por evento, em goroutine própria; `Append` síncrono do log de replicação não atrasa o gate.
+9. **Truncar o Raft pelo índice copiado (ADR-055):** o Raft só é compactado até o `DurableIndex` do checkpoint com sync do Pebble. Teste: queda de host simulada logo depois de uma cópia sem sync; a entrada precisa voltar do Raft.
+10. **Learner informando índice antes do sync no catch-up:** no canal de catch-up o learner grava no Pebble com `Sync` antes de responder ao Raft.
 9. **Número de progresso sem termo:** `SetAzureDurable(termo, índice, learner)` ignora o que não é do termo atual ([ADR-046](../03_adr/ADR-046-gate-so-conta-progresso-validado-pelo-raft.md)).
 10. **Pânico com lote vazio ou canal fechado:** o `CommitPump` ignora o lote vazio e devolve `ErrStreamClosed`.
 11. **Seguir para o `Propose` sem líder:** o `WriteService` espera até `WAIT_LEADER` e responde 503 ([ADR-039](../03_adr/ADR-039-sem-lider-conhecida-espera-ate-1s-e-503.md)).
@@ -52,7 +54,7 @@ O trabalho segue as **[cinco fases](07_fases_de_trabalho.md)** (decisão 14 da r
 1. `domain` + `Gate` (com termo) + `Lease` + testes de concorrência (já esboçado) e o modelo TLA+ ampliado.
 2. Portas + fakes + `WriteService` + `DegradeService` (escrita ponta a ponta em memória, com lease e política).
 3. Adaptador `wal` + suíte de conformidade + `fio` (spike S1).
-4. Adaptador `etcdraft` sobre o WAL + conformidade do `ConsensusEngine`; o progresso dos learners sai só das respostas do `AppendEntries`.
+4. Adaptador `etcdraft` sobre o `wal` do etcd e `pebblelog` (ADR-055) + conformidade do `ConsensusEngine`; o progresso dos learners sai só das respostas do `AppendEntries`.
 5. `dynamohttp` + `Applier` (serial, depois do gate, checkpoint por item) + **um** `DynamoStore` (um nó, depois três). Este é o único caminho de banco da fase 3.
 6. `peergrpc` + learners da Azure + gate real.
 7. `DegradeController`, `Recovery`, `LeadershipService`.

@@ -2,7 +2,7 @@
 
 [Início](00_COMECE_AQUI.md) · [Arquitetura](01_arquitetura/README.md) · [Cenários](02_cenarios/INDEX.md) · [ADRs](03_adr/INDEX.md) · [Diagramas](04_diagramas/INDEX.md) · [Implementação](05_implementacao/README.md) · [Pendências](06_pendencias_e_riscos/README.md) · [Glossário](01_arquitetura/00_glossario.md)
 
-**Estado:** 13/10/2026, com as decisões da revisão crítica (ADR-044 a ADR-054) · **Dono:** Bruno · **Papel deste documento:** reunir tudo o que importa sobre o `DataReplication` v1 e apontar, a cada assunto, o arquivo com o detalhe. Cada seção termina com os links para o aprofundamento.
+**Estado:** 13/10/2026, com as decisões da revisão crítica (ADR-044 a ADR-054) e o log de replicação no Pebble (ADR-055) · **Dono:** Bruno · **Papel deste documento:** reunir tudo o que importa sobre o `DataReplication` v1 e apontar, a cada assunto, o arquivo com o detalhe. Cada seção termina com os links para o aprofundamento.
 
 ## Sumário
 
@@ -127,7 +127,8 @@ Um arquivo por decisão, com contexto, decisão e consequências. Índice comple
 | [ADR-006](03_adr/ADR-006-consenso-por-shard-eleicao-na-aws.md) | Consenso por shard; eleição só na AWS | Aceito |
 | [ADR-017](03_adr/ADR-017-azure-learners-e-gate.md) | Azure como learners, com gate | Decidido (Bruno) |
 | [ADR-018](03_adr/ADR-018-dois-logs-raft-e-replicacao.md) | Dois logs separados: o do Raft e o de replicação | Decidido (Bruno) |
-| [ADR-019](03_adr/ADR-019-wal-proprio-volume-dedicado.md) | WAL próprio em volume de bloco dedicado; sem ACK em memória | Decidido (Bruno) |
+| [ADR-019](03_adr/ADR-019-wal-proprio-volume-dedicado.md) | Log do Raft em volume de bloco dedicado; sem ACK em memória | Decidido (Bruno); revisado pelo ADR-055 |
+| [ADR-055](03_adr/ADR-055-log-de-replicacao-em-pebble-derivado-do-raft.md) | Log de replicação em Pebble, derivado do Raft, sem fsync no caminho do ACK e em volume separado | Decidido (Bruno, 1a 2b 3b) |
 | [ADR-020](03_adr/ADR-020-raft-etcd-io-camada-multigrupo.md) | Raft: etcd-io/raft com camada multi-grupo própria | Decidido (Bruno) |
 | [ADR-021](03_adr/ADR-021-grpc-entre-celulas.md) | gRPC entre as células | Decidido (Bruno) |
 | [ADR-029](03_adr/ADR-029-gate-monotonico-na-troca-de-lider.md) | O gate nunca recua; líder nova reconstrói antes de ACKar | Decidido (Bruno) |
@@ -197,13 +198,14 @@ Um **monolito modular** por célula (módulos `api`, `core`, log, Raft, transpor
 | | Log do Raft | Log de replicação |
 |---|---|---|
 | Dono | A biblioteca (pelo adaptador) | O `DataReplication` |
-| Gravação | Antes do ACK, com fsync | Depois do commit, em lote |
-| Retenção | Curta; truncado só até o `DurableIndex` do outro | Longa; teto de 70% do volume |
+| Armazenamento | `wal` do etcd, um por shard, volume pequeno e rápido | Pebble, volume próprio ([ADR-055](03_adr/ADR-055-log-de-replicacao-em-pebble-derivado-do-raft.md)) |
+| Gravação | Antes do ACK, com fsync | Depois do commit, sem fsync; checkpoint com sync periódico |
+| Retenção | Curta; truncado só até o `DurableIndex` do Pebble (índice coberto por um checkpoint com sync), mais uma folga | Longa; teto de 70% do volume, medido no espaço lógico |
 | Quem lê | Só o Raft | Applier, Azure atrasada, `drctl`, reconstrução |
 
-O **fsync é o gargalo**: WAL próprio, segmentado, pré-alocado, `fdatasync`, CRC32C, *group commit* sem *linger*, em **volume de bloco dedicado** (NVMe local descartado). **Falha de fsync é fatal**; disco perdido volta com **identidade nova** como learner e a reconstrução é manual assistida (`drctl rebuild`). Não existe ACK com quórum só em memória.
+O **fsync é o gargalo**: só o log do Raft está no caminho do ACK, com o `wal` do etcd (segmentos pré-alocados, `fdatasync`, CRC) em **volume de bloco dedicado** (NVMe local descartado). O WAL próprio saiu em 13/10: o log de replicação vai para o **Pebble**, derivado do Raft, sem fsync no caminho do ACK, em outro volume; o Raft obedece ao checkpoint do Pebble e o Pebble obedece à Azure ([ADR-055](03_adr/ADR-055-log-de-replicacao-em-pebble-derivado-do-raft.md)). **Falha de fsync é fatal**; disco perdido volta com **identidade nova** como learner e a reconstrução é manual assistida (`drctl rebuild`). Não existe ACK com quórum só em memória.
 
-→ [03_consenso_raft_quorum_e_gate](01_arquitetura/03_consenso_raft_quorum_e_gate.md) (5.5.1), [04_wal_e_fsync](01_arquitetura/04_wal_e_fsync.md), [D04](04_diagramas/D04-dois-logs-e-commitpump.md), [X04](02_cenarios/complexos/X04-partida-recuperacao-e-dois-logs.md), [ADR-018](03_adr/ADR-018-dois-logs-raft-e-replicacao.md), [ADR-019](03_adr/ADR-019-wal-proprio-volume-dedicado.md), [ADR-034](03_adr/ADR-034-fsync-fatal-e-identidade-nova.md).
+→ [03_consenso_raft_quorum_e_gate](01_arquitetura/03_consenso_raft_quorum_e_gate.md) (5.5.1), [04_wal_e_fsync](01_arquitetura/04_wal_e_fsync.md), [D04](04_diagramas/D04-dois-logs-e-commitpump.md), [X04](02_cenarios/complexos/X04-partida-recuperacao-e-dois-logs.md), [ADR-018](03_adr/ADR-018-dois-logs-raft-e-replicacao.md), [ADR-019](03_adr/ADR-019-wal-proprio-volume-dedicado.md), [ADR-055](03_adr/ADR-055-log-de-replicacao-em-pebble-derivado-do-raft.md), [ADR-034](03_adr/ADR-034-fsync-fatal-e-identidade-nova.md).
 
 ### 5.4 Dados: versão, DELETE, TTL, GSI e banco por célula
 
@@ -340,7 +342,7 @@ Todos os cenários têm diagrama Mermaid. Totais: **34 atualizados**, **6 comple
 
 ## 9. Implementação
 
-- **Código:** Go 1.27, hexagonal, injeção por Fx (só no `bootstrap`), `fasthttp`, `grpc-go` + `vtprotobuf`, `zerolog`, `viper`, `etcd-io/raft/v3`. Guia: [05_implementacao/README.md](05_implementacao/README.md).
+- **Código:** Go 1.27, hexagonal, injeção por Fx (só no `bootstrap`), `fasthttp`, `grpc-go` + `vtprotobuf`, `zerolog`, `viper`, `etcd-io/raft/v3` com o `wal` do etcd, `cockroachdb/pebble` (log de replicação). Guia: [05_implementacao/README.md](05_implementacao/README.md).
 - **Estrutura de pastas e regras de lint:** [01_principios_bibliotecas_e_pastas](05_implementacao/01_principios_bibliotecas_e_pastas.md).
 - **Desenho e diagramas de processo e de fluxo:** [02_desenho_e_diagramas](05_implementacao/02_desenho_e_diagramas.md).
 - **Exemplos de código** (compilados) e **tabela de structs:** [03](05_implementacao/03_exemplos_de_codigo.md), [04](05_implementacao/04_tabela_de_structs.md), [codigo_exemplo/](05_implementacao/codigo_exemplo/README.md).
@@ -350,7 +352,7 @@ Todos os cenários têm diagrama Mermaid. Totais: **34 atualizados**, **6 comple
 
 ## 10. Pendências, riscos e perguntas em aberto
 
-- **Perguntas para o Bruno** (formato `1a 2b`, com recomendação): [03_perguntas_para_o_bruno](06_pendencias_e_riscos/03_perguntas_para_o_bruno.md).
+- **Perguntas para o Bruno** (formato `1a 2b`, com recomendação; abertas: 16 e 17, sobre o log do Raft e a perda do volume do Pebble): [03_perguntas_para_o_bruno](06_pendencias_e_riscos/03_perguntas_para_o_bruno.md).
 - **Bloqueante:** PEND-02, o aceite formal do RPO > 0 no modo degradado, agora **com o valor de D** (a validade do lease). **PEND-01** (promoção da Azure, split-brain) tem desenho decidido ([ADR-044](03_adr/ADR-044-lease-do-modo-degradado-e-promocao-da-azure.md)) e fecha quando D e M forem aprovados e o modelo TLA+ provar a regra.
 - **Pendências numeradas:** [01_pendencias](06_pendencias_e_riscos/01_pendencias.md). **Riscos priorizados:** [02_riscos](06_pendencias_e_riscos/02_riscos.md). **Revisões críticas:** [12/10](06_pendencias_e_riscos/revisao_critica_12_10.md) e [13/10](06_pendencias_e_riscos/revisao_critica_13_10.md).
 

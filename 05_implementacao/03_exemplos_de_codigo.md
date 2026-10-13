@@ -518,7 +518,9 @@ import (
 
 // ---- Portas de saída (driven): o núcleo pede, o adaptador implementa ----
 
-// ReplicationLog é o log de replicação próprio (5.5.1). Append só retorna após fsync.
+// ReplicationLog é o log de replicação (5.5.1), no Pebble desde o ADR-055. Append grava
+// sem fsync (fora do caminho do ACK); DurableIndex é o maior índice coberto pelo último
+// checkpoint com sync, e é o limite até onde o log do Raft pode ser compactado.
 type ReplicationLog interface {
 	Append(ctx context.Context, batch []domain.Entry) error
 	Read(ctx context.Context, from, to domain.Index) ([]domain.Entry, error)
@@ -1025,8 +1027,8 @@ var ErrStreamClosed = errors.New("canal do consenso fechado")
 //  2. commits: cada lote commitado vai (a) para o gate (commit Raft), (b) para o Applier,
 //     da memória, e (c) para o log de replicação.
 //
-// Ponto de atenção: Log.Append continua SÍNCRONO dentro da goroutine de commits (fsync
-// do segundo log). Ele atrasa a entrega do próximo lote ao Applier, mas não atrasa o
+// Ponto de atenção: Log.Append continua SÍNCRONO dentro da goroutine de commits (gravação
+// sem fsync no Pebble, ADR-055). Ele atrasa a entrega do próximo lote ao Applier, mas não atrasa o
 // gate, que tem goroutine própria. Na versão final o Append roda numa goroutine com
 // fila limitada (backpressure), e o Applier espera o gate, não o Append.
 type CommitPump struct {
@@ -1101,7 +1103,7 @@ func (p *CommitPump) runCommits(ctx context.Context) error {
 				return ctx.Err()
 			}
 			if err := p.Log.Append(ctx, b.Entries); err != nil {
-				return err // falha de disco do log de replicação é fatal
+				return err // erro de escrita no log de replicação (Pebble) é fatal (ADR-055)
 			}
 		}
 	}
@@ -1569,20 +1571,39 @@ func TestWriterDegradedFollowsRealShardState(t *testing.T) {
 }
 ```
 
-### 7.9 Esboço do WAL (group commit natural, sem linger)
+### 7.9 Esboço do log de replicação no Pebble (ADR-055)
+
+> Substitui o esboço do WAL próprio (W2), que saiu em 13/10. Não está em `codigo_exemplo/`.
 
 ```go
-// adapter/out/wal: uma goroutine escritora por nó.
-func (w *WAL) loop() {
+// adapter/out/pebblelog: grava sem fsync e publica o DurableIndex só depois de um Sync.
+func (l *PebbleLog) Append(_ context.Context, batch []domain.Entry) error {
+	b := l.db.NewBatch()
+	for _, e := range batch {
+		b.Set(entryKey(e.Shard, e.Index), l.encode(e), nil) // registro próprio com CRC32C
+	}
+	if err := b.Commit(pebble.NoSync); err != nil {
+		l.fatal(err) // erro do Pebble é fatal: o nó reinicia e refaz a partir do Raft
+	}
+	l.copied.Store(uint64(batch[len(batch)-1].Index)) // copiado, AINDA NÃO durável
+	return nil
+}
+
+// checkpointLoop roda a cada PEBBLE_SYNC_INTERVAL, fora do caminho do ACK.
+func (l *PebbleLog) checkpointLoop(ctx context.Context) {
+	t := time.NewTicker(l.cfg.SyncInterval)
+	defer t.Stop()
 	for {
-		batch := w.queue.DrainBlocking() // pega tudo o que já chegou, sem esperar mais
-		w.encode(batch)                  // CRC32C por registro, em buffer reutilizado
-		w.file.Write(w.buf)              // arquivo pré-alocado de 64 MiB
-		if err := w.file.Datasync(); err != nil {
-			w.fatal(err) // falha de fsync é fatal: o processo morre e o nó reentra (6.x)
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			upTo := l.copied.Load() // tudo até aqui já está no WAL do Pebble
+			if err := l.db.Set(durableKey, u64(upTo), pebble.Sync); err != nil {
+				l.fatal(err)
+			}
+			l.durable.Store(upTo) // só agora o Raft pode ser compactado até upTo
 		}
-		w.durable.Store(batch.LastIndex()) // só agora Append() retorna
-		batch.Done()
 	}
 }
 ```

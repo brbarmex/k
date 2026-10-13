@@ -1,6 +1,6 @@
 # Índice de ADRs
 
-Um arquivo por decisão. ADR-001 a 015 são herdados das versões anteriores da documentação (revisados); ADR-016 a 054 registram as decisões da v1 do DataReplication (12 e 13/10/2026; os ADRs 044 a 054 vêm da revisão crítica de 13/10). O status **Provisório** indica pendência aberta.
+Um arquivo por decisão. ADR-001 a 015 são herdados das versões anteriores da documentação (revisados); ADR-016 a 055 registram as decisões da v1 do DataReplication (12 e 13/10/2026; os ADRs 044 a 054 vêm da revisão crítica de 13/10; o ADR-055, do log de replicação no Pebble). O status **Provisório** indica pendência aberta.
 
 | ADR | Título | Status |
 |---|---|---|
@@ -21,8 +21,8 @@ Um arquivo por decisão. ADR-001 a 015 são herdados das versões anteriores da 
 | [ADR-015](ADR-015-wal-post-image-e-versao.md) | O log guarda a post-image e a versão do item | Aceito |
 | [ADR-016](ADR-016-app-unico-por-celula-monolito-modular.md) | Um único app DataReplication por célula, monolito modular | Decidido (Bruno) |
 | [ADR-017](ADR-017-azure-learners-e-gate.md) | Azure como learners, com gate | Decidido (Bruno) |
-| [ADR-018](ADR-018-dois-logs-raft-e-replicacao.md) | Dois logs separados: o do Raft e o de replicação | Decidido (Bruno) |
-| [ADR-019](ADR-019-wal-proprio-volume-dedicado.md) | WAL próprio em volume de bloco dedicado; sem ACK em memória | Decidido (Bruno) |
+| [ADR-018](ADR-018-dois-logs-raft-e-replicacao.md) | Dois logs separados: o do Raft e o de replicação | Decidido (Bruno); regra de truncamento precisada pelo ADR-055 |
+| [ADR-019](ADR-019-wal-proprio-volume-dedicado.md) | Log do Raft em volume de bloco dedicado; sem ACK em memória | Decidido (Bruno); revisado pelo ADR-055 |
 | [ADR-020](ADR-020-raft-etcd-io-camada-multigrupo.md) | Raft: etcd-io/raft com camada multi-grupo própria | Decidido (Bruno) |
 | [ADR-021](ADR-021-grpc-entre-celulas.md) | gRPC entre as células | Decidido (Bruno) |
 | [ADR-022](ADR-022-banco-por-celula-nome-logico.md) | Um banco por célula; nome lógico com {cell} | Decidido (Bruno) |
@@ -58,3 +58,4 @@ Um arquivo por decisão. ADR-001 a 015 são herdados das versões anteriores da 
 | [ADR-052](ADR-052-autorizacao-por-aplicacao-com-mtls.md) | Autorização por aplicação com mTLS | Decidido (Bruno) |
 | [ADR-053](ADR-053-eventual-sem-apply-paralelo-na-v1.md) | O modo Eventual é só de leitura; o apply paralelo sai da v1 | Decidido (Bruno) |
 | [ADR-054](ADR-054-banco-por-celula-mantido.md) | Um banco por célula mantido, com o trade-off registrado | Decidido (Bruno) |
+| [ADR-055](ADR-055-log-de-replicacao-em-pebble-derivado-do-raft.md) | Log de replicação em Pebble, derivado do Raft, sem fsync no caminho do ACK e em volume separado | Decidido (Bruno, 1a 2b 3b) |
