@@ -194,3 +194,5 @@ func (*fakeLog) Read(context.Context, domain.Index, domain.Index) ([]domain.Entr
 func (*fakeLog) TruncateSuffix(context.Context, domain.Index) error { return nil }
 func (*fakeLog) CompactPrefix(context.Context, domain.Index) error  { return nil }
 func (*fakeLog) DurableIndex() domain.Index                         { return 0 }
+func (*fakeLog) LastIndex() domain.Index                            { return 0 }
+func (*fakeLog) Sync(context.Context) (domain.Index, error)         { return 0, nil }

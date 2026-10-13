@@ -68,7 +68,7 @@ flowchart TD
     RAFT -->|"commit Raft"| GATE
     RAFT -->|"entradas commitadas<br/>Committed"| PUMP["CommitPump<br/>usecase replicate"]
     PUMP -->|"da memória, sem esperar disco"| APP["Applier"]
-    PUMP -->|"NoSync, FORA do caminho do ACK"| REP[("replicationlog: Pebble<br/>nosso formato, vida longa, volume próprio")]
+    PUMP -->|"sem fsync, FORA do caminho do ACK"| REP[("replicationlog segmentado<br/>nosso formato, vida longa, volume próprio")]
     GATE -->|"libera o ACK"| WS
     GATE -->|"libera aplicar até o índice"| APP
     APP -->|"escrita condicional v menor que índice"| DB[("DynamoDB ou Cosmos<br/>da célula")]
@@ -82,16 +82,16 @@ flowchart TD
 3. Cada learner informa o índice que já tornou durável **na resposta do `AppendEntries`**, com o termo e a identidade dele ([ADR-046](../03_adr/ADR-046-gate-so-conta-progresso-validado-pelo-raft.md)). Cada resposta alimenta o `Gate` na hora, sem esperar um commit novo; o gate só adota o termo atual e guarda `min(commit do Raft, maioria Azure)`. **Só aqui o ACK é liberado.**
 4. Os lotes commitados chegam ao `CommitPump`, que os entrega ao `Applier` **pela memória** e ao **log de replicação** em lote, fora do caminho do ACK. O progresso dos learners corre em outra goroutine do `CommitPump`: um `Append` lento não atrasa o gate.
 5. O `Applier` escreve no banco da célula com escrita condicional por versão, **sempre em série e depois do gate** ([ADR-053](../03_adr/ADR-053-eventual-sem-apply-paralelo-na-v1.md)); o checkpoint do applier é por item `(índice, ordem)` ([ADR-048](../03_adr/ADR-048-skip-por-item.md)).
-6. O log do Raft só é truncado até o `DurableIndex` do log de replicação, que é o índice coberto pelo último checkpoint com sync do Pebble, e não o índice apenas copiado (regra de segurança da 5.5.1, [ADR-055](../03_adr/ADR-055-log-de-replicacao-em-pebble-derivado-do-raft.md)).
+6. O log do Raft só é truncado até o `DurableIndex` do log de replicação, que é o índice coberto pelo último checkpoint (fsync) do log de replicação, e não o índice apenas copiado (regra de segurança da 5.5.1, [ADR-055](../03_adr/ADR-055-log-de-replicacao-segmentado-derivado-do-raft.md)).
 
 **Quem grava o quê, por escrita lógica:**
 
 | Onde | O que grava | Quando | No caminho do ACK? |
 |---|---|---|---|
 | `raftlog` (cada réplica) | Entrada do consenso | Antes de responder ao líder, com fsync | **Sim** |
-| `replicationlog` (Pebble, todas as réplicas) | Registro commitado, nosso formato | Depois do commit, `NoSync`; checkpoint com sync periódico | Não |
+| `replicationlog` (todas as réplicas) | Registro commitado, nosso formato | Depois do commit, sem fsync; checkpoint com fsync periódico | Não |
 | Banco da célula (DynamoDB ou Cosmos) | Item com versão | Depois do gate, em série | **Sim**, na célula da líder o ACK espera o apply (o `t_apply` está no orçamento, [ADR-036](../03_adr/ADR-036-slo-de-50ms-exclui-a-escrita-no-banco.md)) |
-| Pebble (checkpoint do applier) | Progresso por item `(índice, ordem)` | Depois de cada item aplicado, `NoSync` | Não |
+| Volume do log de replicação (progresso do applier) | Progresso por item `(índice, ordem)` | Depois de cada item aplicado, sem fsync | Não |
 
 **Visão do cluster:** quem replica para quem, e o que cada célula guarda.
 

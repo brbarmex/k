@@ -4,17 +4,9 @@
 
 ## 6. Como será o WAL
 
-### 6.0 Revisão de 13/10: Pebble no log de replicação e WAL do etcd no Raft ([ADR-055](../03_adr/ADR-055-log-de-replicacao-em-pebble-derivado-do-raft.md))
+### 6.0 Revisão de 13/10: log do Raft no WAL do etcd e log de replicação segmentado ([ADR-055](../03_adr/ADR-055-log-de-replicacao-segmentado-derivado-do-raft.md))
 
-> **Decisão do Bruno (13/10, respostas 1a 2b 3b).** O WAL próprio (W2) **saiu**. O **log do Raft** usa o pacote `wal` do etcd (W1), um por shard, com fsync antes do ACK, em volume pequeno e rápido. O **log de replicação** usa o **Pebble**, derivado do Raft, **sem fsync** no caminho do ACK, com checkpoint com sync periódico, em **outro volume**. O teto de 70% (ADR-041) vale para o volume do Pebble e mede o espaço lógico. O desenho do Pebble está em **6.9**. As seções 6.2 a 6.3 ficam como registro da análise que levou ao W2; onde contradizem a 6.9, vale a 6.9.
-
-### 6.1 O que o Raft pede do armazenamento
-O `etcd-io/raft` espera que o nosso código ofereça:
-1. **Anexar** entradas (em lote) e estado (term, voto, commit) de forma **durável** antes de enviar a confirmação (`Ready` → persistir → só então responder).
-2. **Truncar o sufixo** quando o novo líder sobrescreve entradas conflitantes.
-3. **Compactar o prefixo** (descartar o que já foi aplicado e não é mais necessário).
-4. **Ler por intervalo** (para enviar a followers atrasados e para o applier).
-5. Detectar e tolerar **escrita incompleta** (queda no meio de um fsync).
+> **Decisão do Bruno (13/10, respostas 1a 2b 3b e "opção a").** O WAL próprio no caminho do ACK (W2) **saiu**. O **log do Raft** usa o pacote `wal` do etcd (W1), um por shard, com fsync antes do ACK, em volume pequeno e rápido. O **log de replicação** é um **log segmentado simples, nosso**, derivado do Raft, **sem fsync por entrada** e fora do caminho do ACK, com fsync de checkpoint periódico, em **outro volume**. O Pebble foi avaliado e descartado. O teto de 70% (ADR-041) vale para o volume do log de replicação. O desenho está em **6.9**. As seções 6.2 a 6.3 ficam como registro da análise anterior; onde contradizem a 6.9, vale a 6.9.
 
 ### 6.2 Opções
 | Opção | Pró | Contra |
@@ -73,7 +65,7 @@ O `etcd-io/raft` espera que o nosso código ofereça:
 
 ### 6.3.1 Progresso do applier por item (ADR-048)
 
-O applier **persiste o progresso por item `(índice, ordem)` no Pebble do log de replicação (desde o ADR-055), não no banco**. Assim:
+O applier **persiste o progresso por item `(índice, ordem)` num registro com CRC no volume do log de replicação (desde o ADR-055), não no banco**. Assim:
 - Um replay depois de queda reaplica os itens anteriores de forma idempotente (condição `v < índice`) e **para ou pula só o item marcado**, e não a entrada inteira.
 - O `SKIP(index, ordem, motivo, autor)` é uma entrada replicada e auditada; a entrada original nunca é apagada. Pular a entrada inteira exige listar todas as ordens e continua sendo decisão humana ([ADR-038](../03_adr/ADR-038-skip-de-entrada-venenosa-sempre-humano.md)).
 - A consulta por identificador da requisição devolve o resultado **por item**: `APPLIED`, `REJECTED` ou `PENDING`.
@@ -82,7 +74,7 @@ O applier **persiste o progresso por item `(índice, ordem)` no Pebble do log de
 
 ### 6.5 Retenção versus Azure atrasada
 
-> Desde o ADR-055 a retenção para a Azure fica **no Pebble**, em volume próprio. O log do Raft é compactado até o checkpoint do Pebble e guarda só a folga `RAFT_RETAIN_MAX` (6.9).
+> Desde o ADR-055 a retenção para a Azure fica **no log de replicação segmentado**, em volume próprio. O log do Raft é compactado até o checkpoint do log de replicação e guarda só a folga `RAFT_RETAIN_MAX` (6.9).
 
 O disco do WAL enche quando a Azure fica muito tempo fora (já era a falha mais grave da revisão). Regras da v1:
 - Retenção por **tamanho máximo** (ex.: 70% do volume) e por **tempo mínimo** (cobrir a janela de manutenção planejada).
@@ -168,32 +160,32 @@ No Raft comum, o snapshot é uma cópia da máquina de estados. Aqui o estado vi
 
 ---
 
-### 6.9 Log de replicação no Pebble (ADR-055, 13/10)
+### 6.9 Log de replicação segmentado (ADR-055, 13/10)
 
-**Por que o Pebble serve aqui e não servia para o Raft.** A objeção da 6.2 ao LSM (W3) era para o **log do Raft**, que está no caminho do ACK. O log de replicação é lido **por faixa** (catch-up, `drctl`, rebuild desde F) e truncado por prefixo, e passa a ficar **fora** do caminho do ACK. O LSM continua amplificando escrita e precisando de compactação; o que muda é que esse custo vai para um volume que não é o do fsync do Raft.
+**Por que código próprio é aceitável agora.** O W2 era o maior risco de perda de dado porque estava **no caminho do ACK**. O log de replicação novo está **fora** dele e é refeito a partir do Raft: um bug ali não perde dado confirmado, desde que a invariante de truncamento (abaixo) valha. O acesso é de log (anexar, ler por faixa, apagar o começo), então um LSM como o Pebble só acrescentaria compactação, memória e espaço que só volta depois da compactação.
 
-**Chaves e valores**
-| Prefixo | Chave | Valor | Escrita |
-|---|---|---|---|
-| `r/` | `r/{shard u32 BE}/{índice u64 BE}` | Registro DataReplication (post-image, versão, nome lógico, itens com ordem), com CRC32C próprio | `NoSync`, depois do commit |
-| `p/` | `p/{shard}` | Progresso do applier por item `(índice, ordem)` e high-water mark | `NoSync`, depois do apply |
-| `m/` | `m/{shard}/durable` | `DurableIndex` do último checkpoint | `Sync` (é o próprio checkpoint) |
+**Formato** (pacote `internal/adapter/out/replog` no [código de exemplo](../05_implementacao/codigo_exemplo/README.md))
+- Um diretório por shard; segmentos de tamanho fixo (proposta 64 MiB), nome = primeiro índice com zeros à esquerda.
+- Registro: `len u32 | crc32c u32 | payload`. O payload leva índice, termo, tipo, post-image, versão, nome lógico e os itens com ordem.
+- Registro `progress` com CRC no mesmo diretório: `(índice, ordem)` do applier (ADR-048).
 
-**Checkpoint durável.** A cada `PEBBLE_SYNC_INTERVAL` (proposta: 100 ms ou 8 MiB, o que vier antes), uma gravação com `pebble.Sync` em `m/{shard}/durable`. Como o WAL do Pebble é sequencial, esse sync torna duráveis todas as gravações anteriores. O valor gravado é o `DurableIndex`.
+**Escrita e checkpoint**
+1. `Append` anexa sem fsync. Índice já presente é ignorado (sobreposição com o Raft na partida); buraco é erro.
+2. `Sync` (chamado pelo `Checkpointer` a cada `REPLOG_SYNC_INTERVAL`, proposta 100 ms ou 8 MiB) faz fsync do segmento ativo e publica o **`DurableIndex`**.
+3. Ao rotacionar, o segmento que sai recebe fsync e o diretório também. Só o segmento ativo pode ter dados sem fsync.
+4. Erro de escrita ou de fsync é fatal (não se repete fsync).
 
-**Três regras de retenção**
-1. **Raft (segurança):** compactar o log do Raft só até o `DurableIndex` do Pebble.
-2. **Raft (desempenho):** manter uma folga até o menor índice confirmado por seguidores e learners, limitada por `RAFT_RETAIN_MAX` (proposta: 64 MiB ou 30 s de escrita). Isso evita que um atraso curto do link jogue o learner no caminho de snapshot do `etcd-io/raft`, que pausa o envio para aquele par e atrasaria o gate. Passada a folga, o catch-up é pelo Pebble.
-3. **Pebble:** `DeleteRange` só até `min(applied local, índice durável da maioria Azure, F de um rebuild em curso)`, com tempo mínimo que cubra a janela de dedupe (5 min) e o teto de 70% do ADR-041.
+**Três regras de retenção** (`internal/domain/retention.go`)
+1. **Raft, segurança:** compactar o log do Raft só até o `DurableIndex` (`RaftCompactLimit`).
+2. **Raft, desempenho:** manter uma folga até o menor índice confirmado pelos pares, limitada por `RAFT_RETAIN_MAX` (proposta 64 MiB ou 30 s). Evita que um atraso curto do link jogue o learner no caminho de snapshot do `etcd-io/raft`, que pausa o envio para aquele par e atrasaria o gate. Passada a folga, o catch-up é pelo log de replicação.
+3. **Log de replicação:** truncar só até `min(applied local, índice durável da maioria Azure, F − 1 de um rebuild em curso)` (`ReplogTruncateLimit`), com tempo mínimo que cubra a janela de dedupe (5 min) e o teto de 70% do ADR-041. O truncamento apaga **segmentos inteiros**: o disco volta na hora.
 
-**Catch-up com sync no learner.** O learner que recebe entradas pelo canal de catch-up grava no Pebble com `pebble.Sync` **antes** de informar ao Raft o índice alcançado (C13). Nesse caminho, o Pebble é a única cópia durável dessas entradas no nó.
+**Catch-up com fsync no learner.** O learner que recebe entradas pelo canal de catch-up grava no seu log de replicação e faz fsync **antes** de informar ao Raft o índice alcançado (C13).
 
-**Configuração inicial (a medir no spike S1 e S2)**
-- `MemTableSize` 32 MiB, `MemTableStopWritesThreshold` 2; cache de blocos 64 a 128 MiB (entra no orçamento do pod, seção 8.1).
-- `DisableWAL=false`; gravações com `NoSync`, checkpoint com `Sync`.
-- `L0CompactionThreshold` e o número de compactações simultâneas ajustados para leitura sequencial e apagamento por faixa.
-- Volume próprio: classe mais barata que a do Raft é aceitável, porque o Pebble não está no caminho do ACK; mas a vazão precisa cobrir a escrita (~6 MB/s por shard) mais a compactação e a leitura do catch-up.
+**Recuperação.** Na abertura, cada segmento é validado pelo CRC. Registro curto ou inválido na cauda do último segmento é escrita incompleta e é truncado; em qualquer outro lugar é corrupção e o nó não sobe. A abertura faz fsync e só então publica o `DurableIndex`. Depois o log é completado a partir do Raft.
 
-**Métricas novas:** `pebble_durable_index_lag` (commit − `DurableIndex`), `raft_log_bytes`, `pebble_logical_retained_bytes` (o que o teto mede), `pebble_disk_used_bytes` (físico), `pebble_compaction_debt_bytes`.
+**Limites do esboço:** o `Read` varre os segmentos da faixa (sem índice esparso); payload em JSON para legibilidade (o real é binário, 6.3); a cauda rasgada é decidida só pelo CRC (o real confere se há registros válidos depois).
 
-**Riscos:** 29 a 32 em [02_riscos](../06_pendencias_e_riscos/02_riscos.md).
+**Métricas:** `replog_durable_lag` (cabeça − `DurableIndex`), `raft_log_bytes`, `replog_retained_bytes` (o que o teto mede), `replog_segments`.
+
+**Riscos:** 29, 31, 32 e 33 em [02_riscos](../06_pendencias_e_riscos/02_riscos.md).

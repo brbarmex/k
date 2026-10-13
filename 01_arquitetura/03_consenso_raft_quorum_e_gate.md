@@ -157,7 +157,7 @@ O modelo cobre, além do gate monotônico: promoção entre nuvens com lease, tr
 
 ### 5.5.1 Desenho dos dois logs (decisão do Bruno, 12/10; armazenamento revisto em 13/10)
 
-> **Revisão de 13/10 ([ADR-055](../03_adr/ADR-055-log-de-replicacao-em-pebble-derivado-do-raft.md)).** Log do Raft no pacote `wal` do etcd, um por shard; log de replicação no **Pebble**, derivado do Raft, **sem fsync**, com checkpoint com sync periódico, em **volume separado**. A regra 1 abaixo passa a ler: o Raft só é compactado até o **`DurableIndex` do Pebble, que é o índice coberto por um checkpoint com sync**. A retenção longa para a Azure fica no Pebble; o Raft guarda só a folga `RAFT_RETAIN_MAX` ([04_wal_e_fsync](04_wal_e_fsync.md), 6.9).
+> **Revisão de 13/10 ([ADR-055](../03_adr/ADR-055-log-de-replicacao-segmentado-derivado-do-raft.md)).** Log do Raft no pacote `wal` do etcd, um por shard; log de replicação **segmentado próprio**, derivado do Raft, **sem fsync por entrada**, com fsync de checkpoint periódico, em **volume separado**. A regra 1 abaixo passa a ler: o Raft só é compactado até o **`DurableIndex` do log de replicação, que é o índice coberto pelo último fsync de checkpoint**. A retenção longa para a Azure fica no log de replicação; o Raft guarda só a folga `RAFT_RETAIN_MAX` ([04_wal_e_fsync](04_wal_e_fsync.md), 6.9).
 
 **Ideia:** o **log do Raft** é interno ao consenso e de vida curta; o **log de replicação** é nosso, de formato próprio, de vida longa, independente da biblioteca Raft.
 
@@ -167,8 +167,8 @@ O modelo cobre, além do gate monotônico: promoção entre nuvens com lease, tr
 | **Conteúdo** | Entradas e estado do consenso (term, voto, configuração), com o payload para poder replicar | Registros de escrita já **commitados**, no nosso formato (post-image, versão, nome lógico da tabela) |
 | **Quando é gravado** | Antes de responder ao líder (caminho do ACK, fsync obrigatório) | **Depois do commit**, na ordem do log, sem fsync; checkpoint com sync periódico (ADR-055) |
 | **Quem lê** | Só o Raft | Applier, ressincronização da Azure, `drctl`, reconstrução de réplica |
-| **Retenção** | Curta: até o `DurableIndex` do Pebble, mais a folga `RAFT_RETAIN_MAX` | Longa: pela janela de tolerância da Azure e da manutenção (6.5), teto de 70% |
-| **Armazenamento (13/10)** | Pacote `wal` do etcd, um por shard, volume pequeno e rápido | Pebble, volume próprio |
+| **Retenção** | Curta: até o `DurableIndex` do log de replicação, mais a folga `RAFT_RETAIN_MAX` | Longa: pela janela de tolerância da Azure e da manutenção (6.5), teto de 70% |
+| **Armazenamento (13/10)** | Pacote `wal` do etcd, um por shard, volume pequeno e rápido | Log segmentado próprio, volume próprio |
 | **Se trocarmos o Raft** | Muda | **Não muda** |
 
 **Por que não adiciona latência ao ACK:** o payload já foi gravado com fsync no log do Raft antes do commit. O applier consome as entradas commitadas **da memória**, e a gravação no log de replicação segue em paralelo, em lote. Duas regras mantêm a segurança:
@@ -176,7 +176,7 @@ O modelo cobre, além do gate monotônico: promoção entre nuvens com lease, tr
 2. **Na partida**, se o log de replicação estiver atrás do índice commitado, ele é completado a partir do log do Raft antes de aceitar tráfego.
 
 **Custos e riscos:**
-- **Escrita em dobro** em cada réplica. A ~6 MB/s é pouco volume. Desde o ADR-055 o segundo log não faz fsync por entrada e fica em **volume separado**, então não disputa a cauda do fsync do log do Raft (6.8); a compactação do Pebble fica no volume dele.
+- **Escrita em dobro** em cada réplica. A ~6 MB/s é pouco volume. Desde o ADR-055 o segundo log não faz fsync por entrada e fica em **volume separado**, então não disputa a cauda do fsync do log do Raft (6.8); o checkpoint e as leituras de catch-up ficam no volume dele.
 - **Duas coisas para manter consistentes**: o índice do log de replicação é o próprio índice Raft (sem sequência paralela), e a suíte de conformidade (5.5) passa a testar também a recuperação nos casos de queda entre os dois logs.
 - **O gate (5.3) não muda**: a durabilidade que conta para o ACK é a do log do Raft.
 - **Interface `ReplicationLog` (5.5)**: passa a ser a interface do log de replicação, e o adaptador do Raft recebe os registros commitados por um callback.

@@ -518,15 +518,33 @@ import (
 
 // ---- Portas de saída (driven): o núcleo pede, o adaptador implementa ----
 
-// ReplicationLog é o log de replicação (5.5.1), no Pebble desde o ADR-055. Append grava
-// sem fsync (fora do caminho do ACK); DurableIndex é o maior índice coberto pelo último
-// checkpoint com sync, e é o limite até onde o log do Raft pode ser compactado.
+// ReplicationLog é o log de replicação (5.5.1): log segmentado próprio, em volume separado,
+// derivado do log do Raft (ADR-055). Append grava SEM fsync (fora do caminho do ACK).
+// Sync é o checkpoint durável: faz fsync e devolve o novo DurableIndex. Só até o
+// DurableIndex o log do Raft pode ser compactado; nunca até o índice apenas copiado.
 type ReplicationLog interface {
 	Append(ctx context.Context, batch []domain.Entry) error
 	Read(ctx context.Context, from, to domain.Index) ([]domain.Entry, error)
 	TruncateSuffix(ctx context.Context, from domain.Index) error
 	CompactPrefix(ctx context.Context, upTo domain.Index) error
+	Sync(ctx context.Context) (domain.Index, error)
 	DurableIndex() domain.Index
+	LastIndex() domain.Index
+}
+
+// ApplyProgress guarda o progresso do applier por item (índice, ordem), no volume do log
+// de replicação e sem fsync (ADR-048, ADR-055). Perder o progresso só alonga o replay,
+// que é idempotente pela versão.
+type ApplyProgress interface {
+	SaveProgress(idx domain.Index, ord uint32) error
+	LoadProgress() (domain.Index, uint32, error)
+}
+
+// RaftCompactor é o que o checkpoint precisa do adaptador do Raft para compactar o log
+// do Raft (ADR-055): o menor índice confirmado pelos pares e a compactação em si.
+type RaftCompactor interface {
+	MinPeerMatch() domain.Index
+	Compact(upTo domain.Index) error
 }
 
 // ConsensusEngine esconde a biblioteca Raft (5.5).
@@ -1028,7 +1046,7 @@ var ErrStreamClosed = errors.New("canal do consenso fechado")
 //     da memória, e (c) para o log de replicação.
 //
 // Ponto de atenção: Log.Append continua SÍNCRONO dentro da goroutine de commits (gravação
-// sem fsync no Pebble, ADR-055). Ele atrasa a entrega do próximo lote ao Applier, mas não atrasa o
+// sem fsync no log de replicação, ADR-055). Ele atrasa a entrega do próximo lote ao Applier, mas não atrasa o
 // gate, que tem goroutine própria. Na versão final o Append roda numa goroutine com
 // fila limitada (backpressure), e o Applier espera o gate, não o Append.
 type CommitPump struct {
@@ -1103,7 +1121,7 @@ func (p *CommitPump) runCommits(ctx context.Context) error {
 				return ctx.Err()
 			}
 			if err := p.Log.Append(ctx, b.Entries); err != nil {
-				return err // erro de escrita no log de replicação (Pebble) é fatal (ADR-055)
+				return err // erro de escrita no log de replicação é fatal (ADR-055)
 			}
 		}
 	}
@@ -1571,39 +1589,25 @@ func TestWriterDegradedFollowsRealShardState(t *testing.T) {
 }
 ```
 
-### 7.9 Esboço do log de replicação no Pebble (ADR-055)
+### 7.9 Log de replicação, applier e checkpoint (ADR-055)
 
-> Substitui o esboço do WAL próprio (W2), que saiu em 13/10. Não está em `codigo_exemplo/`.
+> Agora no [`codigo_exemplo/`](codigo_exemplo/README.md), compilado e testado: `internal/adapter/out/replog` (log segmentado), `internal/usecase/apply.go` (`Applier`), `internal/usecase/checkpoint.go` (`Checkpointer`) e `internal/domain/retention.go` (regras de retenção). O trecho abaixo é o coração do checkpoint.
 
 ```go
-// adapter/out/pebblelog: grava sem fsync e publica o DurableIndex só depois de um Sync.
-func (l *PebbleLog) Append(_ context.Context, batch []domain.Entry) error {
-	b := l.db.NewBatch()
-	for _, e := range batch {
-		b.Set(entryKey(e.Shard, e.Index), l.encode(e), nil) // registro próprio com CRC32C
+// usecase.Checkpointer.Tick: um ciclo, fora do caminho do ACK.
+func (c *Checkpointer) Tick(ctx context.Context) error {
+	durable, err := c.Log.Sync(ctx) // fsync do segmento ativo: publica o DurableIndex
+	if err != nil {
+		return err // fatal, como o fsync do Raft (ADR-034)
 	}
-	if err := b.Commit(pebble.NoSync); err != nil {
-		l.fatal(err) // erro do Pebble é fatal: o nó reinicia e refaz a partir do Raft
+	// Nunca além do durável; folga para o par mais atrasado, se couber em RetainMax.
+	if err := c.Raft.Compact(domain.RaftCompactLimit(durable, c.Raft.MinPeerMatch(), c.RetainMax)); err != nil {
+		return err
 	}
-	l.copied.Store(uint64(batch[len(batch)-1].Index)) // copiado, AINDA NÃO durável
-	return nil
-}
-
-// checkpointLoop roda a cada PEBBLE_SYNC_INTERVAL, fora do caminho do ACK.
-func (l *PebbleLog) checkpointLoop(ctx context.Context) {
-	t := time.NewTicker(l.cfg.SyncInterval)
-	defer t.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-t.C:
-			upTo := l.copied.Load() // tudo até aqui já está no WAL do Pebble
-			if err := l.db.Set(durableKey, u64(upTo), pebble.Sync); err != nil {
-				l.fatal(err)
-			}
-			l.durable.Store(upTo) // só agora o Raft pode ser compactado até upTo
-		}
+	if c.Retention == nil {
+		return nil
 	}
+	// min(applied, maioria Azure se dentro da janela, F-1 de um rebuild): apaga segmentos inteiros.
+	return c.Log.CompactPrefix(ctx, domain.ReplogTruncateLimit(c.Retention()))
 }
 ```

@@ -1,6 +1,6 @@
 # Índice de ADRs
 
-Um arquivo por decisão. ADR-001 a 015 são herdados das versões anteriores da documentação (revisados); ADR-016 a 055 registram as decisões da v1 do DataReplication (12 e 13/10/2026; os ADRs 044 a 054 vêm da revisão crítica de 13/10; o ADR-055, do log de replicação no Pebble). O status **Provisório** indica pendência aberta.
+Um arquivo por decisão. ADR-001 a 015 são herdados das versões anteriores da documentação (revisados); ADR-016 a 055 registram as decisões da v1 do DataReplication (12 e 13/10/2026; os ADRs 044 a 054 vêm da revisão crítica de 13/10; o ADR-055, do log de replicação segmentado). O status **Provisório** indica pendência aberta.
 
 | ADR | Título | Status |
 |---|---|---|
@@ -58,4 +58,4 @@ Um arquivo por decisão. ADR-001 a 015 são herdados das versões anteriores da 
 | [ADR-052](ADR-052-autorizacao-por-aplicacao-com-mtls.md) | Autorização por aplicação com mTLS | Decidido (Bruno) |
 | [ADR-053](ADR-053-eventual-sem-apply-paralelo-na-v1.md) | O modo Eventual é só de leitura; o apply paralelo sai da v1 | Decidido (Bruno) |
 | [ADR-054](ADR-054-banco-por-celula-mantido.md) | Um banco por célula mantido, com o trade-off registrado | Decidido (Bruno) |
-| [ADR-055](ADR-055-log-de-replicacao-em-pebble-derivado-do-raft.md) | Log de replicação em Pebble, derivado do Raft, sem fsync no caminho do ACK e em volume separado | Decidido (Bruno, 1a 2b 3b) |
+| [ADR-055](ADR-055-log-de-replicacao-segmentado-derivado-do-raft.md) | Log de replicação segmentado, derivado do Raft, sem fsync no caminho do ACK e em volume separado | Decidido (Bruno, 1a 2b 3b e opção a: sem Pebble) |

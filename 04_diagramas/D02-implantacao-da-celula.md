@@ -14,7 +14,7 @@ flowchart TD
         SVC --> POD["Pod DataReplication<br/>QoS Guaranteed, PDB maxUnavailable 1<br/>lista identidade para tabelas e operações"]
     end
     POD --- VOL[("Volume do Raft, pequeno e rápido<br/>wal do etcd, fsync no caminho do ACK")]
-    POD --- VOLP[("Volume do Pebble, maior<br/>log de replicação e progresso do applier por item")]
+    POD --- VOLP[("Volume do log de replicação, maior<br/>segmentos, fsync só no checkpoint<br/>log de replicação e progresso do applier por item")]
     POD -->|"identidade da carga de trabalho"| DB[("Banco da célula")]
     POD <-->|"mTLS, porta de replicação por balanceador interno"| PEERS["DataReplication das outras células"]
     POD --> ADM["Porta de administração<br/>livez, readyz, metrics"]

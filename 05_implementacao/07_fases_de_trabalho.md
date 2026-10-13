@@ -51,7 +51,7 @@ Gate, lease, dois logs e **um** caminho de banco, antes dos seis. É o que o esb
 
 | Item | Conteúdo |
 |---|---|
-| **Entregas** | `Gate` com termo; `Lease` (contado desde `t_c`) e `DegradeService` com relógio injetável; `CommitPump` com gate por evento; `raftlog` sobre o `wal` do etcd e `replicationlog` sobre o Pebble ([ADR-055](../03_adr/ADR-055-log-de-replicacao-em-pebble-derivado-do-raft.md)); adaptador `etcdraft`; **um** `StateStore` (um banco por vez) com apply serial depois do gate e checkpoint por item; `dynamohttp` com os contratos da fase 1 |
+| **Entregas** | `Gate` com termo; `Lease` (contado desde `t_c`) e `DegradeService` com relógio injetável; `CommitPump` com gate por evento; `raftlog` sobre o `wal` do etcd e `replicationlog` segmentado próprio ([ADR-055](../03_adr/ADR-055-log-de-replicacao-segmentado-derivado-do-raft.md)); adaptador `etcdraft`; **um** `StateStore` (um banco por vez) com apply serial depois do gate e checkpoint por item; `dynamohttp` com os contratos da fase 1 |
 | **Testes** | Concorrência com `-race` em toda estrutura compartilhada; simulação determinística com os traces do modelo; propriedade do `I-DEL` (sequências aleatórias de Put e Delete com queda em qualquer ponto convergem para o mesmo estado); suíte de conformidade por porta; falhas no WAL |
 | **Spikes** | S1 (infraestrutura), S2 (Raft e WAL mínimo), S4 (gate e degradado) |
 | **Portão para a fase 4** | Os testes de invariante passam; o lease é conferido a cada ACK; `reject` nunca degrada; a leitura forte usa `min(ReadIndex, gate)` e falha rápido com applier parado |

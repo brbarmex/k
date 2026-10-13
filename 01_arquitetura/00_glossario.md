@@ -29,10 +29,9 @@
 | **Termo / epoch** | Geração da liderança. Termo: do Raft; o gate só adota progresso do termo atual. Epoch: da configuração do grupo (promoção) |
 | **Gate** | Índice até onde ACK e applier podem avançar: `min(commit do Raft, 2º maior índice durável dos learners)`. Nunca recua. **Só conta progresso confirmado pelo Raft no termo atual e é alimentado por evento** (ADR-046). No modo degradado, ignora a Azure |
 | **Log do Raft** | Log do consenso, de vida curta, com fsync antes do ACK |
-| **Log de replicação** | Log nosso, de vida longa, no Pebble e em volume próprio, gravado depois do commit sem fsync; serve a Azure atrasada, o `drctl` e a reconstrução ([ADR-055](../03_adr/ADR-055-log-de-replicacao-em-pebble-derivado-do-raft.md)) |
-| **Pebble** | Motor LSM em Go puro (`cockroachdb/pebble`) que guarda o log de replicação, o progresso do applier e o high-water mark |
-| **Checkpoint durável / `DurableIndex`** | Gravação com sync no Pebble a cada `PEBBLE_SYNC_INTERVAL`; o maior índice coberto por ela é o `DurableIndex`, limite até onde o log do Raft pode ser compactado |
-| **`RAFT_RETAIN_MAX`** | Folga que o log do Raft guarda para seguidores e learners pouco atrasados; acima dela, o catch-up é pelo Pebble |
+| **Log de replicação** | Log nosso, de vida longa, segmentado (nosso), em volume próprio, gravado depois do commit sem fsync; serve a Azure atrasada, o `drctl` e a reconstrução ([ADR-055](../03_adr/ADR-055-log-de-replicacao-segmentado-derivado-do-raft.md)) |
+| **Checkpoint durável / `DurableIndex`** | `fsync` do segmento ativo do log de replicação a cada `REPLOG_SYNC_INTERVAL`; o maior índice coberto por ela é o `DurableIndex`, limite até onde o log do Raft pode ser compactado |
+| **`RAFT_RETAIN_MAX`** | Folga que o log do Raft guarda para seguidores e learners pouco atrasados; acima dela, o catch-up é pelo log de replicação |
 | **Segmento** | Arquivo pré-alocado do `wal` do etcd (log do Raft). O motor próprio `segfile` saiu em 13/10 (ADR-055) |
 | **Eleição / heartbeat / PreVote / CheckQuorum** | Escolha de nova líder; sinal de vida da líder; proteções do Raft contra eleições à toa e líder isolada |
 | **Fencing** | Impedir que um escritor antigo continue gravando depois de perder o cargo, por termo, epoch ou versão. Na partição entre as nuvens, o fencing vem do **lease** (ADR-044) |
@@ -99,7 +98,7 @@
 | **C01 a C34** | Cenário **atualizado** (modelo v1) | [`02_cenarios/atualizados/`](../02_cenarios/atualizados/) |
 | **X01 a X06** | Cenário **complexo**, detalhado em arquivo próprio | [`02_cenarios/complexos/`](../02_cenarios/complexos/) |
 | **R03 a R23** | Cenário ou hipótese **a rever** (os 14 que ainda não têm decisão) | [`02_cenarios/a_rever/`](../02_cenarios/a_rever/) |
-| **ADR-001 a 055** | Registro de decisão de arquitetura (044 a 054 vêm da revisão crítica de 13/10; 055, do Pebble) | [`03_adr/`](../03_adr/INDEX.md) |
+| **ADR-001 a 055** | Registro de decisão de arquitetura (044 a 054 vêm da revisão crítica de 13/10; 055, do log de replicação segmentado) | [`03_adr/`](../03_adr/INDEX.md) |
 | **D1 a D13** | Decisões da revisão de 12 e 13/10 (D9 gate, D10 header, D11 dedupe, D12 TLA+, D13 prazos) | [`ADR`](../03_adr/INDEX.md) correspondentes |
 | **PEND-nn** | Pendência com dono e padrão até a decisão | [`06_pendencias_e_riscos/`](../06_pendencias_e_riscos/01_pendencias.md) |
 | **H1 a H11, H-DR1 a H-DR14** | Hipótese de falha em aberto (H-DR13: prorrogação do lease contra promoção; H-DR14: partição assimétrica) | [R23](../02_cenarios/a_rever/R23-hipoteses-gerais.md) |

@@ -25,7 +25,7 @@ flowchart TD
 ## Fluxo proposto
 
 1. A tabela é uma **projeção do log**: todo votante a atualiza ao aplicar o commit, então qualquer um pode virar líder sem reconstruir.
-2. Desde o [ADR-055](../../03_adr/ADR-055-log-de-replicacao-em-pebble-derivado-do-raft.md) o log do Raft guarda só segundos; a reconstrução no reinício lê o **log de replicação no Pebble**, cuja retenção mínima cobre a janela de dedupe mais uma margem.
+2. Desde o [ADR-055](../../03_adr/ADR-055-log-de-replicacao-segmentado-derivado-do-raft.md) o log do Raft guarda só segundos; a reconstrução no reinício lê o **log de replicação**, cuja retenção mínima cobre a janela de dedupe mais uma margem.
 3. Incluir ~58 MiB (e a variação com o tamanho do id) no orçamento de memória e em `GOMEMLIMIT`; estrutura compacta (tabela hash com id de 16 a 36 bytes) e expiração em lotes.
 4. Janela configurável (`DEDUPE_WINDOW`), com métrica de ocupação e de acertos.
 
