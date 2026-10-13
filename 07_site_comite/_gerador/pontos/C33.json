@@ -1,103 +1,103 @@
 {
- "id": "C33",
- "pontos": [
-  {
-   "titulo": "O log não cobre a varredura",
-   "origem": "Falhas e tratativas",
-   "contexto": "A reconstrução em tabela sombra copia a tabela sem snapshot e reaplica o log desde F. Se a varredura demorar mais que a retenção do teto de 70% do volume, o log desde F é liberado e o rebuild falha e recomeça com um F novo. Em tabelas grandes isso pode virar um ciclo sem fim, deixando a célula sem réplica em dia e prolongando o risco de RPO e RTO.",
-   "na_fonte": "A fonte decide estimar a duração (itens, tamanho, WCU ou RU) antes de começar e alertar quando a folga de retenção encolher (ADR-041); as durações reais não foram medidas (R09).",
-   "sugestao": "Fazer o `drctl rebuild` recusar o início quando a duração estimada passa da retenção disponível, e reter o log desde F com prioridade sobre o teto enquanto houver rebuild ativo, se o disco permitir. Medir em spike a duração da varredura por tamanho de tabela."
-  },
-  {
-   "titulo": "Custo e throttling de WCU e RU",
-   "origem": "Falhas e tratativas",
-   "contexto": "A varredura e o replay competem com a escrita ao vivo da célula e podem gerar throttling no DynamoDB ou no Cosmos. Se a célula reconstruída for a líder, o throttling do applier vira latência de ACK e `503 PENDING`. A tabela dupla também aumenta o custo.",
-   "na_fonte": "Não decidido na fonte. Proposta na fonte: transferir a liderança antes (C11) e limitar o ritmo da cópia; o custo da tabela dupla entra no R20.",
-   "sugestao": "Tornar a transferência de liderança uma pré-condição verificada do `drctl rebuild` e o ritmo da cópia adaptativo ao throttling observado. Medir o impacto no P99 do ACK em spike."
-  },
-  {
-   "titulo": "GSI da tabela sombra",
-   "origem": "Falhas e tratativas",
-   "contexto": "Os GSIs precisam existir antes ou durante a cópia; criar depois obriga o backfill do índice, com custo e tempo próprios. Como GSI é sempre eventual, o checksum compara só a tabela base, e um índice divergente passaria despercebido.",
-   "na_fonte": "A fonte decide que o GSI é sempre eventual (ADR-050) e que o índice só é conferido por amostragem, a definir.",
-   "sugestao": "Criar a sombra com os GSIs na mesma operação e definir a amostragem de conferência do índice, com critério de aceite antes do cutover."
-  },
-  {
-   "titulo": "Cosmos pelo Cloud-Adapter",
-   "origem": "Falhas e tratativas",
-   "contexto": "O mesmo protocolo vale para a Azure e precisa estar no contrato do Cloud-Adapter: criar container, varrer, gravar com condição de versão e trocar o mapeamento. Diferenças de RU, de limite de tamanho de item e do índice consistente do Cosmos podem fazer o protocolo se comportar de outro modo.",
-   "na_fonte": "A fonte decide incluir esses pontos na suíte de conformidade (ADR-051).",
-   "sugestao": "Incluir o protocolo completo da sombra na suíte de conformidade do Cloud-Adapter, com queda em cada etapa."
-  },
-  {
-   "titulo": "IAM e allowlist da tabela sombra",
-   "origem": "Falhas e tratativas",
-   "contexto": "O papel do applier não deve ganhar permissão de criar ou apagar tabelas por causa da reconstrução. Um papel largo permanente ampliaria o raio de dano de um applier comprometido.",
-   "na_fonte": "Não decidido na fonte. Proposta na fonte: papel de reconstrução separado e temporário, concedido com a aprovação do `drctl rebuild` e restrito ao padrão de nome da sombra, a definir com segurança.",
-   "sugestao": "Fechar o desenho com segurança e testar que o papel expira ao fim da reconstrução e não permite apagar a tabela ativa."
-  },
-  {
-   "titulo": "TTL e itens expirados recriados pelo replay",
-   "origem": "Falhas e tratativas",
-   "contexto": "O replay pode recriar um item já expirado, que permanece legível até o TTL local apagá-lo de novo. Isso é comportamento do DynamoDB, mas pode confundir o cliente e o checksum.",
-   "na_fonte": "A fonte decide documentar o comportamento para os clientes, que o checksum ignora itens expirados e que a sombra precisa do mesmo atributo de TTL.",
-   "sugestao": "Incluir o caso no teste de propriedade e na documentação ao cliente."
-  },
-  {
-   "titulo": "Reinício, troca de líder ou queda no meio",
-   "origem": "Falhas e tratativas",
-   "contexto": "Uma reconstrução longa pode ser interrompida por reinício ou troca de líder. Sem retomada, tudo recomeça; um cutover interrompido poderia deixar o nome lógico apontando para uma tabela incompleta.",
-   "na_fonte": "A fonte decide persistir F e o progresso da cópia para retomar, e que o mapeamento só muda por operação atômica, sem a qual a tabela antiga segue valendo.",
-   "sugestao": "Incluir no teste de propriedade quedas em cada etapa e verificar que a retomada converge e que o cutover é atômico."
-  },
-  {
-   "titulo": "Checksum diferente",
-   "origem": "Falhas e tratativas",
-   "contexto": "O checksum por faixa de chaves detecta divergência, mas não a previne. Se houver diferença, as leituras da célula ficam fechadas até a correção.",
-   "na_fonte": "A fonte decide manter as leituras fechadas e recopiar e reaplicar as faixas divergentes.",
-   "sugestao": "Registrar as faixas divergentes e suas causas para encontrar bugs do protocolo, e limitar o número de tentativas antes de escalar."
-  },
-  {
-   "titulo": "Restauração PITR e cópia de outra célula",
-   "origem": "Falhas e tratativas",
-   "contexto": "A restauração PITR e a cópia de outra célula também não passam pelo checkpoint. Um F maior que o índice refletido na origem perderia escritas.",
-   "na_fonte": "A fonte decide que seguem o mesmo protocolo, com a tabela restaurada ou copiada como origem e F igual ou menor que o índice refletido nela.",
-   "sugestao": "Definir como obter o índice refletido num PITR e testar o protocolo a partir de um PITR em homologação."
-  },
-  {
-   "titulo": "Cache do mapeamento do nome lógico",
-   "origem": "Falhas e tratativas",
-   "contexto": "Depois do cutover, um `DataReplication` com geração antiga no cache poderia escrever na tabela velha. Isso causaria perda silenciosa de escritas.",
-   "na_fonte": "A fonte decide que o `DescribeTable` da partida e o cache do nome lógico respeitam a geração e que um processo com geração antiga falha rápido.",
-   "sugestao": "Incluir no teste de propriedade um processo com cache antigo após o cutover e verificar a falha rápida."
-  },
-  {
-   "titulo": "Teste de propriedade e modelo TLA+ de I-DEL",
-   "origem": "Pontos em aberto",
-   "contexto": "O protocolo da tabela sombra é desenho, sem teste de propriedade nem modelo. A invariante `I-DEL` é a garantia de que o DELETE real não ressuscita dados.",
-   "na_fonte": "Não decidido na fonte. A fonte prevê escrever `I-DEL` como teste de propriedade e no TLA+ (ADR-030).",
-   "sugestao": "Priorizar o teste de propriedade com sequências aleatórias de `Put` e `Delete` e quedas em qualquer ponto antes do primeiro uso em produção."
-  },
-  {
-   "titulo": "Limite de lag do cutover, retenção da tabela antiga, ritmo e origem da cópia",
-   "origem": "Pontos em aberto",
-   "contexto": "Vários parâmetros do protocolo não têm valor: o lag máximo para o cutover, o prazo de retenção da tabela antiga, o ritmo da cópia e a escolha da origem. Sem eles, o protocolo não pode ser executado de forma repetível.",
-   "na_fonte": "Não decidido na fonte. Ficam a definir.",
-   "sugestao": "Definir os parâmetros no spike a partir das medições de duração e throttling, e registrá-los no runbook."
-  },
-  {
-   "titulo": "Duração real da varredura",
-   "origem": "Pontos em aberto",
-   "contexto": "A duração da varredura por tamanho de tabela não foi medida. Ela define se a retenção do log cobre a reconstrução e quanto tempo a célula fica sem réplica em dia.",
-   "na_fonte": "Não decidido na fonte. Fica a medir.",
-   "sugestao": "Medir em spike com tabelas de tamanhos representativos e publicar como insumo do R09 e do R18."
-  },
-  {
-   "titulo": "Papel de reconstrução e allowlist da sombra",
-   "origem": "Pontos em aberto",
-   "contexto": "O papel de reconstrução e a allowlist da sombra ainda não estão definidos com segurança. Sem isso, a reconstrução não pode ser feita sem ampliar privilégios.",
-   "na_fonte": "Não decidido na fonte. Fica a definir com segurança.",
-   "sugestao": "Levar a proposta do papel temporário à equipe de segurança com testes de expiração e de escopo."
-  }
- ]
+  "id": "C33",
+  "pontos": [
+    {
+      "titulo": "O log não cobre a varredura",
+      "origem": "Falhas e tratativas",
+      "contexto": "A reconstrução em tabela sombra copia a tabela sem snapshot e reaplica o log desde F. Se a varredura demorar mais que a retenção do teto de 70% do volume, o log desde F é liberado e o rebuild falha e recomeça com um F novo. Em tabelas grandes isso pode virar um ciclo sem fim, deixando a célula sem réplica em dia e prolongando o risco de RPO e RTO.",
+      "na_fonte": "A fonte decide estimar a duração (itens, tamanho, WCU ou RU) antes de começar e alertar quando a folga de retenção encolher (ADR-041); as durações reais não foram medidas (R09).",
+      "sugestao": "Fazer o `drctl rebuild` recusar o início quando a duração estimada passa da retenção disponível, e reter o log desde F com prioridade sobre o teto enquanto houver rebuild ativo, se o disco permitir. Medir em spike a duração da varredura por tamanho de tabela."
+    },
+    {
+      "titulo": "Custo e throttling de WCU e RU",
+      "origem": "Falhas e tratativas",
+      "contexto": "A varredura e o replay competem com a escrita ao vivo da célula e podem gerar throttling no DynamoDB ou no Cosmos. Se a célula reconstruída for a líder, o throttling do applier vira latência de ACK e `503 PENDING`. A tabela dupla também aumenta o custo.",
+      "na_fonte": "Não decidido na fonte. Proposta na fonte: transferir a liderança antes (C11) e limitar o ritmo da cópia; o custo da tabela dupla entra no R20.",
+      "sugestao": "Tornar a transferência de liderança uma pré-condição verificada do `drctl rebuild` e o ritmo da cópia adaptativo ao throttling observado. Medir o impacto no P99 do ACK em spike."
+    },
+    {
+      "titulo": "Sem GSI na tabela sombra",
+      "origem": "Falhas e tratativas",
+      "contexto": "Query em GSI é recusada pela camada, então a sombra nasce sem GSIs: não há backfill nem conferência de índice e o checksum compara só a tabela base.",
+      "na_fonte": "Decidido: Query e Scan em GSI recusadas (ADR-050, ADR-057); a sombra é criada sem GSIs.",
+      "sugestao": "Conferir no inventário de chamadas (ADR-051) que nenhuma aplicação do cliente depende de GSI antes da entrada; uma tabela de origem com GSI deve ter os índices removidos antes de entrar na camada."
+    },
+    {
+      "titulo": "Cosmos pelo Cloud-Adapter",
+      "origem": "Falhas e tratativas",
+      "contexto": "O mesmo protocolo vale para a Azure e precisa estar no contrato do Cloud-Adapter: criar container, varrer, gravar com condição de versão e trocar o mapeamento. Diferenças de RU, de limite de tamanho de item e do índice consistente do Cosmos podem fazer o protocolo se comportar de outro modo.",
+      "na_fonte": "A fonte decide incluir esses pontos na suíte de conformidade (ADR-051).",
+      "sugestao": "Incluir o protocolo completo da sombra na suíte de conformidade do Cloud-Adapter, com queda em cada etapa."
+    },
+    {
+      "titulo": "IAM e allowlist da tabela sombra",
+      "origem": "Falhas e tratativas",
+      "contexto": "O papel do applier não deve ganhar permissão de criar ou apagar tabelas por causa da reconstrução. Um papel largo permanente ampliaria o raio de dano de um applier comprometido.",
+      "na_fonte": "Não decidido na fonte. Proposta na fonte: papel de reconstrução separado e temporário, concedido com a aprovação do `drctl rebuild` e restrito ao padrão de nome da sombra, a definir com segurança.",
+      "sugestao": "Fechar o desenho com segurança e testar que o papel expira ao fim da reconstrução e não permite apagar a tabela ativa."
+    },
+    {
+      "titulo": "TTL e itens expirados recriados pelo replay",
+      "origem": "Falhas e tratativas",
+      "contexto": "O replay pode recriar um item já expirado, que permanece legível até o TTL local apagá-lo de novo. Isso é comportamento do DynamoDB, mas pode confundir o cliente e o checksum.",
+      "na_fonte": "A fonte decide documentar o comportamento para os clientes, que o checksum ignora itens expirados e que a sombra precisa do mesmo atributo de TTL.",
+      "sugestao": "Incluir o caso no teste de propriedade e na documentação ao cliente."
+    },
+    {
+      "titulo": "Reinício, troca de líder ou queda no meio",
+      "origem": "Falhas e tratativas",
+      "contexto": "Uma reconstrução longa pode ser interrompida por reinício ou troca de líder. Sem retomada, tudo recomeça; um cutover interrompido poderia deixar o nome lógico apontando para uma tabela incompleta.",
+      "na_fonte": "A fonte decide persistir F e o progresso da cópia para retomar, e que o mapeamento só muda por operação atômica, sem a qual a tabela antiga segue valendo.",
+      "sugestao": "Incluir no teste de propriedade quedas em cada etapa e verificar que a retomada converge e que o cutover é atômico."
+    },
+    {
+      "titulo": "Checksum diferente",
+      "origem": "Falhas e tratativas",
+      "contexto": "O checksum por faixa de chaves detecta divergência, mas não a previne. Se houver diferença, as leituras da célula ficam fechadas até a correção.",
+      "na_fonte": "A fonte decide manter as leituras fechadas e recopiar e reaplicar as faixas divergentes.",
+      "sugestao": "Registrar as faixas divergentes e suas causas para encontrar bugs do protocolo, e limitar o número de tentativas antes de escalar."
+    },
+    {
+      "titulo": "Restauração PITR e cópia de outra célula",
+      "origem": "Falhas e tratativas",
+      "contexto": "A restauração PITR e a cópia de outra célula também não passam pelo checkpoint. Um F maior que o índice refletido na origem perderia escritas.",
+      "na_fonte": "A fonte decide que seguem o mesmo protocolo, com a tabela restaurada ou copiada como origem e F igual ou menor que o índice refletido nela.",
+      "sugestao": "Definir como obter o índice refletido num PITR e testar o protocolo a partir de um PITR em homologação."
+    },
+    {
+      "titulo": "Cache do mapeamento do nome lógico",
+      "origem": "Falhas e tratativas",
+      "contexto": "Depois do cutover, um `DataReplication` com geração antiga no cache poderia escrever na tabela velha. Isso causaria perda silenciosa de escritas.",
+      "na_fonte": "A fonte decide que o `DescribeTable` da partida e o cache do nome lógico respeitam a geração e que um processo com geração antiga falha rápido.",
+      "sugestao": "Incluir no teste de propriedade um processo com cache antigo após o cutover e verificar a falha rápida."
+    },
+    {
+      "titulo": "Teste de propriedade e modelo TLA+ de I-DEL",
+      "origem": "Pontos em aberto",
+      "contexto": "O protocolo da tabela sombra é desenho, sem teste de propriedade nem modelo. A invariante `I-DEL` é a garantia de que o DELETE real não ressuscita dados.",
+      "na_fonte": "Não decidido na fonte. A fonte prevê escrever `I-DEL` como teste de propriedade e no TLA+ (ADR-030).",
+      "sugestao": "Priorizar o teste de propriedade com sequências aleatórias de `Put` e `Delete` e quedas em qualquer ponto antes do primeiro uso em produção."
+    },
+    {
+      "titulo": "Limite de lag do cutover, retenção da tabela antiga, ritmo e origem da cópia",
+      "origem": "Pontos em aberto",
+      "contexto": "Vários parâmetros do protocolo não têm valor: o lag máximo para o cutover, o prazo de retenção da tabela antiga, o ritmo da cópia e a escolha da origem. Sem eles, o protocolo não pode ser executado de forma repetível.",
+      "na_fonte": "Não decidido na fonte. Ficam a definir.",
+      "sugestao": "Definir os parâmetros no spike a partir das medições de duração e throttling, e registrá-los no runbook."
+    },
+    {
+      "titulo": "Duração real da varredura",
+      "origem": "Pontos em aberto",
+      "contexto": "A duração da varredura por tamanho de tabela não foi medida. Ela define se a retenção do log cobre a reconstrução e quanto tempo a célula fica sem réplica em dia.",
+      "na_fonte": "Não decidido na fonte. Fica a medir.",
+      "sugestao": "Medir em spike com tabelas de tamanhos representativos e publicar como insumo do R09 e do R18."
+    },
+    {
+      "titulo": "Papel de reconstrução e allowlist da sombra",
+      "origem": "Pontos em aberto",
+      "contexto": "O papel de reconstrução e a allowlist da sombra ainda não estão definidos com segurança. Sem isso, a reconstrução não pode ser feita sem ampliar privilégios.",
+      "na_fonte": "Não decidido na fonte. Fica a definir com segurança.",
+      "sugestao": "Levar a proposta do papel temporário à equipe de segurança com testes de expiração e de escopo."
+    }
+  ]
 }

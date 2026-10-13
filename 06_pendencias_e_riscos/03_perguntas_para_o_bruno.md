@@ -10,8 +10,31 @@ Contexto: [ADR-055](../03_adr/ADR-055-log-de-replicacao-segmentado-derivado-do-r
 
 | # | Pergunta | Opções | Rec. |
 |---|---|---|---|
-| 16 | Armazenamento do **log do Raft** | **a** pacote `wal` do etcd, um por shard (um fsync por shard, sem group commit entre shards; dependência pesada do módulo do etcd); **b** manter o WAL próprio segmentado só para o Raft (um fsync para todos os shards, mas o código de armazenamento volta a ser nosso) | **a** (com poucos shards, tirar o código de armazenamento próprio reduz o maior risco de perda de dado; medir k fsyncs no S1) |
+| 16 | Armazenamento do **log do Raft** | **a** pacote `wal` do etcd, um por shard (um fsync por shard, sem group commit entre shards; dependência pesada do módulo do etcd); **b** manter o WAL próprio segmentado só para o Raft (um fsync para todos os shards, mas o código de armazenamento volta a ser nosso) | **a** (com poucos shards, tirar o código de armazenamento próprio reduz o maior risco de perda de dado; medir k fsyncs no S1). **Confirmada na prática pela resposta 2a de 13/10** (group commit por shard, [ADR-056](../03_adr/ADR-056-group-commit-por-shard-e-nada-sai-antes-do-fsync.md)) |
 | 17 | Nó que perde **só o volume do log de replicação** | **a** tratar como disco perdido: volta com identidade nova ([ADR-034](../03_adr/ADR-034-fsync-fatal-e-identidade-nova.md)); **b** manter a identidade e recarregar o histórico do log de replicação de um par antes de voltar a ser elegível | **a** (uma regra só para disco perdido; o b cria um estado novo de nó a modelar) |
+
+## Respondidas: modo único strong (13/10)
+
+Decisão: [ADR-057](../03_adr/ADR-057-um-unico-modo-strong-consistency.md) e [ADR-050](../03_adr/ADR-050-query-em-gsi-recusada.md).
+
+| # | Tema | Resposta do Bruno |
+|---|---|---|
+| 1 | Modos do `DataReplication` | Um único modo, strong consistency, na escrita, na replicação e no Raft; as aplicações sempre enviam `ConsistentRead=true` |
+| 2 | Query e Scan em GSI | Recusar (400 `ValidationException`) |
+| 3 | Plataforma | Retirar toda menção a plataforma ou evolução para plataforma |
+
+## Respondidas: group commit e `AsyncStorageWrites` (13/10)
+
+Análise: [analise_group_commit_e_async_storage_13_10](analise_group_commit_e_async_storage_13_10.md). Decisão: [ADR-056](../03_adr/ADR-056-group-commit-por-shard-e-nada-sai-antes-do-fsync.md).
+
+| # | Tema | Resposta do Bruno |
+|---|---|---|
+| 1 | Buffer em memória | **a** Só área de montagem do lote; nenhum ACK, voto ou `MsgAppResp` antes do fsync |
+| 2 | Escopo do group commit | **a** Por shard, IOPS provisionadas; WAL compartilhado só pelo gatilho do S1 |
+| 3 | `AsyncStorageWrites` | **b** Síncrono com F3 na fase 1; o S1b decide (P99 do commit −20% ou fim das eleições por fsync lento) |
+| 4 | Espera para formar lote | **a** Nenhuma; teto de 1 MiB por lote |
+| 5 | Limite do buffer | **a** 32 MiB por shard; `ThrottlingException` acima disso |
+| 6 | TLA+ | **a** Log volátil x durável; "ACK implica fsync em 2 AWS e 2 Azure" |
 
 ## Respondidas: log de replicação (13/10)
 
@@ -34,10 +57,10 @@ Resposta do Bruno em 13/10: **"alternativa a para todas"**; na 11, "manter um ba
 | 4 | DELETE e replay | **a** DELETE real com invariante e rebuild em tabela sombra | [ADR-047](../03_adr/ADR-047-delete-real-invariante-e-reconstrucao-em-tabela-sombra.md), [C33](../02_cenarios/atualizados/C33-reconstrucao-em-tabela-sombra.md) |
 | 5 | SKIP de lote | **a** Por item `(índice, ordem)` | [ADR-048](../03_adr/ADR-048-skip-por-item.md) |
 | 6 | Barreira da leitura forte | **a** `min(ReadIndex, gate)` | [ADR-049](../03_adr/ADR-049-barreira-da-leitura-forte-e-o-gate.md) |
-| 7 | Leitura forte em GSI | **a** Recusar `ConsistentRead` em GSI | [ADR-050](../03_adr/ADR-050-gsi-nao-tem-leitura-forte.md) |
+| 7 | Leitura forte em GSI | **a** Recusar `ConsistentRead` em GSI (depois ampliada: toda Query em GSI é recusada, 13/10) | [ADR-050](../03_adr/ADR-050-query-em-gsi-recusada.md) |
 | 8 | Idempotência e condicional | **a** Documentar o limite e levantar o uso real | [ADR-051](../03_adr/ADR-051-compatibilidade-dynamodb-inventario-conformidade-e-idempotencia.md) |
 | 9 | Autorização por aplicação | **a** mTLS por aplicação com lista de permissões | [ADR-052](../03_adr/ADR-052-autorizacao-por-aplicacao-com-mtls.md), [C34](../02_cenarios/atualizados/C34-autorizacao-por-aplicacao.md) |
-| 10 | Modo Eventual de escrita | **a** Apply paralelo fora da v1 | [ADR-053](../03_adr/ADR-053-eventual-sem-apply-paralelo-na-v1.md) |
+| 10 | Modo Eventual de escrita | **a** Apply paralelo fora da v1 (depois superada: o Eventual saiu inteiro, 13/10) | [ADR-057](../03_adr/ADR-057-um-unico-modo-strong-consistency.md) |
 | 11 | Banco por célula | **Manter um banco por célula** (a opção a: seis) | [ADR-054](../03_adr/ADR-054-banco-por-celula-mantido.md) |
 | 12 | Esboço de código | **a** Oito defeitos corrigidos, com testes de concorrência | [05_implementacao](../05_implementacao/README.md) |
 | 13 | Documentação | **a** Inconsistências corrigidas; P0 como riscos bloqueantes | [02_riscos](02_riscos.md), [Documento principal](../DataReplication_Versao_1.md) |
@@ -64,7 +87,7 @@ Respostas do Bruno em 13/10: **12a, 13a, 14a** ([ADR-043](../03_adr/ADR-043-uma-
 | 4 | Faixa cinzenta do link (acima da meta, abaixo de 2 s) | **a** Só alertar, RPO continua 0 | [ADR-037](../03_adr/ADR-037-faixa-cinzenta-do-link-so-alerta.md), [C25](../02_cenarios/atualizados/C25-link-lento-faixa-cinzenta.md) |
 | 5 | Quem aprova o `SKIP` de uma entrada venenosa? | **a** Sempre uma pessoa | [ADR-038](../03_adr/ADR-038-skip-de-entrada-venenosa-sempre-humano.md), [C26](../02_cenarios/atualizados/C26-entrada-venenosa.md) |
 | 6 | Sem líder conhecida durante a eleição | **a** Esperar até 1 s no servidor e então 503 | [ADR-039](../03_adr/ADR-039-sem-lider-conhecida-espera-ate-1s-e-503.md), [C27](../02_cenarios/atualizados/C27-encaminhamento-sem-lider-conhecida.md) |
-| 7 | Leitura eventual na Azure acima do limite de defasagem | **a** Redirecionar à AWS se possível, senão recusar | [ADR-040](../03_adr/ADR-040-leitura-eventual-na-azure-acima-do-limite.md), [C28](../02_cenarios/atualizados/C28-leitura-eventual-na-azure-defasada.md) |
+| 7 | Leitura eventual na Azure acima do limite de defasagem | **a** Redirecionar à AWS se possível, senão recusar (superada: não há leitura eventual; sem líder, `503`) | [ADR-057](../03_adr/ADR-057-um-unico-modo-strong-consistency.md), [C05](../02_cenarios/atualizados/C05-leitura-strong.md) |
 | 8 | Disco do log em degradação longa, na v1 | **a** Só o teto de 70% e reconstrução completa | [ADR-041](../03_adr/ADR-041-disco-do-log-teto-de-70-por-cento-sem-s3-na-v1.md), [C29](../02_cenarios/atualizados/C29-disco-do-log-em-degradacao-longa.md) |
 | 9 | AWS que volta depois da promoção | **a** Boot cercado, revogar credenciais e recriar a célula | [ADR-042](../03_adr/ADR-042-aws-que-volta-boot-cercado-e-recriacao-da-celula.md), [C30](../02_cenarios/atualizados/C30-aws-que-volta-boot-cercado.md) |
 | 10 | Como identificar o cliente na API | **Outra resposta:** a solução é 1 para 1; o cliente é conhecido na configuração e cada time tem a sua conta AWS | [ADR-043](../03_adr/ADR-043-uma-instalacao-por-cliente-identidade-por-configuracao.md), [C31](../02_cenarios/atualizados/C31-implantacao-por-cliente-e-identidade.md) |

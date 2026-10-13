@@ -398,3 +398,21 @@ func TestNewLeaderInheritingDegradeRefusesUntilContactOrRenew(t *testing.T) {
 		t.Fatalf("RENEW libera: %+v %v", res, err)
 	}
 }
+
+// Buffer não persistido cheio: o erro chega ao cliente como está, sem esperar gate nem
+// apply, e nada foi proposto (ADR-056).
+func TestBackpressureFromProposeIsReturnedAsIs(t *testing.T) {
+	r := newRig(fakeApplied{}, domain.PolicyReject)
+	r.cons.mu.Lock()
+	r.cons.proposeErr = ErrBackpressure
+	r.cons.mu.Unlock()
+	ctx, cancel := timeout(time.Second)
+	defer cancel()
+	_, err := r.svc.Write(ctx, port.WriteRequest{})
+	if !errors.Is(err, ErrBackpressure) {
+		t.Fatalf("esperado ErrBackpressure, veio %v", err)
+	}
+	if n := r.cons.count(domain.KindWrite); n != 0 {
+		t.Fatalf("%d escritas propostas", n)
+	}
+}

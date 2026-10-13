@@ -10,7 +10,7 @@ func env(m map[string]string) func(string) string { return func(k string) string
 
 func valid() map[string]string {
 	return map[string]string{
-		"CELL_ID": "a", "READ_MODE_DEFAULT": "strong",
+		"CELL_ID":         "a",
 		"DEGRADED_POLICY": "accept", "DEGRADED_LEASE": "5m",
 	}
 }
@@ -27,7 +27,7 @@ func TestLoadValid(t *testing.T) {
 
 // DEGRADED_POLICY e DEGRADED_LEASE não têm padrão: ausência derruba a partida (ADR-045).
 func TestDegradedVarsAreMandatory(t *testing.T) {
-	for _, k := range []string{"DEGRADED_POLICY", "DEGRADED_LEASE", "CELL_ID", "READ_MODE_DEFAULT"} { // com accept
+	for _, k := range []string{"DEGRADED_POLICY", "DEGRADED_LEASE", "CELL_ID"} { // com accept
 		m := valid()
 		delete(m, k)
 		_, err := LoadFrom(env(m))
@@ -43,7 +43,6 @@ func TestInvalidValues(t *testing.T) {
 		"lease":                   {"DEGRADED_LEASE": "0s"},
 		"lease2":                  {"DEGRADED_LEASE": "abc"},
 		"leaseMenorQueRequisicao": {"DEGRADED_LEASE": "5s"},
-		"readmode":                {"READ_MODE_DEFAULT": "quase"},
 		"deadline":                {"REQUEST_DEADLINE": "30s"},
 		"degrade":                 {"DEGRADE_AFTER": "8s"},
 		"forward":                 {"FORWARD_TIMEOUT": "8s"},
@@ -61,13 +60,15 @@ func TestInvalidValues(t *testing.T) {
 	}
 }
 
-// WRITE_MODE saiu da v1 (ADR-053): manifesto antigo falha em vez de ser ignorado.
-func TestWriteModeRemoved(t *testing.T) {
-	m := valid()
-	m["WRITE_MODE"] = "eventual"
-	_, err := LoadFrom(env(m))
-	if err == nil || !strings.Contains(err.Error(), "WRITE_MODE") {
-		t.Fatalf("WRITE_MODE devia ser recusada, veio %v", err)
+// Modo único strong (ADR-057): manifesto antigo com variável de modo falha em vez de ser ignorado.
+func TestModeVarsRemoved(t *testing.T) {
+	for _, k := range RemovedModeVars {
+		m := valid()
+		m[k] = "eventual"
+		_, err := LoadFrom(env(m))
+		if err == nil || !strings.Contains(err.Error(), k) {
+			t.Errorf("%s devia ser recusada, veio %v", k, err)
+		}
 	}
 }
 
@@ -76,7 +77,7 @@ func TestErrorsAreJoined(t *testing.T) {
 	if err == nil {
 		t.Fatal("esperava erro")
 	}
-	for _, k := range []string{"CELL_ID", "READ_MODE_DEFAULT", "DEGRADED_POLICY"} {
+	for _, k := range []string{"CELL_ID", "DEGRADED_POLICY"} {
 		if !strings.Contains(err.Error(), k) {
 			t.Errorf("erro agregado sem %s: %v", k, err)
 		}

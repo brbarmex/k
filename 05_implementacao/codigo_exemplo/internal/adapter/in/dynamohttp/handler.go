@@ -60,13 +60,13 @@ type APIError struct {
 
 func (e *APIError) Error() string { return e.Type + ": " + e.Message }
 
-// ValidateConsistentRead aplica o ADR-050: ConsistentRead=true em índice secundário
-// global é recusado com a mesma ValidationException do DynamoDB. O parser de Query/Scan
-// chama esta função assim que lê IndexName e ConsistentRead. Na tabela base vale
-// READ_MODE_DEFAULT; em GSI a leitura é sempre eventual (header x-dr-consistency).
-func ValidateConsistentRead(indexName string, consistentRead bool) error {
-	if indexName != "" && consistentRead {
-		return &APIError{Status: 400, Type: "ValidationException", Message: "Consistent reads are not supported on global secondary indexes"}
+// ValidateIndex aplica o ADR-050: Query ou Scan em índice secundário global (GSI) é
+// recusado com ValidationException, com ou sem ConsistentRead, porque o GSI nunca é
+// forte e o DataReplication tem um único modo, strong (ADR-057). O parser de Query/Scan
+// chama esta função assim que lê IndexName; isGlobal vem do catálogo de tabelas.
+func ValidateIndex(indexName string, isGlobal bool) error {
+	if indexName != "" && isGlobal {
+		return &APIError{Status: 400, Type: "ValidationException", Message: "Queries on global secondary indexes are not supported: the DataReplication serves only strongly consistent reads"}
 	}
 	return nil
 }
@@ -96,6 +96,10 @@ func (s *Server) handle(c *fasthttp.RequestCtx) {
 	case errors.Is(err, usecase.ErrNoLeader):
 		c.Response.Header.Set("Retry-After", strconv.Itoa(1))
 		writeCoded(c, "NO_LEADER", "no leader known, retry")
+		return
+	case errors.Is(err, usecase.ErrBackpressure):
+		// 400 ThrottlingException: os SDKs repetem com backoff; nada entrou no log (ADR-056).
+		writeErr(c, 400, "ThrottlingException", "rate of requests exceeds the allowed throughput")
 		return
 	case errors.Is(err, usecase.ErrPending), errors.Is(err, context.DeadlineExceeded):
 		writeCoded(c, "PENDING", "result unknown, retry") // o SDK retenta; dedupe e versão absorvem

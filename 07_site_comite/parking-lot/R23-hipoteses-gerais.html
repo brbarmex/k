@@ -21,20 +21,19 @@ Gerado em 13/10/2026 a partir do pacote DataReplication_Versao_1.
 <nav class="sidebar" aria-label="Navegação">
 <a class="marca" href="../index.html">DataReplication v1<span>Comitê técnico</span></a>
 <a class="nav-inicio" href="../index.html">Resumo e requisitos</a>
-<details class="grupo"><summary>Success path <span class="qtd">10</span></summary><ul>
+<details class="grupo"><summary>Success path <span class="qtd">9</span></summary><ul>
 <li><a class="idx" href="../success-path/index.html">Índice da seção</a></li>
 <li><a href="../success-path/C01-visao-geral.html"><b>C01</b> Visão geral da arquitetura</a></li>
 <li><a href="../success-path/C02-dentro-da-celula.html"><b>C02</b> Dentro da célula: apps do cliente e DataReplication</a></li>
 <li><a href="../success-path/C03-escrita-strong.html"><b>C03</b> Caminho feliz: escrita (apply serial depois do gate)</a></li>
-<li><a href="../success-path/C04-escrita-eventual.html"><b>C04</b> Modo Eventual: só de leitura (sem apply paralelo na v1)</a></li>
-<li><a href="../success-path/C05-leitura-strong-e-eventual.html"><b>C05</b> Caminho feliz: leitura Strong e Eventual</a></li>
+<li><a href="../success-path/C05-leitura-strong.html"><b>C05</b> Caminho feliz: leitura strong</a></li>
 <li><a href="../success-path/C06-follower-encaminha.html"><b>C06</b> Requisição chega numa célula que não é a líder</a></li>
 <li><a href="../success-path/C11-transferencia-planejada.html"><b>C11</b> Transferência planejada de liderança (manutenção)</a></li>
 <li><a href="../success-path/C18-partida-e-recuperacao-do-no.html"><b>C18</b> Partida, recuperação e parada limpa do nó</a></li>
 <li><a href="../success-path/C23-batchwriteitem-lote-uma-entrada.html"><b>C23</b> BatchWriteItem: o lote é uma entrada e o apply é por item (antes R15)</a></li>
 <li><a href="../success-path/C31-implantacao-por-cliente-e-identidade.html"><b>C31</b> Uma instalação por cliente e identificação na API (antes R19)</a></li>
 </ul></details>
-<details class="grupo"><summary>Fail path <span class="qtd">24</span></summary><ul>
+<details class="grupo"><summary>Fail path <span class="qtd">23</span></summary><ul>
 <li><a class="idx" href="../fail-path/index.html">Índice da seção</a></li>
 <li><a href="../fail-path/C07-timeout-depois-do-commit.html"><b>C07</b> Prazo estoura depois do commit, antes do ACK (retry do SDK)</a></li>
 <li><a href="../fail-path/C08-queda-de-celula-lider-ou-az-aws.html"><b>C08</b> Queda da célula líder ou de uma AZ na AWS</a></li>
@@ -54,7 +53,6 @@ Gerado em 13/10/2026 a partir do pacote DataReplication_Versao_1.
 <li><a href="../fail-path/C25-link-lento-faixa-cinzenta.html"><b>C25</b> Link lento ou saturado (faixa cinzenta): só alertar (antes R01)</a></li>
 <li><a href="../fail-path/C26-entrada-venenosa.html"><b>C26</b> Entrada venenosa: um item que o banco recusa para sempre (antes R02)</a></li>
 <li><a href="../fail-path/C27-encaminhamento-sem-lider-conhecida.html"><b>C27</b> Loop de encaminhamento e espera pela líder durante a eleição (antes R05)</a></li>
-<li><a href="../fail-path/C28-leitura-eventual-na-azure-defasada.html"><b>C28</b> Leitura eventual na Azure durante a degradação (antes R04)</a></li>
 <li><a href="../fail-path/C29-disco-do-log-em-degradacao-longa.html"><b>C29</b> Disco do log esgota durante uma degradação longa (antes R08)</a></li>
 <li><a href="../fail-path/C30-aws-que-volta-boot-cercado.html"><b>C30</b> Fencing: o DynamoDB e o applier da AWS que voltam depois da promoção (antes R14)</a></li>
 <li><a href="../fail-path/C32-particao-e-lease-do-modo-degradado.html"><b>C32</b> Partição entre AWS e Azure: lease do modo degradado e promoção da Azure</a></li>
@@ -216,7 +214,7 @@ Gerado em 13/10/2026 a partir do pacote DataReplication_Versao_1.
 <h3><span class="num">13</span>Semântica do Cosmos depois do failover <span class="origem">H-DR15. Semântica do Cosmos depois do failover</span></h3>
 <dl>
 <dt>Contexto</dt><dd>Depois do failover a aplicação fala com o Cosmos pelo Cloud-Adapter. Diferenças de tamanho de item, precisão de <code>Number</code>, índices consistentes por padrão e TTL podem mudar o comportamento que a aplicação via no DynamoDB. A aplicação pode quebrar justamente no desastre, quando o RTO já está correndo.</dd>
-<dt>O que a fonte define</dt><dd class="nd-fonte">Não decidido na fonte. Proposta na fonte: a suíte de conformidade roda a mesma sequência contra DynamoDB, camada e Cosmos (PEND-16), e a aplicação não deve depender da consistência do índice (<a href="../../03_adr/ADR-050-gsi-nao-tem-leitura-forte.md">ADR-050</a>, <a href="../../03_adr/ADR-051-compatibilidade-dynamodb-inventario-conformidade-e-idempotencia.md">ADR-051</a>).</dd>
+<dt>O que a fonte define</dt><dd class="nd-fonte">Não decidido na fonte. Proposta na fonte: a suíte de conformidade roda a mesma sequência contra DynamoDB, camada e Cosmos (PEND-16), e a aplicação não deve depender da consistência do índice (<a href="../../03_adr/ADR-050-query-em-gsi-recusada.md">ADR-050</a>, <a href="../../03_adr/ADR-051-compatibilidade-dynamodb-inventario-conformidade-e-idempotencia.md">ADR-051</a>).</dd>
 <dt class="sug">Sugestão de encaminhamento <small>(inferência, não decidida)</small></dt><dd class="sug">Rodar os testes de integração de cada cliente contra o Cosmos pelo Cloud-Adapter antes do onboarding, não só a suíte genérica. Dar atenção especial ao TTL, cujas expirações podem divergir entre os bancos e gerar diferenças de dado após a promoção.</dd>
 </dl>
 </article>
@@ -406,8 +404,8 @@ Gerado em 13/10/2026 a partir do pacote DataReplication_Versao_1.
 <p><strong>Caminho:</strong> regra no modelo TLA+, por exemplo marcar a Azure como <code>promotion_blocked</code> antes de prorrogar, ou recusar a prorrogação depois de um limite. A regra precisa ser provada (P12 em <a href="../complex-path/X01-gate-e-troca-de-lider.html">X01</a>) antes de a PEND-01 fechar (<a href="../../03_adr/ADR-044-lease-do-modo-degradado-e-promocao-da-azure.md">ADR-044</a>, <a href="../complex-path/X02-modo-degradado.html">X02</a>).</p></details>
 <details class="anexo"><summary>H-DR14. Partição assimétrica</summary><p><strong>Explicação.</strong> Quando um sentido do link funciona e o outro não, o "último contato" visto pela Azure e o gate visto pela AWS divergem: por exemplo, a AWS não recebe as respostas da Azure e degrada, mas a Azure ainda recebe os heartbeats da AWS, ou o contrário. Também é preciso definir o que conta como "contato da AWS" (qualquer votante ou só a líder, <a href="R06-duas-azs-aws-caem.html">R06</a>).</p>
 <p><strong>Caminho:</strong> modelar partições simétricas e assimétricas no TLA+ (<a href="../fail-path/C32-particao-e-lease-do-modo-degradado.html">C32</a>) e confirmar que o prazo D + M, medido no relógio da Azure, continua seguro.</p></details>
-<details class="anexo"><summary>H-DR15. Semântica do Cosmos depois do failover</summary><p><strong>Explicação.</strong> Depois do failover a aplicação passa a falar com o Cosmos pelo Cloud-Adapter. Diferenças de tamanho de item, precisão de <code>Number</code>, índices consistentes por padrão (o do DynamoDB não é) e TTL podem mudar o comportamento que a aplicação via no DynamoDB (<a href="../../03_adr/ADR-050-gsi-nao-tem-leitura-forte.md">ADR-050</a>, <a href="../../03_adr/ADR-051-compatibilidade-dynamodb-inventario-conformidade-e-idempotencia.md">ADR-051</a>).</p>
-<p><strong>Caminho:</strong> a suíte de conformidade roda a mesma sequência contra o DynamoDB real, a camada e o Cosmos pelo Cloud-Adapter e compara os resultados (PEND-16); a aplicação não deve depender da consistência do índice em nenhuma das duas nuvens.</p></details>
+<details class="anexo"><summary>H-DR15. Semântica do Cosmos depois do failover</summary><p><strong>Explicação.</strong> Depois do failover a aplicação passa a falar com o Cosmos pelo Cloud-Adapter. Diferenças de tamanho de item, precisão de <code>Number</code>, índices consistentes por padrão (o do DynamoDB não é) e TTL podem mudar o comportamento que a aplicação via no DynamoDB (<a href="../../03_adr/ADR-050-query-em-gsi-recusada.md">ADR-050</a>, <a href="../../03_adr/ADR-051-compatibilidade-dynamodb-inventario-conformidade-e-idempotencia.md">ADR-051</a>).</p>
+<p><strong>Caminho:</strong> a suíte de conformidade roda a mesma sequência contra o DynamoDB real, a camada e o Cosmos pelo Cloud-Adapter e compara os resultados (PEND-16); Query em GSI é recusada nas duas nuvens, então a diferença de índice não chega à aplicação.</p></details>
 <details class="anexo"><summary>Pontos em aberto</summary><ul>
 <li>Decisões que dependem do Bruno: PEND-02 (aceite formal do valor de D e do RPO &gt; 0, <strong>bloqueante</strong>) e a aprovação de D e M para fechar a PEND-01, cujo desenho está decidido (ADR-044) e falta a prova no TLA+. A promoção automática segue com os outros arquitetos e não é reaberta.</li>
 </ul></details>

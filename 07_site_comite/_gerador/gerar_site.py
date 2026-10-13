@@ -13,7 +13,7 @@ PONTOS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "pontos")
 MERMAID_CDN = "https://cdn.jsdelivr.net/npm/mermaid@11.4.1/dist/mermaid.min.js"
 HOJE = datetime.date.today().strftime("%d/%m/%Y")
 
-SUCCESS = {"C01", "C02", "C03", "C04", "C05", "C06", "C11", "C18", "C23", "C31"}
+SUCCESS = {"C01", "C02", "C03", "C05", "C06", "C11", "C18", "C23", "C31"}
 
 CATS = [
     ("success-path", "Success path", "Fluxos em regime normal, sem falha."),
@@ -458,7 +458,7 @@ durável na AWS (DynamoDB) e na Azure (Cosmos DB). Estado da documentação: {ht
 <li>ACK só depois do gate: commit do Raft na maioria AWS e índice durável na maioria Azure.</li>
 <li>API compatível com DynamoDB: <code>PutItem</code>, <code>DeleteItem</code>, <code>BatchWriteItem</code>, <code>GetItem</code>, <code>BatchGetItem</code>, <code>Query</code> e <code>Scan</code>.</li>
 <li>SDKs AWS Java 2.x, Go v2 e .NET v4.</li>
-<li>Leitura forte (padrão) e eventual; GSI sempre eventual.</li>
+<li>Um único modo, strong consistency: leitura sempre forte na tabela base; Query e Scan em GSI recusadas.</li>
 <li>Modo degradado por política da instalação (<code>DEGRADED_POLICY</code> accept com lease D, ou reject).</li>
 <li>Uma instalação por cliente; autorização por aplicação com mTLS.</li>
 </ul>

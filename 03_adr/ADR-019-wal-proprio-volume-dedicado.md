@@ -21,6 +21,11 @@ ACK com quórum em memória e memória durável (M1 a M4); WAL próprio segmenta
 - O piso do fsync é o do volume de rede; o spike S1 prova o P99, agora com **um fsync por shard** em paralelo (sem group commit entre shards).
 - Dois volumes por nó nas duas nuvens; o do Raft pode ser pequeno.
 
+## Atualização de 13/10/2026 (ADR-056)
+
+O volume do log do Raft passa a ter **IOPS provisionadas** acima da base (io2 ou gp3 provisionado; Premium SSD v2 com IOPS acima da base), por causa de um fsync por shard. O group commit é por shard; o compartilhado entre shards volta só pelo gatilho do S1 ([ADR-056](ADR-056-group-commit-por-shard-e-nada-sai-antes-do-fsync.md)).
+
+
 ## Onde está o detalhe
 
 - [04_wal_e_fsync.md](../01_arquitetura/04_wal_e_fsync.md)

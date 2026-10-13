@@ -44,7 +44,11 @@ type ConsensusEngine interface {
 	ReadIndex(ctx context.Context) (domain.Index, error)
 	Leader() (LeaderInfo, bool)
 	TransferLeadership(ctx context.Context, to string) error
-	Committed() <-chan CommitBatch // entradas já commitadas, entregues da memória
+	// Propose devolve usecase.ErrBackpressure quando o buffer não persistido do shard está
+	// cheio (ADR-056). Nenhuma resposta do Raft sai antes do fsync do lote.
+	// Committed entrega entradas já commitadas, da memória, e já estáveis no disco da
+	// própria líder (ADR-056: no modo síncrono, pela ordem Save e depois Advance).
+	Committed() <-chan CommitBatch
 	// Term é o termo atual da líder local (ADR-046: o gate só adota progresso desse termo).
 	Term() domain.Term
 	// LearnerEvents entrega CADA resposta de AppendEntries dos learners da Azure, no

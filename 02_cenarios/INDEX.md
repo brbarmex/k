@@ -17,8 +17,7 @@ Todo cenário tem um diagrama Mermaid, as etapas e as falhas com a tratativa. Os
 | [C01](atualizados/C01-visao-geral.md) | Visão geral da arquitetura | Mapa das peças: clouds, células, link, roteamento externo |
 | [C02](atualizados/C02-dentro-da-celula.md) | Dentro da célula: apps do cliente e DataReplication | Um `DataReplication` por célula, sem sidecar |
 | [C03](atualizados/C03-escrita-strong.md) | Caminho feliz: escrita (apply serial depois do gate) | Raft + gate por evento no termo atual; apply sempre serial depois do gate; ACK depois do apply na célula da líder |
-| [C04](atualizados/C04-escrita-eventual.md) | Modo Eventual: só de leitura (sem apply paralelo na v1) | Sem `WRITE_MODE` nem apply paralelo (ADR-053) |
-| [C05](atualizados/C05-leitura-strong-e-eventual.md) | Caminho feliz: leitura Strong e Eventual | Forte espera `min(ReadIndex, gate)`; GSI sempre eventual e `ConsistentRead` em GSI dá 400 (ADR-049, ADR-050) |
+| [C05](atualizados/C05-leitura-strong.md) | Caminho feliz: leitura strong | Espera `min(ReadIndex, gate)`; Query em GSI dá 400 (ADR-049, ADR-050, ADR-057) |
 | [C06](atualizados/C06-follower-encaminha.md) | Requisição chega numa célula que não é a líder | Follower encaminha à líder, um salto |
 | [C07](atualizados/C07-timeout-depois-do-commit.md) | Prazo estoura depois do commit, antes do ACK (retry do SDK) | `503 PENDING`, dedupe e versão condicional |
 | [C08](atualizados/C08-queda-de-celula-lider-ou-az-aws.md) | Queda da célula líder ou de uma AZ na AWS | Eleição e reconstrução do gate |
@@ -41,7 +40,6 @@ Todo cenário tem um diagrama Mermaid, as etapas e as falhas com a tratativa. Os
 | [C25](atualizados/C25-link-lento-faixa-cinzenta.md) | Link lento ou saturado (faixa cinzenta) | Só alerta; RPO continua 0 (ADR-037) |
 | [C26](atualizados/C26-entrada-venenosa.md) | Entrada venenosa: um item que o banco recusa para sempre | Validação pré-commit; `SKIP` por item `(índice, ordem)`, sempre por pessoa (ADR-038, ADR-048) |
 | [C27](atualizados/C27-encaminhamento-sem-lider-conhecida.md) | Loop de encaminhamento e espera pela líder durante a eleição | Um salto, termo no encaminhamento; espera até 1 s e `503` (ADR-039) |
-| [C28](atualizados/C28-leitura-eventual-na-azure-defasada.md) | Leitura eventual na Azure durante a degradação | Redireciona à AWS se possível, senão recusa (ADR-040) |
 | [C29](atualizados/C29-disco-do-log-em-degradacao-longa.md) | Disco do log esgota durante uma degradação longa | Teto de 70% e reconstrução completa; sem S3 (ADR-041) |
 | [C30](atualizados/C30-aws-que-volta-boot-cercado.md) | Fencing: o DynamoDB e o applier da AWS que voltam depois da promoção | Boot cercado, credenciais revogadas, célula recriada (ADR-042) |
 | [C31](atualizados/C31-implantacao-por-cliente-e-identidade.md) | Uma instalação por cliente e identificação na API | 1 para 1; cliente pela configuração (ADR-043) |
@@ -58,7 +56,7 @@ Todo cenário tem um diagrama Mermaid, as etapas e as falhas com a tratativa. Os
 | [X03](complexos/X03-desastre-e-promocao-da-azure.md) | Desastre: promoção da Azure, fencing e reconciliação | Epoch, promoção só depois de D + M, escolha do log, órfãs, failback |
 | [X04](complexos/X04-partida-recuperacao-e-dois-logs.md) | Partida, recuperação e coerência entre os dois logs | CommitPump e truncamento |
 | [X05](complexos/X05-timeouts-e-idempotencia.md) | Timeouts em cascata e idempotência do retry | Prazos em cascata e janela de dedupe |
-| [X06](complexos/X06-delete-ttl-gsi.md) | DELETE, TTL, Scan e GSI | Delete real com invariante `I-DEL`, TTL local, GSI sempre eventual |
+| [X06](complexos/X06-delete-ttl-gsi.md) | DELETE, TTL, Scan e GSI | Delete real com invariante `I-DEL`, TTL local, Query em GSI recusada |
 
 ## A rever (em aberto)
 

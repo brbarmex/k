@@ -113,9 +113,9 @@ flowchart TD
 
 ## H-DR15. Semântica do Cosmos depois do failover
 
-**Explicação.** Depois do failover a aplicação passa a falar com o Cosmos pelo Cloud-Adapter. Diferenças de tamanho de item, precisão de `Number`, índices consistentes por padrão (o do DynamoDB não é) e TTL podem mudar o comportamento que a aplicação via no DynamoDB ([ADR-050](../../03_adr/ADR-050-gsi-nao-tem-leitura-forte.md), [ADR-051](../../03_adr/ADR-051-compatibilidade-dynamodb-inventario-conformidade-e-idempotencia.md)).
+**Explicação.** Depois do failover a aplicação passa a falar com o Cosmos pelo Cloud-Adapter. Diferenças de tamanho de item, precisão de `Number`, índices consistentes por padrão (o do DynamoDB não é) e TTL podem mudar o comportamento que a aplicação via no DynamoDB ([ADR-050](../../03_adr/ADR-050-query-em-gsi-recusada.md), [ADR-051](../../03_adr/ADR-051-compatibilidade-dynamodb-inventario-conformidade-e-idempotencia.md)).
 
-**Caminho:** a suíte de conformidade roda a mesma sequência contra o DynamoDB real, a camada e o Cosmos pelo Cloud-Adapter e compara os resultados (PEND-16); a aplicação não deve depender da consistência do índice em nenhuma das duas nuvens.
+**Caminho:** a suíte de conformidade roda a mesma sequência contra o DynamoDB real, a camada e o Cosmos pelo Cloud-Adapter e compara os resultados (PEND-16); Query em GSI é recusada nas duas nuvens, então a diferença de índice não chega à aplicação.
 
 ## Pontos em aberto
 

@@ -1,10 +1,10 @@
 # C03 — Caminho feliz: escrita (apply serial depois do gate)
 
-**Status:** ✅ Atualizado (modelo v1, revisão crítica de 13/10/2026) · **ADRs:** [ADR-005](../../03_adr/ADR-005-ack-exige-gate.md), [ADR-017](../../03_adr/ADR-017-azure-learners-e-gate.md), [ADR-018](../../03_adr/ADR-018-dois-logs-raft-e-replicacao.md), [ADR-023](../../03_adr/ADR-023-modos-de-escrita-e-leitura.md), [ADR-029](../../03_adr/ADR-029-gate-monotonico-na-troca-de-lider.md), [ADR-046](../../03_adr/ADR-046-gate-so-conta-progresso-validado-pelo-raft.md), [ADR-053](../../03_adr/ADR-053-eventual-sem-apply-paralelo-na-v1.md) · **Relacionados:** [Orçamento de latência](../../01_arquitetura/06_modos_de_escrita_e_leitura_e_latencia.md), [C04](C04-escrita-eventual.md), [C05](C05-leitura-strong-e-eventual.md)
+**Status:** ✅ Atualizado (modelo v1, revisão crítica de 13/10/2026) · **ADRs:** [ADR-005](../../03_adr/ADR-005-ack-exige-gate.md), [ADR-017](../../03_adr/ADR-017-azure-learners-e-gate.md), [ADR-018](../../03_adr/ADR-018-dois-logs-raft-e-replicacao.md), [ADR-057](../../03_adr/ADR-057-um-unico-modo-strong-consistency.md), [ADR-029](../../03_adr/ADR-029-gate-monotonico-na-troca-de-lider.md), [ADR-046](../../03_adr/ADR-046-gate-so-conta-progresso-validado-pelo-raft.md), [ADR-057](../../03_adr/ADR-057-um-unico-modo-strong-consistency.md) · **Relacionados:** [Orçamento de latência](../../01_arquitetura/06_leitura_forte_escrita_serial_e_latencia.md), [C03](C03-escrita-strong.md), [C05](C05-leitura-strong.md)
 
 ## Cenário
 
-Regime normal, AWS e Azure se alcançando. A app faz um `PutItem`. O `DataReplication` valida, deduplica e propõe a entrada ao Raft. A entrada é gravada com fsync no log do Raft, replicada para 2 de 3 votantes AWS e para 2 de 3 learners Azure. Quando o gate alcança o índice, o applier grava no banco da célula e o ACK sai. **O apply é sempre serial e depois do gate**, em todas as instalações: o `WRITE_MODE` e o apply paralelo saíram da v1 ([ADR-053](../../03_adr/ADR-053-eventual-sem-apply-paralelo-na-v1.md)), então o `applied` nunca passa do gate. RPO = 0. O apply nas outras células é assíncrono.
+Regime normal, AWS e Azure se alcançando. A app faz um `PutItem`. O `DataReplication` valida, deduplica e propõe a entrada ao Raft. A entrada é gravada com fsync no log do Raft, replicada para 2 de 3 votantes AWS e para 2 de 3 learners Azure. Quando o gate alcança o índice, o applier grava no banco da célula e o ACK sai. **O apply é sempre serial e depois do gate**, em todas as instalações (modo único, [ADR-057](../../03_adr/ADR-057-um-unico-modo-strong-consistency.md)), então o `applied` nunca passa do gate. RPO = 0. O apply nas outras células é assíncrono.
 
 ## Diagrama
 
@@ -47,7 +47,7 @@ sequenceDiagram
 5. **Durabilidade Azure:** em paralelo, os learners gravam com fsync; 2 de 3 confirmam. O progresso da Azure só chega pelas respostas do `AppendEntries`, com termo, índice e identidade do learner ([ADR-046](../../03_adr/ADR-046-gate-so-conta-progresso-validado-pelo-raft.md)).
 6. **Gate:** `gateIndex = min(commit Raft, maioria Azure durável no termo atual)` alcança N. O gate é alimentado **por evento** (cada resposta de learner), não só quando chega um lote commitado.
 7. **Distribuição:** o `CommitPump` entrega N ao applier pela memória e ao log de replicação em lote (fora do caminho do ACK).
-8. **Apply:** o applier grava no banco da célula **só depois do gate**, em série, com escrita condicional `v < N`. A barreira entre gate e apply é a razão de a leitura forte poder usar `min(ReadIndex, gate)` ([C05](C05-leitura-strong-e-eventual.md)).
+8. **Apply:** o applier grava no banco da célula **só depois do gate**, em série, com escrita condicional `v < N`. A barreira entre gate e apply é a razão de a leitura forte poder usar `min(ReadIndex, gate)` ([C05](C05-leitura-strong.md)).
 9. **ACK:** o `DataReplication` responde ao SDK. As demais células aplicam N de forma assíncrona.
 
 ## Falhas e tratativas
@@ -59,5 +59,5 @@ sequenceDiagram
 
 ## Pontos em aberto
 
-- O ACK espera o apply só no banco da célula líder (6.9, item 4), então o P99 do DynamoDB entra no caminho do ACK: [C24](C24-orcamento-de-50ms-e-escrita-no-dynamodb.md). Reavaliar o apply paralelo só se a medição (spike S5) mostrar que `t_apply` estoura o orçamento.
+- O ACK espera o apply só no banco da célula líder (6.9, item 4), então o P99 do DynamoDB entra no caminho do ACK: [C24](C24-orcamento-de-50ms-e-escrita-no-dynamodb.md). Não há apply paralelo: o modo único é strong ([ADR-057](../../03_adr/ADR-057-um-unico-modo-strong-consistency.md)).
 - Latência total depende do RTT AWS↔Azure e do P99 de fsync, ainda não medidos (spike S1).

@@ -3,13 +3,13 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>C05 — Caminho feliz: leitura Strong e Eventual · DataReplication v1</title>
+<title>C05 — Caminho feliz: leitura strong · DataReplication v1</title>
 <link rel="stylesheet" href="../assets/site.css">
 </head>
 <body>
 <!--
 Fonte(s) usada(s) nesta página (rastreabilidade), relativas à raiz do pacote:
-  02_cenarios/atualizados/C05-leitura-strong-e-eventual.md
+  02_cenarios/atualizados/C05-leitura-strong.md
   04_diagramas/D05-gate-e-quorum.md
 Gerado em 13/10/2026 a partir do pacote DataReplication_Versao_1.
 -->
@@ -21,20 +21,19 @@ Gerado em 13/10/2026 a partir do pacote DataReplication_Versao_1.
 <nav class="sidebar" aria-label="Navegação">
 <a class="marca" href="../index.html">DataReplication v1<span>Comitê técnico</span></a>
 <a class="nav-inicio" href="../index.html">Resumo e requisitos</a>
-<details class="grupo" open><summary>Success path <span class="qtd">10</span></summary><ul>
+<details class="grupo" open><summary>Success path <span class="qtd">9</span></summary><ul>
 <li><a class="idx" href="index.html">Índice da seção</a></li>
 <li><a href="C01-visao-geral.html"><b>C01</b> Visão geral da arquitetura</a></li>
 <li><a href="C02-dentro-da-celula.html"><b>C02</b> Dentro da célula: apps do cliente e DataReplication</a></li>
 <li><a href="C03-escrita-strong.html"><b>C03</b> Caminho feliz: escrita (apply serial depois do gate)</a></li>
-<li><a href="C04-escrita-eventual.html"><b>C04</b> Modo Eventual: só de leitura (sem apply paralelo na v1)</a></li>
-<li><a class="atual" aria-current="page" href="C05-leitura-strong-e-eventual.html"><b>C05</b> Caminho feliz: leitura Strong e Eventual</a></li>
+<li><a class="atual" aria-current="page" href="C05-leitura-strong.html"><b>C05</b> Caminho feliz: leitura strong</a></li>
 <li><a href="C06-follower-encaminha.html"><b>C06</b> Requisição chega numa célula que não é a líder</a></li>
 <li><a href="C11-transferencia-planejada.html"><b>C11</b> Transferência planejada de liderança (manutenção)</a></li>
 <li><a href="C18-partida-e-recuperacao-do-no.html"><b>C18</b> Partida, recuperação e parada limpa do nó</a></li>
 <li><a href="C23-batchwriteitem-lote-uma-entrada.html"><b>C23</b> BatchWriteItem: o lote é uma entrada e o apply é por item (antes R15)</a></li>
 <li><a href="C31-implantacao-por-cliente-e-identidade.html"><b>C31</b> Uma instalação por cliente e identificação na API (antes R19)</a></li>
 </ul></details>
-<details class="grupo"><summary>Fail path <span class="qtd">24</span></summary><ul>
+<details class="grupo"><summary>Fail path <span class="qtd">23</span></summary><ul>
 <li><a class="idx" href="../fail-path/index.html">Índice da seção</a></li>
 <li><a href="../fail-path/C07-timeout-depois-do-commit.html"><b>C07</b> Prazo estoura depois do commit, antes do ACK (retry do SDK)</a></li>
 <li><a href="../fail-path/C08-queda-de-celula-lider-ou-az-aws.html"><b>C08</b> Queda da célula líder ou de uma AZ na AWS</a></li>
@@ -54,7 +53,6 @@ Gerado em 13/10/2026 a partir do pacote DataReplication_Versao_1.
 <li><a href="../fail-path/C25-link-lento-faixa-cinzenta.html"><b>C25</b> Link lento ou saturado (faixa cinzenta): só alertar (antes R01)</a></li>
 <li><a href="../fail-path/C26-entrada-venenosa.html"><b>C26</b> Entrada venenosa: um item que o banco recusa para sempre (antes R02)</a></li>
 <li><a href="../fail-path/C27-encaminhamento-sem-lider-conhecida.html"><b>C27</b> Loop de encaminhamento e espera pela líder durante a eleição (antes R05)</a></li>
-<li><a href="../fail-path/C28-leitura-eventual-na-azure-defasada.html"><b>C28</b> Leitura eventual na Azure durante a degradação (antes R04)</a></li>
 <li><a href="../fail-path/C29-disco-do-log-em-degradacao-longa.html"><b>C29</b> Disco do log esgota durante uma degradação longa (antes R08)</a></li>
 <li><a href="../fail-path/C30-aws-que-volta-boot-cercado.html"><b>C30</b> Fencing: o DynamoDB e o applier da AWS que voltam depois da promoção (antes R14)</a></li>
 <li><a href="../fail-path/C32-particao-e-lease-do-modo-degradado.html"><b>C32</b> Partição entre AWS e Azure: lease do modo degradado e promoção da Azure</a></li>
@@ -90,10 +88,10 @@ Gerado em 13/10/2026 a partir do pacote DataReplication_Versao_1.
 </nav>
 <main>
 <div class="migalhas"><a href="../index.html">Início</a> / <a href="index.html">Success path</a> / C05</div>
-<h1>C05 — Caminho feliz: leitura Strong e Eventual</h1>
-<div class="meta"><span class="selo success-path">Success path</span><div><b>Status na fonte:</b> ✅ Atualizado (modelo v1, revisão crítica de 13/10/2026)</div></div>
+<h1>C05 — Caminho feliz: leitura strong</h1>
+<div class="meta"><span class="selo success-path">Success path</span><div><b>Status na fonte:</b> ✅ Atualizado (modo único strong, 13/10/2026)</div></div>
 <section id="visao-geral"><h2>1. Visão geral do cenário</h2>
-<p>O padrão é leitura forte: <code>READ_MODE_DEFAULT=strong</code> (obrigatória), válido <strong>só para a tabela base</strong>. <code>ConsistentRead=true</code> na tabela base é sempre forte; ausente ou <code>false</code> segue o padrão. A leitura forte pede à líder o <strong>ReadIndex e o gate</strong> e espera o <code>appliedIndex</code> local alcançar <strong><code>min(ReadIndex, gate)</code></strong>. Um cliente só pode ter visto escritas já ACKadas, e toda escrita ACKada está abaixo do gate, então a leitura-do-que-escrevi continua garantida <strong>sem depender da saúde da Azure</strong>. A leitura eventual lê o banco local direto e informa a defasagem em headers. Em <strong>GSI</strong> a leitura é sempre eventual.</p>
+<p>O <code>DataReplication</code> tem um único modo, strong consistency (<a href="../../03_adr/ADR-057-um-unico-modo-strong-consistency.md">ADR-057</a>). As aplicações enviam <code>ConsistentRead=true</code>; uma leitura de tabela base que chegue sem o parâmetro é servida da mesma forma, porque não há outro caminho. A leitura pede à líder o <strong>ReadIndex e o gate</strong> e espera o <code>appliedIndex</code> local alcançar <strong><code>min(ReadIndex, gate)</code></strong>. Um cliente só pode ter visto escritas já ACKadas, e toda escrita ACKada está abaixo do gate, então a leitura-do-que-escrevi continua garantida <strong>sem depender da saúde da Azure</strong>. <code>Query</code> em GSI é recusada (<a href="../../03_adr/ADR-050-query-em-gsi-recusada.md">ADR-050</a>).</p>
 </section>
 <section id="diagrama"><h2>2. Diagrama</h2>
 <div class="diagrama"><pre class="mermaid">sequenceDiagram
@@ -103,28 +101,18 @@ Gerado em 13/10/2026 a partir do pacote DataReplication_Versao_1.
     participant L as Líder
     participant AP as Applier
     participant DB as Banco local
-    rect rgba(100,150,255,0.12)
-    Note over App,DB: Leitura forte na tabela base
-    App-&gt;&gt;DR: GetItem
+    App-&gt;&gt;DR: GetItem, Query ou Scan na tabela base, ConsistentRead true
     DR-&gt;&gt;L: pede ReadIndex e gate
     L--&gt;&gt;DR: ReadIndex R e gate G na mesma resposta, liderança confirmada pelo quórum
     DR-&gt;&gt;AP: appliedIndex
     opt appliedIndex menor que o mínimo de R e G
         DR-&gt;&gt;AP: espera até min de R e G, ou falha rápido se o applier está parado
     end
-    DR-&gt;&gt;DB: lê o item
+    DR-&gt;&gt;DB: lê na tabela base
     DB--&gt;&gt;DR: dado
     DR--&gt;&gt;App: dado com tudo o que foi ACKado até o mínimo de R e G
-    end
-    rect rgba(100,200,120,0.12)
-    Note over App,DB: Leitura eventual e GSI
-    App-&gt;&gt;DR: GetItem eventual, ou Query em GSI
-    DR-&gt;&gt;DB: lê sem esperar
-    DB--&gt;&gt;DR: dado
-    DR--&gt;&gt;App: dado e headers com índice observado e defasagem
-    end
-    App-&gt;&gt;DR: Query em GSI com ConsistentRead true
-    DR--&gt;&gt;App: 400 ValidationException, como o DynamoDB</pre></div>
+    App-&gt;&gt;DR: Query ou Scan com IndexName de GSI
+    DR--&gt;&gt;App: 400 ValidationException</pre></div>
 <h3>Arquitetura geral relacionada: <a href="../../04_diagramas/D05-gate-e-quorum.md">D05 — Quórum e gate</a></h3><p class="nota">Diagrama de <code>04_diagramas/</code> escolhido pelo site como contexto; o cenário fonte não faz essa associação.</p>
 <div class="diagrama"><pre class="mermaid">flowchart LR
     subgraph VOT[&quot;Votantes AWS&quot;]
@@ -137,10 +125,10 @@ Gerado em 13/10/2026 a partir do pacote DataReplication_Versao_1.
         Z2[&quot;Z2&quot;]
         Z3[&quot;Z3&quot;]
     end
-    A1 --&gt;|&quot;2 de 3 com fsync&quot;| RC[&quot;commit do Raft&quot;]
+    A1 --&gt;|&quot;auto-ACK só depois do próprio fsync&quot;| RC[&quot;commit do Raft: 2 de 3 com fsync&quot;]
     A2 --&gt; RC
     A3 --&gt; RC
-    Z1 --&gt;|&quot;resposta do AppendEntries: termo, índice, identidade&quot;| AQ[&quot;2º maior índice durável no termo atual&quot;]
+    Z1 --&gt;|&quot;resposta do AppendEntries depois do fsync: termo, índice, identidade&quot;| AQ[&quot;2º maior índice durável no termo atual&quot;]
     Z2 --&gt; AQ
     Z3 --&gt; AQ
     AQ -.-&gt;|&quot;valor de outro termo ou fora de banda: ignorado&quot;| IGN[&quot;descartado até a primeira confirmação no termo novo&quot;]
@@ -154,13 +142,13 @@ Gerado em 13/10/2026 a partir do pacote DataReplication_Versao_1.
 </section>
 <section id="etapas"><h2>3. Legenda e etapas</h2>
 <div class="etapas"><ol>
-<li><strong>Forte, alvo:</strong> a célula pede à líder o <code>ReadIndex</code>; a líder confirma com o quórum que ainda é líder e devolve R <strong>e o gate G na mesma resposta</strong>. Um gate antigo guardado na follower enfraqueceria a garantia, por isso nunca é reutilizado.</li>
-<li><strong>Forte, barreira:</strong> o <code>DataReplication</code> compara o <code>appliedIndex</code> local com <code>min(R, G)</code> e espera o applier, até o prazo da requisição. Como o apply é serial e depois do gate (<a href="../../03_adr/ADR-053-eventual-sem-apply-paralelo-na-v1.md">ADR-053</a>), <code>applied</code> nunca passa do gate, e uma Azure lenta <strong>não atrasa</strong> a leitura forte.</li>
-<li><strong>Forte, leitura:</strong> lê o banco local e responde com todas as escritas ACKadas até <code>min(R, G)</code>.</li>
-<li><strong>Líder recém-eleita:</strong> só atende leitura forte depois de reconstruir o gate com progresso confirmado no termo novo (<a href="../../03_adr/ADR-029-gate-monotonico-na-troca-de-lider.md">ADR-029</a>, <a href="../../03_adr/ADR-046-gate-so-conta-progresso-validado-pelo-raft.md">ADR-046</a>).</li>
-<li><strong>Eventual:</strong> lê o banco local sem falar com a líder e calcula a defasagem em entradas e em segundos; devolve <code>observedIndex</code> e a idade em headers HTTP que o SDK ignora.</li>
-<li><strong>GSI:</strong> <code>ConsistentRead=true</code> em <code>Query</code> de GSI é recusada com <code>ValidationException</code> (400), como no DynamoDB. Sem o parâmetro, a leitura em GSI é sempre eventual, com o header <code>x-dr-consistency: eventual</code>; <code>READ_MODE_DEFAULT=strong</code> não se aplica (<a href="../../03_adr/ADR-050-gsi-nao-tem-leitura-forte.md">ADR-050</a>).</li>
-<li><strong>Sem relógio:</strong> a leitura forte usa ReadIndex e gate e nunca lease (X11), para não depender de relógio.</li>
+<li><strong>Alvo:</strong> a célula pede à líder o <code>ReadIndex</code>; a líder confirma com o quórum que ainda é líder e devolve R <strong>e o gate G na mesma resposta</strong>. Um gate antigo guardado na follower enfraqueceria a garantia, por isso nunca é reutilizado.</li>
+<li><strong>Barreira:</strong> o <code>DataReplication</code> compara o <code>appliedIndex</code> local com <code>min(R, G)</code> e espera o applier, até o prazo da requisição. Como o apply é serial e depois do gate, <code>applied</code> nunca passa do gate, e uma Azure lenta <strong>não atrasa</strong> a leitura.</li>
+<li><strong>Leitura:</strong> lê o banco local e responde com todas as escritas ACKadas até <code>min(R, G)</code>.</li>
+<li><strong>Líder recém-eleita:</strong> só atende leitura depois de reconstruir o gate com progresso confirmado no termo novo (<a href="../../03_adr/ADR-029-gate-monotonico-na-troca-de-lider.md">ADR-029</a>, <a href="../../03_adr/ADR-046-gate-so-conta-progresso-validado-pelo-raft.md">ADR-046</a>).</li>
+<li><strong>GSI:</strong> <code>Query</code> ou <code>Scan</code> com <code>IndexName</code> de GSI é recusado com <code>ValidationException</code> (400), com ou sem <code>ConsistentRead</code>.</li>
+<li><strong>Células da Azure antes da promoção:</strong> mesma regra de qualquer célula seguidora (ReadIndex e gate da líder AWS, espera o Cosmos alcançar a barreira). Sem líder alcançável, <code>503</code>.</li>
+<li><strong>Sem relógio:</strong> a leitura usa ReadIndex e gate e nunca lease (X11).</li>
 </ol></div>
 </section>
 <section id="pontos"><h2>4. Pontos que precisam ser avaliados</h2>
@@ -185,7 +173,7 @@ Gerado em 13/10/2026 a partir do pacote DataReplication_Versao_1.
 <h3><span class="num">3</span>Query em GSI com leitura forte e assimetria pós-failover <span class="origem">Falhas e tratativas</span></h3>
 <dl>
 <dt>Contexto</dt><dd>O DynamoDB não oferece leitura forte em GSI, então a camada também não. Depois do failover a aplicação passa a ler o índice do Cosmos, que é consistente por padrão, enquanto o do DynamoDB não é. Uma aplicação que passe a depender do comportamento de uma das nuvens quebra ao trocar de nuvem.</dd>
-<dt>O que a fonte define</dt><dd class=""><code>ConsistentRead=true</code> em GSI é recusada com <code>ValidationException</code> (<a href="../../03_adr/ADR-050-gsi-nao-tem-leitura-forte.md">ADR-050</a>); a aplicação não deve depender da consistência do índice em nenhuma nuvem (<a href="../complex-path/X06-delete-ttl-gsi.html">X06</a>, H-DR15).</dd>
+<dt>O que a fonte define</dt><dd class=""><code>ConsistentRead=true</code> em GSI é recusada com <code>ValidationException</code> (<a href="../../03_adr/ADR-050-query-em-gsi-recusada.md">ADR-050</a>); a aplicação não deve depender da consistência do índice em nenhuma nuvem (<a href="../complex-path/X06-delete-ttl-gsi.html">X06</a>, H-DR15).</dd>
 <dt class="sug">Sugestão de encaminhamento <small>(inferência, não decidida)</small></dt><dd class="sug">Incluir na suíte de conformidade (PEND-16) casos de GSI lidos logo após escrita, rodando contra DynamoDB, camada e Cosmos, para documentar a diferença. Levantar no inventário (PEND-15) quais clientes leem GSI logo após escrever.</dd>
 </dl>
 </article>
@@ -214,21 +202,20 @@ Gerado em 13/10/2026 a partir do pacote DataReplication_Versao_1.
 </dl>
 </article>
 <article class="ponto">
-<h3><span class="num">7</span>Leitura eventual na Azure durante a degradação <span class="origem">Pontos em aberto</span></h3>
+<h3><span class="num">7</span>Leitura na Azure durante a degradação <span class="origem">Pontos em aberto</span></h3>
 <dl>
-<dt>Contexto</dt><dd>No modo degradado a Azure deixa de receber entradas e a leitura eventual servida por ela pode ficar até a duração do lease atrasada, ou mais se houver prorrogação. Para dado financeiro isso pode significar um saldo antigo apresentado como atual.</dd>
-<dt>O que a fonte define</dt><dd class="">Acima do limite, a leitura é redirecionada à AWS ou recusada (<a href="../fail-path/C28-leitura-eventual-na-azure-defasada.html">C28</a>, <a href="../../03_adr/ADR-040-leitura-eventual-na-azure-acima-do-limite.md">ADR-040</a>).</dd>
-<dt class="sug">Sugestão de encaminhamento <small>(inferência, não decidida)</small></dt><dd class="sug">Garantir que o limite de defasagem seja configurado por instalação e coberto por teste de caos com o link cortado. Verificar o caso em que a AWS também está inalcançável para a célula Azure, em que o redirecionamento não é possível e só resta recusar.</dd>
+<dt>Contexto</dt><dd>No modo degradado as células da Azure deixam de alcançar a líder AWS. Como só existe leitura forte, elas não conseguem obter <code>ReadIndex</code> e gate e recusam a leitura com <code>503</code>; a aplicação que lê pela Azure fica sem leitura até o link voltar ou a Azure ser promovida.</dd>
+<dt>O que a fonte define</dt><dd class="">Modo único strong (<a href="../../03_adr/ADR-057-um-unico-modo-strong-consistency.md">ADR-057</a>): sem líder alcançável, a célula da Azure recusa com <code>503</code> e nunca devolve dado defasado.</dd>
+<dt class="sug">Sugestão de encaminhamento <small>(inferência, não decidida)</small></dt><dd class="sug">Confirmar com o roteamento (Compass-Router) que, em regime normal, as leituras vão para células AWS, de modo que a recusa na Azure só afete quem já estava lá. Cobrir com teste de caos com o link cortado.</dd>
 </dl>
 </article>
 </section>
 <section id="adrs"><h2>5. ADRs relacionados</h2>
 <div class="tabela"><table><thead><tr><th>ADR</th><th>Título</th><th>Decisão resumida</th><th>Arquivo</th></tr></thead><tbody>
+<tr><td class="nw"><a href="../../03_adr/ADR-057-um-unico-modo-strong-consistency.md">ADR-057</a></td><td>Um único modo: strong consistency</td><td>Um único modo, strong consistency, na escrita, na replicação e no Raft; leitura sempre forte; sem variável de modo.</td><td><a href="../../03_adr/ADR-057-um-unico-modo-strong-consistency.md">ADR-057-um-unico-modo-strong-consistency.md</a></td></tr>
 <tr><td class="nw"><a href="../../03_adr/ADR-049-barreira-da-leitura-forte-e-o-gate.md">ADR-049</a></td><td>A leitura forte espera <code>min(ReadIndex, gate)</code></td><td>A leitura forte espera min(ReadIndex, gate), obtidos da líder na mesma resposta.</td><td><a href="../../03_adr/ADR-049-barreira-da-leitura-forte-e-o-gate.md">ADR-049-barreira-da-leitura-forte-e-o-gate.md</a></td></tr>
-<tr><td class="nw"><a href="../../03_adr/ADR-050-gsi-nao-tem-leitura-forte.md">ADR-050</a></td><td><code>ConsistentRead=true</code> em GSI é recusada, como no DynamoDB</td><td>ConsistentRead=true em GSI é recusada como no DynamoDB; GSI é sempre eventual.</td><td><a href="../../03_adr/ADR-050-gsi-nao-tem-leitura-forte.md">ADR-050-gsi-nao-tem-leitura-forte.md</a></td></tr>
-<tr><td class="nw"><a href="../../03_adr/ADR-023-modos-de-escrita-e-leitura.md">ADR-023</a></td><td>Modos de escrita (Strong serial, Eventual paralelo) e de leitura (padrão forte)</td><td>READ_MODE_DEFAULT obrigatória (padrão strong); a parte de escrita (WRITE_MODE) foi substituída pelo <a href="../../03_adr/ADR-053-eventual-sem-apply-paralelo-na-v1.md">ADR-053</a>.</td><td><a href="../../03_adr/ADR-023-modos-de-escrita-e-leitura.md">ADR-023-modos-de-escrita-e-leitura.md</a></td></tr>
-<tr><td class="nw"><a href="../../03_adr/ADR-012-sem-downgrade-strong-eventual.md">ADR-012</a></td><td>Sem downgrade automático de Strong para Eventual</td><td>Nenhum componente rebaixa automaticamente uma leitura Strong para Eventual.</td><td><a href="../../03_adr/ADR-012-sem-downgrade-strong-eventual.md">ADR-012-sem-downgrade-strong-eventual.md</a></td></tr>
-<tr><td class="nw"><a href="../../03_adr/ADR-024-delete-real-ttl-local-gsi.md">ADR-024</a></td><td>DELETE real com ordem por chave; TTL local; GSI</td><td>DELETE real com ordem por chave; TTL expira local em cada célula; leitura em GSI sempre eventual.</td><td><a href="../../03_adr/ADR-024-delete-real-ttl-local-gsi.md">ADR-024-delete-real-ttl-local-gsi.md</a></td></tr>
+<tr><td class="nw"><a href="../../03_adr/ADR-050-query-em-gsi-recusada.md">ADR-050</a></td><td><code>Query</code> em GSI é recusada</td><td>Toda Query ou Scan em GSI é recusada com 400 (ValidationException); a tabela sombra nasce sem GSI.</td><td><a href="../../03_adr/ADR-050-query-em-gsi-recusada.md">ADR-050-query-em-gsi-recusada.md</a></td></tr>
+<tr><td class="nw"><a href="../../03_adr/ADR-024-delete-real-ttl-local-gsi.md">ADR-024</a></td><td>DELETE real com ordem por chave; TTL local; GSI</td><td>DELETE real com ordem por chave; TTL expira local em cada célula; Query em GSI recusada (<a href="../../03_adr/ADR-050-query-em-gsi-recusada.md">ADR-050</a>).</td><td><a href="../../03_adr/ADR-024-delete-real-ttl-local-gsi.md">ADR-024-delete-real-ttl-local-gsi.md</a></td></tr>
 <tr><td class="nw"><a href="../../03_adr/ADR-046-gate-so-conta-progresso-validado-pelo-raft.md">ADR-046</a></td><td>O gate só conta progresso validado pelo Raft no termo atual</td><td>O gate só conta progresso da Azure confirmado pelo AppendEntries no termo atual.</td><td><a href="../../03_adr/ADR-046-gate-so-conta-progresso-validado-pelo-raft.md">ADR-046-gate-so-conta-progresso-validado-pelo-raft.md</a></td></tr>
 </tbody></table></div>
 <p class="nota">Lista extraída do cabeçalho “ADRs” do arquivo fonte. A decisão resumida condensa a seção “Decisão” de cada ADR.</p>
@@ -236,14 +223,15 @@ Gerado em 13/10/2026 a partir do pacote DataReplication_Versao_1.
 <section id="anexo"><h2>Anexo: texto original da fonte</h2><p class="nota">Seções do .md fonte reproduzidas sem reescrita, para conferência.</p>
 <details class="anexo"><summary>Falhas e tratativas</summary><ul>
 <li><strong>Líder isolada que ainda não sabe que perdeu.</strong> O ReadIndex exige quórum: sem ele a líder não responde.</li>
-<li><strong>Applier parado</strong> (entrada venenosa, <a href="../fail-path/C26-entrada-venenosa.html">C26</a>). O <code>appliedIndex</code> não chega ao alvo: a leitura forte do shard falha rápido com <code>503</code>, em vez de esperar até o prazo.</li>
-<li><strong>Query em GSI com leitura forte.</strong> Recusada (item 6). Depois do failover há ainda uma assimetria: o índice do Cosmos é consistente por padrão e o do DynamoDB não; a aplicação não deve depender de nenhum dos dois (<a href="../complex-path/X06-delete-ttl-gsi.html">X06</a>).</li>
-<li><strong>Scan.</strong> Não há snapshot entre páginas: dois Scans consecutivos podem divergir.</li>
+<li><strong>Sem líder conhecida</strong> (eleição, partição): espera até 1 s e <code>503</code>, como a escrita (<a href="../../03_adr/ADR-039-sem-lider-conhecida-espera-ate-1s-e-503.md">ADR-039</a>).</li>
+<li><strong>Applier parado</strong> (entrada venenosa, <a href="../fail-path/C26-entrada-venenosa.html">C26</a>). O <code>appliedIndex</code> não chega ao alvo: a leitura do shard falha rápido com <code>503</code>, em vez de esperar até o prazo.</li>
+<li><strong>Modo degradado:</strong> as células da Azure não alcançam a líder e recusam com <code>503</code>; nunca devolvem dado defasado.</li>
+<li><strong>Scan.</strong> A barreira vale antes de cada página, mas não há instantâneo entre páginas: dois Scans consecutivos podem divergir.</li>
+<li><strong>TTL.</strong> Cada célula expira por conta própria e com atraso; a aplicação filtra pelo atributo de TTL (<a href="../complex-path/X06-delete-ttl-gsi.html">X06</a>).</li>
 <li><strong>Prazo vence esperando o applier.</strong> Erro recuperável (o SDK retenta).</li>
 </ul></details>
 <details class="anexo"><summary>Pontos em aberto</summary><ul>
-<li>Leitura forte em células follower concentra ReadIndex na líder e soma ~1 RTT: <a href="../parking-lot/R16-leitura-forte-em-celulas-follower.html">R16</a>.</li>
-<li>Leitura eventual na Azure durante a degradação pode ter defasagem de até a duração do lease (mais, se prorrogado); acima do limite é redirecionada à AWS ou recusada: <a href="../fail-path/C28-leitura-eventual-na-azure-defasada.html">C28</a>.</li>
+<li>Leitura em células follower concentra ReadIndex na líder e soma ~1 RTT: <a href="../parking-lot/R16-leitura-forte-em-celulas-follower.html">R16</a>.</li>
 </ul></details>
 </section>
 <footer class="rodape">

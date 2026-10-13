@@ -22,7 +22,7 @@ sequenceDiagram
     OP->>DR: drctl rebuild, com aprovação
     DR->>DR: confere retenção, capacidade, IAM e allowlist da sombra
     DR->>LG: registra F e retém o log desde F
-    DR->>SH: cria a tabela sombra com GSIs e TTL
+    DR->>SH: cria a tabela sombra com TTL, sem GSIs
     loop varredura sem snapshot
         DR->>OR: lê uma página de itens
         DR->>SH: grava cada item com a condição de versão
@@ -62,7 +62,7 @@ flowchart TD
 1. **Pedido:** `drctl rebuild` é manual assistido, com aprovação humana. A tabela de origem é a de uma célula saudável do mesmo shard ou, para refazer só a estrutura, a própria tabela da célula (a escolha da origem entra no detalhamento do protocolo).
 2. **Pré-condições:** o log de replicação cobre a duração estimada da varredura (ver retenção abaixo), há WCU ou RU para a cópia e o replay, e o papel do applier e a allowlist ([ADR-022](../../03_adr/ADR-022-banco-por-celula-nome-logico.md)) admitem o nome da tabela sombra.
 3. **Registro de F:** o índice F é o índice aplicado da origem **antes** de começar. Um F menor que o real só custa mais replay; um F maior perderia escritas. O log é retido desde F e F é persistido, para a reconstrução poder ser retomada depois de um reinício.
-4. **Tabela sombra:** criada com os mesmos GSIs, o mesmo atributo de TTL e a mesma chave. No Cosmos, o Cloud-Adapter cria o container equivalente.
+4. **Tabela sombra:** criada com o mesmo atributo de TTL e a mesma chave, sem GSIs (Query em GSI é recusada, [ADR-050](../../03_adr/ADR-050-query-em-gsi-recusada.md)). No Cosmos, o Cloud-Adapter cria o container equivalente.
 5. **Cópia difusa:** varredura por páginas, sem snapshot; cada item é gravado com a condição de versão, para nunca sobrescrever uma versão mais nova.
 6. **Replay:** o log desde F é reaplicado em ordem até a cabeça, com `Put` e `Delete` condicionais por versão ([ADR-035](../../03_adr/ADR-035-lote-batchwriteitem-uma-entrada-e-apply-condicional.md)). O estado da sombra é provisório e **ninguém lê dele**.
 7. **Cutover:** com o lag abaixo de um limite (a definir), o applier da célula pausa, o último trecho é fechado e o nome lógico passa à **geração g + 1**, apontando para a tabela sombra. O cliente não percebe a troca do nome físico.
@@ -73,7 +73,7 @@ flowchart TD
 
 - **O log não cobre a varredura.** Se a varredura demorar mais que a retenção do teto de 70% do volume ([ADR-041](../../03_adr/ADR-041-disco-do-log-teto-de-70-por-cento-sem-s3-na-v1.md)), o log desde F é liberado e o rebuild **falha e recomeça** com um F novo. Estimar a duração (itens, tamanho, WCU ou RU disponíveis) antes de começar e alertar quando a folga de retenção encolher; as durações reais ainda não foram medidas ([R09](../a_rever/R09-resincronizacao-lenta-ou-bloqueada.md)).
 - **Custo e throttling (WCU e RU).** A varredura e o replay competem com a escrita ao vivo da célula, no DynamoDB e no Cosmos, e podem gerar throttling. Se a célula reconstruída for a líder, o throttling do applier vira latência de ACK e `503 PENDING` ([C24](C24-orcamento-de-50ms-e-escrita-no-dynamodb.md)). Recomendação: transferir a liderança antes ([C11](C11-transferencia-planejada.md)) e limitar o ritmo da cópia. O custo da tabela dupla entra em [R20](../a_rever/R20-custo-6x.md).
-- **GSI da tabela sombra.** Os GSIs precisam existir antes ou durante a cópia; criar depois obriga o backfill do índice, com custo e tempo próprios. GSI é sempre eventual ([ADR-050](../../03_adr/ADR-050-gsi-nao-tem-leitura-forte.md)): o checksum compara a tabela base, e o índice só é conferido por amostragem (a definir).
+- **Sem GSI na tabela sombra.** Query em GSI é recusada pela camada ([ADR-050](../../03_adr/ADR-050-query-em-gsi-recusada.md)), então a sombra nasce sem GSIs: não há backfill de índice nem conferência de índice, e o checksum compara só a tabela base.
 - **Cosmos pelo Cloud-Adapter.** O mesmo protocolo vale para a Azure e precisa estar no contrato do Cloud-Adapter: criar container, varrer, gravar com condição de versão, trocar o mapeamento. Os custos em RU, o limite de tamanho de item e o índice consistente do Cosmos entram na suíte de conformidade ([ADR-051](../../03_adr/ADR-051-compatibilidade-dynamodb-inventario-conformidade-e-idempotencia.md)).
 - **IAM e allowlist da sombra.** O papel do applier não deve ganhar permissão de criar ou apagar tabelas por causa disso. Proposta: um papel de reconstrução separado e temporário, concedido com a aprovação do `drctl rebuild`, restrito ao padrão de nome da sombra (a definir com segurança). As aplicações continuam sem nenhuma permissão de escrita ([C20](C20-bypass-de-escrita-direta.md)).
 - **TTL.** O replay pode recriar um item já expirado, e ele permanece legível até o TTL local apagá-lo de novo. É o comportamento do DynamoDB, onde o item expirado pode ser lido até a remoção, e deve estar documentado para os clientes. O checksum ignora itens expirados e a sombra precisa do mesmo atributo de TTL.

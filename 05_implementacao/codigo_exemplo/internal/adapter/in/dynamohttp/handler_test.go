@@ -85,6 +85,7 @@ func TestErrorMapping(t *testing.T) {
 		{"deadline", fmt.Errorf("propose: %w", context.DeadlineExceeded), 503, "PENDING"},
 		{"lease", usecase.ErrLeaseExpired, 503, "LEASE_EXPIRED"},
 		{"noleader", usecase.ErrNoLeader, 503, "NO_LEADER"},
+		{"backpressure", fmt.Errorf("propose: %w", usecase.ErrBackpressure), 400, ""},
 		{"outro", errors.New("boom"), 500, ""},
 	}
 	for _, tc := range cases {
@@ -116,16 +117,16 @@ func TestDegradedHeader(t *testing.T) {
 	}
 }
 
-// ADR-050: ConsistentRead em GSI vira ValidationException 400 via erro tipado do parser.
-func TestConsistentReadOnGSIRefused(t *testing.T) {
-	if err := ValidateConsistentRead("", true); err != nil {
-		t.Fatalf("tabela base aceita ConsistentRead: %v", err)
+// ADR-050: toda Query em GSI vira ValidationException 400 via erro tipado do parser.
+func TestQueryOnGSIRefused(t *testing.T) {
+	if err := ValidateIndex("", false); err != nil {
+		t.Fatalf("tabela base deve ser aceita: %v", err)
 	}
-	if err := ValidateConsistentRead("gsi1", false); err != nil {
-		t.Fatalf("GSI sem ConsistentRead é aceita (eventual): %v", err)
+	if err := ValidateIndex("gsi1", true); err == nil {
+		t.Fatal("Query em GSI deve ser recusada, com ou sem ConsistentRead")
 	}
 	s := newServer(fakeWriter{}, func(string, []byte) (port.WriteRequest, error) {
-		return port.WriteRequest{}, ValidateConsistentRead("gsi1", true)
+		return port.WriteRequest{}, ValidateIndex("gsi1", true)
 	})
 	c := do(s)
 	if c.Response.StatusCode() != 400 {
@@ -151,4 +152,18 @@ func TestHandlerParallel(t *testing.T) {
 		}()
 	}
 	wg.Wait()
+}
+
+// Buffer cheio vira ThrottlingException, que os SDKs repetem com backoff (ADR-056).
+func TestBackpressureIsThrottling(t *testing.T) {
+	c := do(newServer(fakeWriter{err: usecase.ErrBackpressure}, okParse))
+	var body struct {
+		Type string `json:"__type"`
+	}
+	if err := json.Unmarshal(c.Response.Body(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if c.Response.StatusCode() != 400 || body.Type != "com.amazonaws.dynamodb.v20120810#ThrottlingException" {
+		t.Fatalf("status %d tipo %q", c.Response.StatusCode(), body.Type)
+	}
 }

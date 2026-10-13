@@ -21,20 +21,19 @@ Gerado em 13/10/2026 a partir do pacote DataReplication_Versao_1.
 <nav class="sidebar" aria-label="Navegação">
 <a class="marca" href="../index.html">DataReplication v1<span>Comitê técnico</span></a>
 <a class="nav-inicio" href="../index.html">Resumo e requisitos</a>
-<details class="grupo"><summary>Success path <span class="qtd">10</span></summary><ul>
+<details class="grupo"><summary>Success path <span class="qtd">9</span></summary><ul>
 <li><a class="idx" href="../success-path/index.html">Índice da seção</a></li>
 <li><a href="../success-path/C01-visao-geral.html"><b>C01</b> Visão geral da arquitetura</a></li>
 <li><a href="../success-path/C02-dentro-da-celula.html"><b>C02</b> Dentro da célula: apps do cliente e DataReplication</a></li>
 <li><a href="../success-path/C03-escrita-strong.html"><b>C03</b> Caminho feliz: escrita (apply serial depois do gate)</a></li>
-<li><a href="../success-path/C04-escrita-eventual.html"><b>C04</b> Modo Eventual: só de leitura (sem apply paralelo na v1)</a></li>
-<li><a href="../success-path/C05-leitura-strong-e-eventual.html"><b>C05</b> Caminho feliz: leitura Strong e Eventual</a></li>
+<li><a href="../success-path/C05-leitura-strong.html"><b>C05</b> Caminho feliz: leitura strong</a></li>
 <li><a href="../success-path/C06-follower-encaminha.html"><b>C06</b> Requisição chega numa célula que não é a líder</a></li>
 <li><a href="../success-path/C11-transferencia-planejada.html"><b>C11</b> Transferência planejada de liderança (manutenção)</a></li>
 <li><a href="../success-path/C18-partida-e-recuperacao-do-no.html"><b>C18</b> Partida, recuperação e parada limpa do nó</a></li>
 <li><a href="../success-path/C23-batchwriteitem-lote-uma-entrada.html"><b>C23</b> BatchWriteItem: o lote é uma entrada e o apply é por item (antes R15)</a></li>
 <li><a href="../success-path/C31-implantacao-por-cliente-e-identidade.html"><b>C31</b> Uma instalação por cliente e identificação na API (antes R19)</a></li>
 </ul></details>
-<details class="grupo" open><summary>Fail path <span class="qtd">24</span></summary><ul>
+<details class="grupo" open><summary>Fail path <span class="qtd">23</span></summary><ul>
 <li><a class="idx" href="index.html">Índice da seção</a></li>
 <li><a href="C07-timeout-depois-do-commit.html"><b>C07</b> Prazo estoura depois do commit, antes do ACK (retry do SDK)</a></li>
 <li><a href="C08-queda-de-celula-lider-ou-az-aws.html"><b>C08</b> Queda da célula líder ou de uma AZ na AWS</a></li>
@@ -54,7 +53,6 @@ Gerado em 13/10/2026 a partir do pacote DataReplication_Versao_1.
 <li><a class="atual" aria-current="page" href="C25-link-lento-faixa-cinzenta.html"><b>C25</b> Link lento ou saturado (faixa cinzenta): só alertar (antes R01)</a></li>
 <li><a href="C26-entrada-venenosa.html"><b>C26</b> Entrada venenosa: um item que o banco recusa para sempre (antes R02)</a></li>
 <li><a href="C27-encaminhamento-sem-lider-conhecida.html"><b>C27</b> Loop de encaminhamento e espera pela líder durante a eleição (antes R05)</a></li>
-<li><a href="C28-leitura-eventual-na-azure-defasada.html"><b>C28</b> Leitura eventual na Azure durante a degradação (antes R04)</a></li>
 <li><a href="C29-disco-do-log-em-degradacao-longa.html"><b>C29</b> Disco do log esgota durante uma degradação longa (antes R08)</a></li>
 <li><a href="C30-aws-que-volta-boot-cercado.html"><b>C30</b> Fencing: o DynamoDB e o applier da AWS que voltam depois da promoção (antes R14)</a></li>
 <li><a href="C32-particao-e-lease-do-modo-degradado.html"><b>C32</b> Partição entre AWS e Azure: lease do modo degradado e promoção da Azure</a></li>
@@ -95,7 +93,7 @@ Gerado em 13/10/2026 a partir do pacote DataReplication_Versao_1.
 <section id="visao-geral"><h2>1. Visão geral do cenário</h2>
 <p>O modo degradado só entra quando uma escrita espera a Azure por mais de <code>DEGRADE_AFTER</code> (2 s). Um link que continua entregando as confirmações, porém devagar (por exemplo 80 ms a 1,5 s), <strong>nunca dispara a degradação</strong>, mas estoura o orçamento de latência: toda escrita passa a esperar a maioria Azure. Nada está formalmente "fora", então nenhum alarme de "link caído" dispara.</p>
 <p>Com o SDK a 30 s por tentativa e <code>REQUEST_DEADLINE</code> de 7,5 s, a lentidão abaixo de 2 s <strong>não gera retry em cascata</strong>: o risco é latência acima da meta, não amplificação de carga. Acima de 2 s o caminho é o do <a href="C12-modo-degradado.html">C12</a>, conforme a <code>DEGRADED_POLICY</code> (<code>accept</code> degrada com lease; <code>reject</code> mantém <code>503 PENDING</code> e RPO 0).</p>
-<p>A <strong>leitura forte não sofre com a faixa cinzenta</strong>: a barreira é <code>min(ReadIndex, gate)</code> e o <code>applied</code> nunca passa do gate, então uma Azure lenta atrasa a escrita (o ACK espera o gate) mas não a leitura forte, que só espera o que já foi ACKado (<a href="../../03_adr/ADR-049-barreira-da-leitura-forte-e-o-gate.md">ADR-049</a>, <a href="../success-path/C05-leitura-strong-e-eventual.html">C05</a>).</p>
+<p>A <strong>leitura forte não sofre com a faixa cinzenta</strong>: a barreira é <code>min(ReadIndex, gate)</code> e o <code>applied</code> nunca passa do gate, então uma Azure lenta atrasa a escrita (o ACK espera o gate) mas não a leitura forte, que só espera o que já foi ACKado (<a href="../../03_adr/ADR-049-barreira-da-leitura-forte-e-o-gate.md">ADR-049</a>, <a href="../success-path/C05-leitura-strong.html">C05</a>).</p>
 <div class="caixa decisao"><h3>Decisão registrada na fonte</h3><p>Na faixa cinzenta o sistema <strong>só alerta e mantém RPO = 0</strong>. Não degrada por latência.</p></div>
 </section>
 <section id="diagrama"><h2>2. Diagrama</h2>
@@ -120,10 +118,10 @@ Gerado em 13/10/2026 a partir do pacote DataReplication_Versao_1.
         Z2[&quot;Z2&quot;]
         Z3[&quot;Z3&quot;]
     end
-    A1 --&gt;|&quot;2 de 3 com fsync&quot;| RC[&quot;commit do Raft&quot;]
+    A1 --&gt;|&quot;auto-ACK só depois do próprio fsync&quot;| RC[&quot;commit do Raft: 2 de 3 com fsync&quot;]
     A2 --&gt; RC
     A3 --&gt; RC
-    Z1 --&gt;|&quot;resposta do AppendEntries: termo, índice, identidade&quot;| AQ[&quot;2º maior índice durável no termo atual&quot;]
+    Z1 --&gt;|&quot;resposta do AppendEntries depois do fsync: termo, índice, identidade&quot;| AQ[&quot;2º maior índice durável no termo atual&quot;]
     Z2 --&gt; AQ
     Z3 --&gt; AQ
     AQ -.-&gt;|&quot;valor de outro termo ou fora de banda: ignorado&quot;| IGN[&quot;descartado até a primeira confirmação no termo novo&quot;]

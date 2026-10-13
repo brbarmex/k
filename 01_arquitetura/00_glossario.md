@@ -48,16 +48,16 @@
 | **`_dr_v`** | Atributo reservado (nome a definir) com a versão do item. O applier grava só se a versão guardada for menor. **Nunca aparece nas respostas** (ADR-051) |
 | **Commit** | Entrada gravada com fsync em 2 de 3 votantes AWS |
 | **ACK** | Resposta de sucesso ao cliente: depois do gate e do apply no banco da célula da líder (e, no modo degradado, com o lease válido) |
-| **Apply** | Gravação da entrada no banco (DynamoDB ou Cosmos). Sempre serial e depois do gate; o apply paralelo saiu da v1 (ADR-053) |
+| **Apply** | Gravação da entrada no banco (DynamoDB ou Cosmos). Sempre serial e depois do gate (ADR-057) |
 | **`appliedIndex` / `last_applied`** | Último índice aplicado por inteiro no banco local. Nunca passa do gate |
-| **Strong / Eventual** | Modos de **leitura** (`READ_MODE_DEFAULT`, padrão forte; `ConsistentRead`). A escrita é a mesma sempre: serial depois do gate. `WRITE_MODE` e o apply paralelo saíram da v1 (ADR-053). Em GSI a leitura é sempre eventual (ADR-050) |
+| **Strong consistency** | Único modo do `DataReplication` (ADR-057): escrita serial depois do gate e leitura sempre forte na tabela base, pela barreira `min(ReadIndex, gate)`. As aplicações enviam `ConsistentRead=true`. Query em GSI é recusada (ADR-050) |
 | **ReadIndex** | Leitura forte: a líder confirma que ainda é líder e informa o índice que a leitura precisa alcançar |
 | **Barreira da leitura forte** | `min(ReadIndex, gate)`: o que a leitura forte espera que o `appliedIndex` alcance. Desacopla a leitura da saúde da Azure; na follower, `ReadIndex` e gate chegam na mesma resposta (ADR-049) |
 | **Dedupe** | Reconhecer o retry de uma escrita pelo id estável do SDK, numa janela de 5 min, **por requisição inteira** (não por item), para não aplicá-la duas vezes. Fora da janela vale a semântica do DynamoDB (ADR-051) |
 | **`PENDING`** | `503` quando o prazo estoura depois do commit: a escrita não se perdeu e o retry é absorvido pelo dedupe. Com `DEGRADED_POLICY=reject`, também é a resposta quando falta o gate da Azure. A consulta devolve `APPLIED`, `REJECTED` ou `PENDING` **por item** |
 | **`503 LEASE_EXPIRED`** | A AWS recusa escrita porque o lease do modo degradado acabou. Leitura e Raft seguem |
 | **`REQUEST_DEADLINE` / `DEGRADE_AFTER`** | Prazos: 7,5 s da requisição e 2 s de espera pela Azure antes do modo degradado |
-| **TTL / GSI / Scan** | Usos dos clientes: expiração por item (local por célula), índice global secundário (leitura sempre eventual; `ConsistentRead=true` é recusada, ADR-050), varredura (sem snapshot) |
+| **TTL / GSI / Scan** | Usos dos clientes: expiração por item (local por célula), índice global secundário (Query e Scan em GSI são recusados, ADR-050), varredura (sem snapshot) |
 
 ## Falhas, recuperação e operação
 

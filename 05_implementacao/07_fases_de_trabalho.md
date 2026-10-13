@@ -31,7 +31,7 @@ flowchart LR
 
 | Item | Conteúdo |
 |---|---|
-| **Entregas** | ADRs 044 a 054 aceitos. Contratos que o código e os clientes veem: códigos de erro (`LEASE_EXPIRED`, `NO_LEADER`, `PENDING`), headers (`x-dr-mode`, `x-dr-consistency`), variáveis obrigatórias (`DEGRADED_POLICY`; `DEGRADED_LEASE` só com `accept`), `ConsistentRead` em GSI recusada, mTLS por aplicação com lista identidade -> tabelas, `WRITE_MODE` fora da v1 (definida, derruba a partida: proposta a confirmar) |
+| **Entregas** | ADRs 044 a 054 aceitos. Contratos que o código e os clientes veem: códigos de erro (`LEASE_EXPIRED`, `NO_LEADER`, `PENDING`), headers (`x-dr-mode`), variáveis obrigatórias (`DEGRADED_POLICY`; `DEGRADED_LEASE` só com `accept`), Query em GSI recusada, mTLS por aplicação com lista identidade -> tabelas, modo único strong sem variável de modo ([ADR-057](../03_adr/ADR-057-um-unico-modo-strong-consistency.md)) |
 | **Decisões abertas que bloqueiam** | Valor de D e aceite do RPO > 0 (PEND-02); `DEGRADED_POLICY` por cliente e margem M (PEND-17); lista de permissões por aplicação (PEND-19); inventário real de chamadas e de `ConditionExpression` (PEND-15). Os valores são **a definir**; nenhum número é presumido neste pacote |
 | **Documentação** | Matriz automático, assistido e manual ([08, 9.5](../01_arquitetura/08_resiliencia_autocura_e_timeouts.md)); definição de pronto só para as linhas automáticas; SLO ponta a ponta; RTO como distribuição medida em exercícios |
 | **Saída** | Decisões sem contradição entre ADRs, cenários e este guia; pendências bloqueantes com dono e prazo; hipóteses H-DR13 e H-DR14 entregues à fase 2 como obrigações do modelo |
@@ -40,9 +40,9 @@ flowchart LR
 
 | Item | Conteúdo |
 |---|---|
-| **Escopo do modelo** | Gate por termo e prefixo ([ADR-046](../03_adr/ADR-046-gate-so-conta-progresso-validado-pelo-raft.md)); lease do modo degradado e promoção entre nuvens ([ADR-044](../03_adr/ADR-044-lease-do-modo-degradado-e-promocao-da-azure.md)); troca de membros e identidade nova ([ADR-034](../03_adr/ADR-034-fsync-fatal-e-identidade-nova.md)); dedupe e resultado desconhecido ([ADR-026](../03_adr/ADR-026-dedupe-de-retry-id-estavel.md)); DELETE e replay com `I-DEL` ([ADR-047](../03_adr/ADR-047-delete-real-invariante-e-reconstrucao-em-tabela-sombra.md)); SKIP por item ([ADR-048](../03_adr/ADR-048-skip-por-item.md)) |
+| **Escopo do modelo** | Gate por termo e prefixo ([ADR-046](../03_adr/ADR-046-gate-so-conta-progresso-validado-pelo-raft.md)); lease do modo degradado e promoção entre nuvens ([ADR-044](../03_adr/ADR-044-lease-do-modo-degradado-e-promocao-da-azure.md)); troca de membros e identidade nova ([ADR-034](../03_adr/ADR-034-fsync-fatal-e-identidade-nova.md)); dedupe e resultado desconhecido ([ADR-026](../03_adr/ADR-026-dedupe-de-retry-id-estavel.md)); DELETE e replay com `I-DEL` ([ADR-047](../03_adr/ADR-047-delete-real-invariante-e-reconstrucao-em-tabela-sombra.md)); SKIP por item ([ADR-048](../03_adr/ADR-048-skip-por-item.md)); log volátil x durável por nó com queda em qualquer passo, modo síncrono com F3 e `AsyncStorageWrites` ([ADR-056](../03_adr/ADR-056-group-commit-por-shard-e-nada-sai-antes-do-fsync.md)) |
 | **Hipóteses a fechar** | H-DR13 (prorrogação do lease contra promoção da Azure) e H-DR14 (partição assimétrica) |
-| **Invariantes** | Nunca duas pontas aceitando escrita ao mesmo tempo; índice N durável na Azure significa o mesmo prefixo até N; o gate nunca recua; com as leituras abertas o estado materializado é a dobra do log até `applied` |
+| **Invariantes** | Nunca duas pontas aceitando escrita ao mesmo tempo; índice N durável na Azure significa o mesmo prefixo até N; o gate nunca recua; toda entrada ACKada está no log durável de 2 nós AWS e 2 nós Azure; com as leituras abertas o estado materializado é a dobra do log até `applied` |
 | **Saída** | TLC ou Apalache sem violação nas configurações definidas; cada contraexemplo vira decisão da fase 1 ou teste da fase 3. O modelo continua como regressão nas fases seguintes |
 
 ## Fase 3: núcleo mínimo verificável
@@ -51,9 +51,9 @@ Gate, lease, dois logs e **um** caminho de banco, antes dos seis. É o que o esb
 
 | Item | Conteúdo |
 |---|---|
-| **Entregas** | `Gate` com termo; `Lease` (contado desde `t_c`) e `DegradeService` com relógio injetável; `CommitPump` com gate por evento; `raftlog` sobre o `wal` do etcd e `replicationlog` segmentado próprio ([ADR-055](../03_adr/ADR-055-log-de-replicacao-segmentado-derivado-do-raft.md)); adaptador `etcdraft`; **um** `StateStore` (um banco por vez) com apply serial depois do gate e checkpoint por item; `dynamohttp` com os contratos da fase 1 |
+| **Entregas** | `Gate` com termo; `Lease` (contado desde `t_c`) e `DegradeService` com relógio injetável; `CommitPump` com gate por evento; `raftlog` sobre o `wal` do etcd com escritor de group commit por shard (`raftstore.Writer`, nada sai antes do fsync, [ADR-056](../03_adr/ADR-056-group-commit-por-shard-e-nada-sai-antes-do-fsync.md)) e `replicationlog` segmentado próprio ([ADR-055](../03_adr/ADR-055-log-de-replicacao-segmentado-derivado-do-raft.md)); adaptador `etcdraft` no modo síncrono com F3; **um** `StateStore` (um banco por vez) com apply serial depois do gate e checkpoint por item; `dynamohttp` com os contratos da fase 1 |
 | **Testes** | Concorrência com `-race` em toda estrutura compartilhada; simulação determinística com os traces do modelo; propriedade do `I-DEL` (sequências aleatórias de Put e Delete com queda em qualquer ponto convergem para o mesmo estado); suíte de conformidade por porta; falhas no WAL |
-| **Spikes** | S1 (infraestrutura), S2 (Raft e WAL mínimo), S4 (gate e degradado) |
+| **Spikes** | S1 (infraestrutura, com IOPS por número de shards), S1b (síncrono com F3 x `AsyncStorageWrites`), S2 (Raft e WAL mínimo), S4 (gate e degradado) |
 | **Portão para a fase 4** | Os testes de invariante passam; o lease é conferido a cada ACK; `reject` nunca degrada; a leitura forte usa `min(ReadIndex, gate)` e falha rápido com applier parado |
 
 ## Fase 4: os seis caminhos de banco, rebuild e anti-entropia

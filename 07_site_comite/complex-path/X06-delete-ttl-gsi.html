@@ -21,20 +21,19 @@ Gerado em 13/10/2026 a partir do pacote DataReplication_Versao_1.
 <nav class="sidebar" aria-label="Navegação">
 <a class="marca" href="../index.html">DataReplication v1<span>Comitê técnico</span></a>
 <a class="nav-inicio" href="../index.html">Resumo e requisitos</a>
-<details class="grupo"><summary>Success path <span class="qtd">10</span></summary><ul>
+<details class="grupo"><summary>Success path <span class="qtd">9</span></summary><ul>
 <li><a class="idx" href="../success-path/index.html">Índice da seção</a></li>
 <li><a href="../success-path/C01-visao-geral.html"><b>C01</b> Visão geral da arquitetura</a></li>
 <li><a href="../success-path/C02-dentro-da-celula.html"><b>C02</b> Dentro da célula: apps do cliente e DataReplication</a></li>
 <li><a href="../success-path/C03-escrita-strong.html"><b>C03</b> Caminho feliz: escrita (apply serial depois do gate)</a></li>
-<li><a href="../success-path/C04-escrita-eventual.html"><b>C04</b> Modo Eventual: só de leitura (sem apply paralelo na v1)</a></li>
-<li><a href="../success-path/C05-leitura-strong-e-eventual.html"><b>C05</b> Caminho feliz: leitura Strong e Eventual</a></li>
+<li><a href="../success-path/C05-leitura-strong.html"><b>C05</b> Caminho feliz: leitura strong</a></li>
 <li><a href="../success-path/C06-follower-encaminha.html"><b>C06</b> Requisição chega numa célula que não é a líder</a></li>
 <li><a href="../success-path/C11-transferencia-planejada.html"><b>C11</b> Transferência planejada de liderança (manutenção)</a></li>
 <li><a href="../success-path/C18-partida-e-recuperacao-do-no.html"><b>C18</b> Partida, recuperação e parada limpa do nó</a></li>
 <li><a href="../success-path/C23-batchwriteitem-lote-uma-entrada.html"><b>C23</b> BatchWriteItem: o lote é uma entrada e o apply é por item (antes R15)</a></li>
 <li><a href="../success-path/C31-implantacao-por-cliente-e-identidade.html"><b>C31</b> Uma instalação por cliente e identificação na API (antes R19)</a></li>
 </ul></details>
-<details class="grupo"><summary>Fail path <span class="qtd">24</span></summary><ul>
+<details class="grupo"><summary>Fail path <span class="qtd">23</span></summary><ul>
 <li><a class="idx" href="../fail-path/index.html">Índice da seção</a></li>
 <li><a href="../fail-path/C07-timeout-depois-do-commit.html"><b>C07</b> Prazo estoura depois do commit, antes do ACK (retry do SDK)</a></li>
 <li><a href="../fail-path/C08-queda-de-celula-lider-ou-az-aws.html"><b>C08</b> Queda da célula líder ou de uma AZ na AWS</a></li>
@@ -54,7 +53,6 @@ Gerado em 13/10/2026 a partir do pacote DataReplication_Versao_1.
 <li><a href="../fail-path/C25-link-lento-faixa-cinzenta.html"><b>C25</b> Link lento ou saturado (faixa cinzenta): só alertar (antes R01)</a></li>
 <li><a href="../fail-path/C26-entrada-venenosa.html"><b>C26</b> Entrada venenosa: um item que o banco recusa para sempre (antes R02)</a></li>
 <li><a href="../fail-path/C27-encaminhamento-sem-lider-conhecida.html"><b>C27</b> Loop de encaminhamento e espera pela líder durante a eleição (antes R05)</a></li>
-<li><a href="../fail-path/C28-leitura-eventual-na-azure-defasada.html"><b>C28</b> Leitura eventual na Azure durante a degradação (antes R04)</a></li>
 <li><a href="../fail-path/C29-disco-do-log-em-degradacao-longa.html"><b>C29</b> Disco do log esgota durante uma degradação longa (antes R08)</a></li>
 <li><a href="../fail-path/C30-aws-que-volta-boot-cercado.html"><b>C30</b> Fencing: o DynamoDB e o applier da AWS que voltam depois da promoção (antes R14)</a></li>
 <li><a href="../fail-path/C32-particao-e-lease-do-modo-degradado.html"><b>C32</b> Partição entre AWS e Azure: lease do modo degradado e promoção da Azure</a></li>
@@ -123,14 +121,14 @@ Gerado em 13/10/2026 a partir do pacote DataReplication_Versao_1.
 </section>
 <section id="etapas"><h2>3. Legenda e etapas</h2>
 <div class="etapas"><ol>
-<li><strong>DELETE real:</strong> <code>DeleteItem</code> comum; nada vaza para os clientes (Streams, TTL, Scan e GSI ficam como estão). <strong>Sem tombstone na v1.</strong></li>
-<li><strong>Ordem por chave:</strong> operações da mesma chave rodam uma de cada vez, na ordem do log; chaves diferentes seguem em paralelo (o apply acontece sempre depois do gate, nunca em paralelo com a espera da Azure, <a href="../../03_adr/ADR-053-eventual-sem-apply-paralelo-na-v1.md">ADR-053</a>). Reforço: delete condicional por versão.</li>
+<li><strong>DELETE real:</strong> <code>DeleteItem</code> comum; nada vaza para os clientes (Streams, TTL e Scan ficam como estão). <strong>Sem tombstone na v1.</strong></li>
+<li><strong>Ordem por chave:</strong> operações da mesma chave rodam uma de cada vez, na ordem do log; chaves diferentes seguem em paralelo (o apply acontece sempre depois do gate, nunca em paralelo com a espera da Azure, <a href="../../03_adr/ADR-057-um-unico-modo-strong-consistency.md">ADR-057</a>). Reforço: delete condicional por versão.</li>
 <li><strong>Invariante I-DEL:</strong> com as leituras abertas, o estado materializado da célula é a dobra do log até <code>applied</code>. A regra "as leituras só abrem depois do high-water mark" é imposta <strong>por código</strong> e provada por teste de propriedade (sequências aleatórias de Put e Delete, com queda em qualquer ponto, convergem para o mesmo estado) e pelo modelo TLA+ (<a href="X01-gate-e-troca-de-lider.html">X01</a>, P16).</li>
 <li><strong>Replay após queda:</strong> reaplica em ordem a partir do checkpoint: <code>Put(10)</code> recria a chave e <code>Delete(11)</code> a remove de novo. O item pode reaparecer por instantes durante o replay, e a regra do item 3 o esconde (<a href="X04-partida-recuperacao-e-dois-logs.html">X04</a>).</li>
 <li><strong>Caminhos sem checkpoint:</strong> reconstrução, restauração PITR e cópia de outra célula <strong>não passam</strong> pelo checkpoint e não têm a proteção acima. Usam o protocolo de <strong>reconstrução em tabela sombra</strong> (<a href="../../03_adr/ADR-047-delete-real-invariante-e-reconstrucao-em-tabela-sombra.md">ADR-047</a>, <a href="../fail-path/C33-reconstrucao-em-tabela-sombra.html">C33</a>): registrar o índice F e reter o log desde F; copiar por varredura para a tabela sombra com a condição de versão; reaplicar o log desde F até a cabeça; pausar a escrita da célula e fazer o cutover do nome lógico (com geração); verificar por checksum por faixa de chaves antes de religar as leituras. O Cosmos precisa do mesmo protocolo pelo Cloud-Adapter.</li>
 <li><strong>TTL do cliente:</strong> a expiração é local a cada célula e <strong>não é replicada</strong>; o Cloud-Adapter traduz o TTL para o Cosmos. Uma leitura pode ainda devolver o item em uma célula e não em outra até a remoção tardia. Um replay pode recriar um item já expirado até o TTL local apagá-lo de novo: o comportamento é igual ao do DynamoDB, onde o item expirado pode ser lido até a remoção, e é documentado para os clientes.</li>
 <li><strong>Scan:</strong> funciona normalmente; sem snapshot entre as páginas.</li>
-<li><strong>Query em GSI:</strong> <code>ConsistentRead=true</code> em GSI é <strong>recusada</strong> com o mesmo erro do DynamoDB (<code>ValidationException</code>, HTTP 400) (<a href="../../03_adr/ADR-050-gsi-nao-tem-leitura-forte.md">ADR-050</a>). <code>READ_MODE_DEFAULT=strong</code> vale só para a tabela base; a leitura em GSI é sempre eventual, com o header <code>x-dr-consistency: eventual</code>. A barreira de <code>min(ReadIndex, gate)</code> vale na tabela base (<a href="../../03_adr/ADR-049-barreira-da-leitura-forte-e-o-gate.md">ADR-049</a>). A aplicação não deve depender da consistência do índice em nenhuma das duas nuvens: o índice do Cosmos é consistente por padrão e o do DynamoDB não, e a suíte de conformidade verifica que o Cosmos não "melhora" o índice a ponto de a aplicação passar a depender disso.</li>
+<li><strong>Query em GSI:</strong> toda <code>Query</code> ou <code>Scan</code> com <code>IndexName</code> de GSI é <strong>recusada</strong> com <code>ValidationException</code> (HTTP 400), com ou sem <code>ConsistentRead</code> (<a href="../../03_adr/ADR-050-query-em-gsi-recusada.md">ADR-050</a>): o índice global nunca é forte e o <code>DataReplication</code> tem um único modo, strong (<a href="../../03_adr/ADR-057-um-unico-modo-strong-consistency.md">ADR-057</a>). As aplicações que usam GSI mudam o padrão de acesso antes de entrar na camada. Some também a assimetria de índice entre DynamoDB e Cosmos depois do failover.</li>
 </ol></div>
 </section>
 <section id="pontos"><h2>4. Pontos que precisam ser avaliados</h2>
@@ -178,9 +176,9 @@ Gerado em 13/10/2026 a partir do pacote DataReplication_Versao_1.
 </section>
 <section id="adrs"><h2>5. ADRs relacionados</h2>
 <div class="tabela"><table><thead><tr><th>ADR</th><th>Título</th><th>Decisão resumida</th><th>Arquivo</th></tr></thead><tbody>
-<tr><td class="nw"><a href="../../03_adr/ADR-024-delete-real-ttl-local-gsi.md">ADR-024</a></td><td>DELETE real com ordem por chave; TTL local; GSI</td><td>DELETE real com ordem por chave; TTL expira local em cada célula; leitura em GSI sempre eventual.</td><td><a href="../../03_adr/ADR-024-delete-real-ttl-local-gsi.md">ADR-024-delete-real-ttl-local-gsi.md</a></td></tr>
+<tr><td class="nw"><a href="../../03_adr/ADR-024-delete-real-ttl-local-gsi.md">ADR-024</a></td><td>DELETE real com ordem por chave; TTL local; GSI</td><td>DELETE real com ordem por chave; TTL expira local em cada célula; Query em GSI recusada (<a href="../../03_adr/ADR-050-query-em-gsi-recusada.md">ADR-050</a>).</td><td><a href="../../03_adr/ADR-024-delete-real-ttl-local-gsi.md">ADR-024-delete-real-ttl-local-gsi.md</a></td></tr>
 <tr><td class="nw"><a href="../../03_adr/ADR-047-delete-real-invariante-e-reconstrucao-em-tabela-sombra.md">ADR-047</a></td><td>DELETE real com invariante formal; reconstrução em tabela sombra</td><td>DELETE real com invariante I-DEL e reconstrução do banco em tabela sombra (cópia difusa mais replay).</td><td><a href="../../03_adr/ADR-047-delete-real-invariante-e-reconstrucao-em-tabela-sombra.md">ADR-047-delete-real-invariante-e-reconstrucao-em-tabela-sombra.md</a></td></tr>
-<tr><td class="nw"><a href="../../03_adr/ADR-050-gsi-nao-tem-leitura-forte.md">ADR-050</a></td><td><code>ConsistentRead=true</code> em GSI é recusada, como no DynamoDB</td><td>ConsistentRead=true em GSI é recusada como no DynamoDB; GSI é sempre eventual.</td><td><a href="../../03_adr/ADR-050-gsi-nao-tem-leitura-forte.md">ADR-050-gsi-nao-tem-leitura-forte.md</a></td></tr>
+<tr><td class="nw"><a href="../../03_adr/ADR-050-query-em-gsi-recusada.md">ADR-050</a></td><td><code>Query</code> em GSI é recusada</td><td>Toda Query ou Scan em GSI é recusada com 400 (ValidationException); a tabela sombra nasce sem GSI.</td><td><a href="../../03_adr/ADR-050-query-em-gsi-recusada.md">ADR-050-query-em-gsi-recusada.md</a></td></tr>
 <tr><td class="nw"><a href="../../03_adr/ADR-015-wal-post-image-e-versao.md">ADR-015</a></td><td>O log guarda a post-image e a versão do item</td><td>Cada entrada guarda a post-image e a versão (= índice Raft); o applier grava com condição v &lt; índice.</td><td><a href="../../03_adr/ADR-015-wal-post-image-e-versao.md">ADR-015-wal-post-image-e-versao.md</a></td></tr>
 </tbody></table></div>
 <p class="nota">Lista extraída do cabeçalho “ADRs” do arquivo fonte. A decisão resumida condensa a seção “Decisão” de cada ADR.</p>

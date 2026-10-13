@@ -25,11 +25,11 @@ A pedida foi a biblioteca mais performática. Antes da tabela, uma ressalva hone
 | **HTTP de admin** (probes, métricas) | `net/http` padrão, porta separada | — | Tráfego irrisório; usar o padrão evita um segundo conjunto de quirks. O Bruno já definiu uma porta de **API**; a de admin é outra, só interna |
 | **gRPC entre células** | `google.golang.org/grpc` + `vtprotobuf` | `connectrpc` | Única opção madura com streaming bidirecional e keepalive controlável. `vtprotobuf` gera marshal/unmarshal sem reflexão e com pool. Sem compressão (decisão 4) |
 | **Logger** | `github.com/rs/zerolog` | `zap`; `log/slog` (padrão) | Zerolog é JSON com zero alocação e API simples; `zap` empata em velocidade com API maior; `slog` não tem dependência, mas aloca mais. Qualquer um serve se **o caminho quente não loga** (só contadores e histogramas); log de erro com amostragem |
-| **Variáveis de ambiente** | Ver nota abaixo | `caarlos0/env`, `koanf` | Ler env acontece **uma vez na partida**: desempenho é irrelevante. O que importa é validar tudo na partida e falhar rápido. `DEGRADED_POLICY` é obrigatória e sem padrão; `DEGRADED_LEASE` não tem padrão e é obrigatória só com `accept`; `WRITE_MODE` foi removida e uma configuração que ainda a define falha na partida (proposta a confirmar) ([ADR-053](../03_adr/ADR-053-eventual-sem-apply-paralelo-na-v1.md)) |
+| **Variáveis de ambiente** | Ver nota abaixo | `caarlos0/env`, `koanf` | Ler env acontece **uma vez na partida**: desempenho é irrelevante. O que importa é validar tudo na partida e falhar rápido. `DEGRADED_POLICY` é obrigatória e sem padrão; `DEGRADED_LEASE` não tem padrão e é obrigatória só com `accept`; não há variável de modo: `READ_MODE_DEFAULT`, `WRITE_MODE` ou `MAX_STALENESS` ainda definidas falham na partida ([ADR-057](../03_adr/ADR-057-um-unico-modo-strong-consistency.md)) |
 | **JSON do DynamoDB** | A decidir no H-DR6 | `encoding/json` (v2 se estável no Go 1.27), `bytedance/sonic`, `goccy/go-json` | É o único item de biblioteca com ganho mensurável. Fica atrás da interface `codec`. Decidir com benchmark sobre itens reais dos clientes, incluindo ARM se usarem Graviton (o `sonic` tem restrições de arquitetura) |
 | **Métricas** | `prometheus/client_golang` ou OpenTelemetry | — | Contadores atômicos no caminho quente; exportação fora dele |
 | **Raft** | `go.etcd.io/raft/v3` | `dragonboat` (plano B) | Já decidido; importado **só** em `adapter/out/etcdraft` |
-| **Log do Raft** | pacote `wal` do etcd (`go.etcd.io/etcd/server/v3/storage/wal`), um por shard | WAL próprio segmentado (W2, desenho anterior) | Decidido em 13/10 ([ADR-055](../03_adr/ADR-055-log-de-replicacao-segmentado-derivado-do-raft.md)). Muito testado; custa um fsync por shard e traz o módulo do servidor etcd e o `zap` como dependência. Importado **só** em `adapter/out/etcdraft` |
+| **Log do Raft** | pacote `wal` do etcd (`go.etcd.io/etcd/server/v3/storage/wal`), um por shard | WAL próprio segmentado (W2, desenho anterior) | Decidido em 13/10 ([ADR-055](../03_adr/ADR-055-log-de-replicacao-segmentado-derivado-do-raft.md)). Muito testado; custa um fsync por shard e traz o módulo do servidor etcd e o `zap` como dependência. Importado **só** em `adapter/out/etcdraft`. Group commit por shard pelo escritor `adapter/out/raftstore` (só biblioteca padrão), modo síncrono com F3 e nada sai antes do fsync ([ADR-056](../03_adr/ADR-056-group-commit-por-shard-e-nada-sai-antes-do-fsync.md)) |
 | **Log de replicação** | Pacote próprio `adapter/out/replog` (só biblioteca padrão) | `cockroachdb/pebble` (descartado em 13/10) | Decidido em 13/10 ([ADR-055](../03_adr/ADR-055-log-de-replicacao-segmentado-derivado-do-raft.md)): log segmentado, sem fsync por entrada, checkpoint com fsync; volume próprio. Fora do caminho do ACK e refeito a partir do Raft, por isso código próprio é aceitável |
 | **Config YAML** | `spf13/viper` (decisão do Bruno) | `koanf` | Ver nota |
 
@@ -47,7 +47,7 @@ datareplication/
 │   │   ├── entry.go                   # Entry, Op, Index, Term, EntryKind
 │   │   ├── gate.go                    # Gate: min(Raft, Azure) monotônico, só adota o termo atual (ADR-046)
 │   │   ├── lease.go                   # Lease do modo degradado (t_c + D), Clock injetável, DegradedPolicy (ADR-044, ADR-045)
-│   │   ├── mode.go                    # ReadMode, ClusterMode (WriteMode saiu da v1, ADR-053)
+│   │   ├── mode.go                    # ClusterMode (modo único strong, ADR-057: sem ReadMode nem WriteMode)
 │   │   ├── tablemap.go                # nome lógico {cell} <-> nome físico
 │   │   └── errors.go                  # erros de negócio
 │   ├── port/                          # contratos (interfaces)
@@ -57,7 +57,7 @@ datareplication/
 │   ├── usecase/                       # um arquivo por intenção de negócio
 │   │   ├── write.go                   # escrever: líder (WAIT_LEADER), dedupe por requisição, propor, gate, apply, lease, ACK
 │   │   ├── batchwrite.go              # lote vira uma Entry; dedupe por requisição inteira (ADR-035)
-│   │   ├── read.go                    # leitura forte (barreira min(ReadIndex, gate), ADR-049) só na tabela base; GSI sempre eventual (ADR-050)
+│   │   ├── read.go                    # leitura forte (barreira min(ReadIndex, gate), ADR-049) só na tabela base; Query em GSI recusada (ADR-050)
 │   │   ├── replicate.go               # CommitPump: progresso dos learners -> gate (por evento); commit do Raft -> gate, applier e log de replicação
 │   │   ├── checkpoint.go              # fsync do log de replicação, compacta o Raft (RaftCompactLimit) e trunca o log (ReplogTruncateLimit) (ADR-055)
 │   │   ├── apply.go                   # aplicar no banco, serial depois do gate, ordem por chave, checkpoint por item (índice, ordem), SKIP por item (ADR-048)
@@ -71,6 +71,7 @@ datareplication/
 │   │   │   └── adminhttp/             # /livez /readyz /metrics (net/http)
 │   │   └── out/
 │   │       ├── etcdraft/              # ÚNICO pacote que importa go.etcd.io/raft e o wal do etcd; LOG DO RAFT (volume do Raft)
+│   │       ├── raftstore/             # escritor do log do Raft: group commit por shard, respostas só depois do fsync (ADR-056)
 │   │       ├── replog/                # LOG DE REPLICAÇÃO (ReplicationLog) segmentado, sem fsync + checkpoint (volume próprio)
 │   │       ├── dynamodb/              # StateStore da AWS (aws-sdk-go-v2); também a tabela sombra do rebuild (ADR-047)
 │   │       ├── cosmos/                # StateStore da Azure via Cloud-Adapter

@@ -23,7 +23,7 @@ Era preciso definir como a API identifica o cliente (`Access Key Id` do SigV4 ou
 
 ## Consequências
 
-- Reforça "plataforma multi-cliente fora da v1": cada instalação é um produto completo.
+- Cada instalação é um produto completo, de um único cliente.
 - **O custo é por cliente.** Seis gravações por escrita e o conjunto de clusters, bancos e circuitos se repetem a cada time ([R20](../02_cenarios/a_rever/R20-custo-6x.md)).
 - **O cabo dedicado AWS↔Azure é compartilhado entre contas.** A replicação de um cliente pode saturar a banda dos outros, por isso a banda é reservada ou limitada por cliente (item 5) ([C25](../02_cenarios/atualizados/C25-link-lento-faixa-cinzenta.md)).
 - O tráfego transitivo entre VPCs de contas diferentes exige **endereços IP que não se sobreponham** entre clientes (item 6).

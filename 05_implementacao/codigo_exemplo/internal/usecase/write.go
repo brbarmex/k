@@ -17,11 +17,15 @@ var (
 	ErrNoLeader = errors.New("sem líder conhecida")
 	// ErrLeaseExpired: o lease do modo degradado acabou (ADR-044). Alias do domínio.
 	ErrLeaseExpired = domain.ErrLeaseExpired
+	// ErrBackpressure: o buffer de entradas ainda não persistidas do shard está cheio
+	// (MaxUncommittedEntriesSize, ADR-056). Nada entrou no log; vira ThrottlingException
+	// e o SDK repete com backoff. O adaptador etcdraft traduz raft.ErrProposalDropped.
+	ErrBackpressure = errors.New("buffer de entradas não persistidas cheio")
 )
 
 // WriteService é o caso de uso "escrever": acha a líder, propõe, espera o gate, espera
 // o apply local, confere o lease e responde. O apply é sempre serial e depois do gate
-// (ADR-053); o ACK é sempre depois do gate E do apply.
+// (ADR-057); o ACK é sempre depois do gate E do apply.
 type WriteService struct {
 	Consensus port.ConsensusEngine
 	Forward   port.Forwarder

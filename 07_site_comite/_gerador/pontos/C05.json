@@ -1,54 +1,54 @@
 {
- "id": "C05",
- "pontos": [
-  {
-   "titulo": "Líder isolada que ainda não sabe que perdeu",
-   "origem": "Falhas e tratativas",
-   "contexto": "Uma líder separada do resto do cluster pode continuar achando que é líder por um tempo. Se respondesse leituras fortes sozinha, entregaria dado velho enquanto outra líder já aceita escritas, violando a leitura forte.",
-   "na_fonte": "O ReadIndex exige confirmação de quórum: sem ele a líder não responde. A leitura forte nunca usa lease de relógio (X11, H9).",
-   "sugestao": "Incluir no teste tipo Jepsen uma partição que isola a líder durante leituras fortes contínuas e checar linearizabilidade do histórico. Medir também quanto tempo as leituras ficam sem resposta nessa janela, que entra no RTO de leitura."
-  },
-  {
-   "titulo": "Applier parado",
-   "origem": "Falhas e tratativas",
-   "contexto": "Com uma entrada venenosa, o `appliedIndex` não chega ao alvo `min(ReadIndex, gate)` e nenhuma leitura forte do shard consegue ser atendida. Sem tratamento, todas as leituras esperariam até o prazo, acumulando conexões e amplificando o incidente.",
-   "na_fonte": "A leitura forte do shard falha rápido com `503` em vez de esperar até o prazo (C26, R16).",
-   "sugestao": "Definir o critério objetivo de applier parado (tempo sem avanço com fila pendente, limiar a definir) e testar que o `503` rápido não dispara tempestade de retries do SDK. Alertar a pessoa responsável pelo skip (ADR-038) no mesmo evento."
-  },
-  {
-   "titulo": "Query em GSI com leitura forte e assimetria pós-failover",
-   "origem": "Falhas e tratativas",
-   "contexto": "O DynamoDB não oferece leitura forte em GSI, então a camada também não. Depois do failover a aplicação passa a ler o índice do Cosmos, que é consistente por padrão, enquanto o do DynamoDB não é. Uma aplicação que passe a depender do comportamento de uma das nuvens quebra ao trocar de nuvem.",
-   "na_fonte": "`ConsistentRead=true` em GSI é recusada com `ValidationException` (ADR-050); a aplicação não deve depender da consistência do índice em nenhuma nuvem (X06, H-DR15).",
-   "sugestao": "Incluir na suíte de conformidade (PEND-16) casos de GSI lidos logo após escrita, rodando contra DynamoDB, camada e Cosmos, para documentar a diferença. Levantar no inventário (PEND-15) quais clientes leem GSI logo após escrever."
-  },
-  {
-   "titulo": "Scan sem snapshot entre páginas",
-   "origem": "Falhas e tratativas",
-   "contexto": "Um Scan paginado lê o banco local página a página sem um ponto fixo no tempo. Dois Scans consecutivos podem divergir e um mesmo Scan pode misturar estados de antes e depois de escritas concorrentes.",
-   "na_fonte": "A fonte registra o comportamento como característica (sem snapshot entre páginas), sem tratamento adicional.",
-   "sugestao": "Confirmar que o comportamento é equivalente ao do DynamoDB nativo e registrar isso na suíte de conformidade. Identificar no inventário se algum cliente usa Scan para relatórios ou reconciliação, onde a divergência pode ter efeito de negócio."
-  },
-  {
-   "titulo": "Prazo vence esperando o applier",
-   "origem": "Falhas e tratativas",
-   "contexto": "Mesmo sem entrada venenosa, o applier local pode estar atrasado em relação a `min(ReadIndex, gate)`, por exemplo numa célula follower ou após eleição. A leitura forte espera e pode estourar o prazo da requisição, o que aparece ao cliente como erro.",
-   "na_fonte": "Tratado como erro recuperável que o SDK retenta.",
-   "sugestao": "Medir `apply_wait` por célula (métrica proposta no R16) e definir um SLO de leitura forte, que hoje não existe. Avaliar se uma follower atrasada deveria encaminhar a leitura em vez de esperar, como já é proposto para células Azure."
-  },
-  {
-   "titulo": "Leitura forte em follower concentra ReadIndex na líder",
-   "origem": "Pontos em aberto",
-   "contexto": "Em uma célula follower, cada leitura forte pergunta à líder o ReadIndex e o gate, somando cerca de 1 RTT e fazendo da líder um ponto de concentração. Com muitas leituras fortes e muitas células, a líder pode virar gargalo e a latência de leitura cresce.",
-   "na_fonte": "Tratado em parte no R16: ReadIndex em lote, gate na mesma resposta e barreira `min(ReadIndex, gate)` (ADR-049). Falta medir a proporção de leituras fortes e definir o SLO de leitura.",
-   "sugestao": "Medir no spike S1 ou S5 a proporção real de leituras fortes por escrita e a CPU da líder sob ReadIndex em lote. Definir SLO de latência de leitura forte junto com o de escrita, já que hoje só a escrita tem meta."
-  },
-  {
-   "titulo": "Leitura eventual na Azure durante a degradação",
-   "origem": "Pontos em aberto",
-   "contexto": "No modo degradado a Azure deixa de receber entradas e a leitura eventual servida por ela pode ficar até a duração do lease atrasada, ou mais se houver prorrogação. Para dado financeiro isso pode significar um saldo antigo apresentado como atual.",
-   "na_fonte": "Acima do limite, a leitura é redirecionada à AWS ou recusada (C28, ADR-040).",
-   "sugestao": "Garantir que o limite de defasagem seja configurado por instalação e coberto por teste de caos com o link cortado. Verificar o caso em que a AWS também está inalcançável para a célula Azure, em que o redirecionamento não é possível e só resta recusar."
-  }
- ]
+  "id": "C05",
+  "pontos": [
+    {
+      "titulo": "Líder isolada que ainda não sabe que perdeu",
+      "origem": "Falhas e tratativas",
+      "contexto": "Uma líder separada do resto do cluster pode continuar achando que é líder por um tempo. Se respondesse leituras fortes sozinha, entregaria dado velho enquanto outra líder já aceita escritas, violando a leitura forte.",
+      "na_fonte": "O ReadIndex exige confirmação de quórum: sem ele a líder não responde. A leitura forte nunca usa lease de relógio (X11, H9).",
+      "sugestao": "Incluir no teste tipo Jepsen uma partição que isola a líder durante leituras fortes contínuas e checar linearizabilidade do histórico. Medir também quanto tempo as leituras ficam sem resposta nessa janela, que entra no RTO de leitura."
+    },
+    {
+      "titulo": "Applier parado",
+      "origem": "Falhas e tratativas",
+      "contexto": "Com uma entrada venenosa, o `appliedIndex` não chega ao alvo `min(ReadIndex, gate)` e nenhuma leitura forte do shard consegue ser atendida. Sem tratamento, todas as leituras esperariam até o prazo, acumulando conexões e amplificando o incidente.",
+      "na_fonte": "A leitura forte do shard falha rápido com `503` em vez de esperar até o prazo (C26, R16).",
+      "sugestao": "Definir o critério objetivo de applier parado (tempo sem avanço com fila pendente, limiar a definir) e testar que o `503` rápido não dispara tempestade de retries do SDK. Alertar a pessoa responsável pelo skip (ADR-038) no mesmo evento."
+    },
+    {
+      "titulo": "Query em GSI com leitura forte e assimetria pós-failover",
+      "origem": "Falhas e tratativas",
+      "contexto": "O DynamoDB não oferece leitura forte em GSI, então a camada também não. Depois do failover a aplicação passa a ler o índice do Cosmos, que é consistente por padrão, enquanto o do DynamoDB não é. Uma aplicação que passe a depender do comportamento de uma das nuvens quebra ao trocar de nuvem.",
+      "na_fonte": "`ConsistentRead=true` em GSI é recusada com `ValidationException` (ADR-050); a aplicação não deve depender da consistência do índice em nenhuma nuvem (X06, H-DR15).",
+      "sugestao": "Incluir na suíte de conformidade (PEND-16) casos de GSI lidos logo após escrita, rodando contra DynamoDB, camada e Cosmos, para documentar a diferença. Levantar no inventário (PEND-15) quais clientes leem GSI logo após escrever."
+    },
+    {
+      "titulo": "Scan sem snapshot entre páginas",
+      "origem": "Falhas e tratativas",
+      "contexto": "Um Scan paginado lê o banco local página a página sem um ponto fixo no tempo. Dois Scans consecutivos podem divergir e um mesmo Scan pode misturar estados de antes e depois de escritas concorrentes.",
+      "na_fonte": "A fonte registra o comportamento como característica (sem snapshot entre páginas), sem tratamento adicional.",
+      "sugestao": "Confirmar que o comportamento é equivalente ao do DynamoDB nativo e registrar isso na suíte de conformidade. Identificar no inventário se algum cliente usa Scan para relatórios ou reconciliação, onde a divergência pode ter efeito de negócio."
+    },
+    {
+      "titulo": "Prazo vence esperando o applier",
+      "origem": "Falhas e tratativas",
+      "contexto": "Mesmo sem entrada venenosa, o applier local pode estar atrasado em relação a `min(ReadIndex, gate)`, por exemplo numa célula follower ou após eleição. A leitura forte espera e pode estourar o prazo da requisição, o que aparece ao cliente como erro.",
+      "na_fonte": "Tratado como erro recuperável que o SDK retenta.",
+      "sugestao": "Medir `apply_wait` por célula (métrica proposta no R16) e definir um SLO de leitura forte, que hoje não existe. Avaliar se uma follower atrasada deveria encaminhar a leitura em vez de esperar, como já é proposto para células Azure."
+    },
+    {
+      "titulo": "Leitura forte em follower concentra ReadIndex na líder",
+      "origem": "Pontos em aberto",
+      "contexto": "Em uma célula follower, cada leitura forte pergunta à líder o ReadIndex e o gate, somando cerca de 1 RTT e fazendo da líder um ponto de concentração. Com muitas leituras fortes e muitas células, a líder pode virar gargalo e a latência de leitura cresce.",
+      "na_fonte": "Tratado em parte no R16: ReadIndex em lote, gate na mesma resposta e barreira `min(ReadIndex, gate)` (ADR-049). Falta medir a proporção de leituras fortes e definir o SLO de leitura.",
+      "sugestao": "Medir no spike S1 ou S5 a proporção real de leituras fortes por escrita e a CPU da líder sob ReadIndex em lote. Definir SLO de latência de leitura forte junto com o de escrita, já que hoje só a escrita tem meta."
+    },
+    {
+      "titulo": "Leitura na Azure durante a degradação",
+      "origem": "Pontos em aberto",
+      "contexto": "No modo degradado as células da Azure deixam de alcançar a líder AWS. Como só existe leitura forte, elas não conseguem obter `ReadIndex` e gate e recusam a leitura com `503`; a aplicação que lê pela Azure fica sem leitura até o link voltar ou a Azure ser promovida.",
+      "na_fonte": "Modo único strong (ADR-057): sem líder alcançável, a célula da Azure recusa com `503` e nunca devolve dado defasado.",
+      "sugestao": "Confirmar com o roteamento (Compass-Router) que, em regime normal, as leituras vão para células AWS, de modo que a recusa na Azure só afete quem já estava lá. Cobrir com teste de caos com o link cortado."
+    }
+  ]
 }

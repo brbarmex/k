@@ -8,7 +8,7 @@ O modo degradado só entra quando uma escrita espera a Azure por mais de `DEGRAD
 
 Com o SDK a 30 s por tentativa e `REQUEST_DEADLINE` de 7,5 s, a lentidão abaixo de 2 s **não gera retry em cascata**: o risco é latência acima da meta, não amplificação de carga. Acima de 2 s o caminho é o do [C12](C12-modo-degradado.md), conforme a `DEGRADED_POLICY` (`accept` degrada com lease; `reject` mantém `503 PENDING` e RPO 0).
 
-A **leitura forte não sofre com a faixa cinzenta**: a barreira é `min(ReadIndex, gate)` e o `applied` nunca passa do gate, então uma Azure lenta atrasa a escrita (o ACK espera o gate) mas não a leitura forte, que só espera o que já foi ACKado ([ADR-049](../../03_adr/ADR-049-barreira-da-leitura-forte-e-o-gate.md), [C05](C05-leitura-strong-e-eventual.md)).
+A **leitura forte não sofre com a faixa cinzenta**: a barreira é `min(ReadIndex, gate)` e o `applied` nunca passa do gate, então uma Azure lenta atrasa a escrita (o ACK espera o gate) mas não a leitura forte, que só espera o que já foi ACKado ([ADR-049](../../03_adr/ADR-049-barreira-da-leitura-forte-e-o-gate.md), [C05](C05-leitura-strong.md)).
 
 ## Decisão
 

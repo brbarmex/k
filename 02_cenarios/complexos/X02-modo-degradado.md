@@ -34,7 +34,7 @@ stateDiagram-v2
 6. **Prorrogação:** só por uma pessoa, por uma entrada replicada `RENEW(epoch, nova validade)` no Raft da AWS. Prorrogar depois que a Azure já pode ser promovida reabre o risco de duas pontas; a regra que impede isso (por exemplo, marcar a Azure como `promotion_blocked` antes de prorrogar) é a hipótese H-DR13, a fechar no TLA+ ([R23](../a_rever/R23-hipoteses-gerais.md)).
 7. **Marcador:** entre `fromIndex` e `RESTORE` as escritas ficam "sem garantia Azure" (base para a reconciliação, X03).
 8. **Saída:** os learners alcançam o índice atual; com lag abaixo de um limite por um tempo estável (histerese), o líder propõe `RESTORE(epoch)` e o gate volta a exigir a maioria Azure. O lease vale até o `RESTORE`.
-9. **Células Azure:** respondem erro recuperável ou leitura eventual com defasagem informada.
+9. **Células Azure:** respondem `503` recuperável; nunca devolvem dado defasado ([ADR-057](../../03_adr/ADR-057-um-unico-modo-strong-consistency.md)).
 10. **Lado da Azure:** a Azure só pode ser promovida depois de D + M desde o último contato recebido da AWS, com `M = deriva máxima de relógio + pausa máxima de processo` (`DEGRADE_AFTER` não entra: duas maiorias de 3 learners se cruzam, então a Azure não fica apta antes de a AWS parar), e a API `ForcePromote` recusa antes disso ([X03](X03-desastre-e-promocao-da-azure.md)). Os valores de D e de M ficam **a definir**.
 
 ## Falhas e tratativas

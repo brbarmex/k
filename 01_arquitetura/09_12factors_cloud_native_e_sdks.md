@@ -27,21 +27,20 @@
 
 | Variável | Valores | Observação |
 |---|---|---|
-| `READ_MODE_DEFAULT` | `strong` ou `eventual` | Padrão de leitura quando `ConsistentRead` está ausente; vale só na tabela base (ADR-050) |
 | `DEGRADED_POLICY` | `accept` ou `reject` | **Nova, obrigatória por instalação** ([ADR-045](../03_adr/ADR-045-politica-de-degradacao-por-instalacao.md)). A recomendação para dados monetários que não aceitam RPO > 0 é `reject`. A escolha por cliente é a PEND-17 |
 | `DEGRADED_LEASE` | duração D | **Nova, obrigatória com `accept`**; com `reject` não se aplica. **Valor a definir** com o negócio (PEND-02). A margem M da promoção (deriva de relógio + pausa de processo) também é a definir (PEND-17; [ADR-044](../03_adr/ADR-044-lease-do-modo-degradado-e-promocao-da-azure.md)) |
 | `CELL_ID`, `REQUEST_DEADLINE`, `DEGRADE_AFTER`, `CLIENT_TIMEOUT` | ver 6.9 e 9.4 | A partida valida a ordem dos prazos |
 
-> ~~`WRITE_MODE`~~ **removida da v1** ([ADR-053](../03_adr/ADR-053-eventual-sem-apply-paralelo-na-v1.md)): o apply é sempre serial depois do gate, e o Eventual é só de leitura.
+> **Modo único strong** ([ADR-057](../03_adr/ADR-057-um-unico-modo-strong-consistency.md)): não há variável de modo. Uma configuração que ainda define `READ_MODE_DEFAULT`, `WRITE_MODE` ou `MAX_STALENESS` falha na partida.
 
 **Cuidados para isso funcionar bem:**
-1. **Falhar cedo e de forma explícita.** Validar todos os campos obrigatórios na partida (`READ_MODE_DEFAULT`, `DEGRADED_POLICY`, `DEGRADED_LEASE` quando `accept`, `CELL_ID`, lista de tabelas, lista de permissões por aplicação, endereços dos pares) e sair com erro claro. Sem valores padrão para campos que mudam o comportamento de dados.
+1. **Falhar cedo e de forma explícita.** Validar todos os campos obrigatórios na partida (`DEGRADED_POLICY`, `DEGRADED_LEASE` quando `accept`, `CELL_ID`, lista de tabelas, lista de permissões por aplicação, endereços dos pares) e sair com erro claro. Sem valores padrão para campos que mudam o comportamento de dados.
 2. **O viper aceita chaves desconhecidas em silêncio.** Um erro de digitação no YAML passaria despercebido. Usar leitura estrita (`UnmarshalExact` ou decode com erro para chaves não usadas) para recusar chaves desconhecidas.
 3. **Ordem de precedência explícita:** variável de ambiente > YAML > (nenhum padrão para os campos críticos). Documentar o nome da variável de cada campo.
 4. **Segredos fora do YAML.** Certificados e credenciais vêm de arquivos montados, nunca do YAML nem de variáveis de ambiente.
 5. **Sem recarga a quente na v1.** Mudar `DEGRADED_POLICY`, `DEGRADED_LEASE`, a lista de tabelas ou a lista de permissões exige reiniciar o pod, em rolling update de **uma célula por vez** (a mesma regra da manutenção). Desligar o `WatchConfig` do viper.
 6. **Imprimir a configuração efetiva** (sem segredos) na partida e exportá-la como métrica de informação, para auditar divergências entre células.
-7. **Divergência entre células:** campos que mudam a semântica do log (lista de tabelas, versão do formato) → o nó **recusa entrar** no grupo; campos que mudam só o comportamento do líder (`DEGRADED_POLICY`, `DEGRADED_LEASE`, `READ_MODE_DEFAULT`) → alerta, sem recusar, porque durante o rolling update haverá divergência temporária. Como a liderança muda, uma célula com política diferente mudaria o comportamento da instalação em silêncio quando virasse líder: a divergência de `DEGRADED_POLICY` é alerta crítico.
+7. **Divergência entre células:** campos que mudam a semântica do log (lista de tabelas, versão do formato) → o nó **recusa entrar** no grupo; campos que mudam só o comportamento do líder (`DEGRADED_POLICY`, `DEGRADED_LEASE`) → alerta, sem recusar, porque durante o rolling update haverá divergência temporária. Como a liderança muda, uma célula com política diferente mudaria o comportamento da instalação em silêncio quando virasse líder: a divergência de `DEGRADED_POLICY` é alerta crítico.
 8. **Peso do viper:** traz muitas dependências e algum consumo de memória e tamanho de binário. É aceitável nesta meta (256 MiB), mas medir no spike S2. Alternativas mais leves: `koanf`, ou `yaml.v3` com `KnownFields(true)` mais leitura manual das variáveis.
 
 

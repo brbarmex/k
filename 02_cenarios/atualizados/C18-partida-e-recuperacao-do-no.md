@@ -48,7 +48,7 @@ stateDiagram-v2
 
 ## Etapas
 
-1. **Configuração:** `CELL_ID`, `DEGRADED_POLICY` (`accept` ou `reject`, sem valor padrão) e `READ_MODE_DEFAULT` são obrigatórias; com `accept`, a validade `DEGRADED_LEASE` (D) também. `WRITE_MODE` saiu da v1 ([ADR-053](../../03_adr/ADR-053-eventual-sem-apply-paralelo-na-v1.md)). Chaves desconhecidas no YAML são recusadas; prazos fora de ordem recusam a partida.
+1. **Configuração:** `CELL_ID`, `DEGRADED_POLICY` (`accept` ou `reject`, sem valor padrão) são obrigatórias; com `accept`, a validade `DEGRADED_LEASE` (D) também. Não há variável de modo: `READ_MODE_DEFAULT`, `WRITE_MODE` ou `MAX_STALENESS` ainda definidas recusam a partida ([ADR-057](../../03_adr/ADR-057-um-unico-modo-strong-consistency.md)). Chaves desconhecidas no YAML são recusadas; prazos fora de ordem recusam a partida.
 2. **Logs:** verifica o CRC; cauda rasgada é truncada; corrupção no meio faz o nó recusar subir.
 3. **Completar o log de replicação:** se estiver atrás do índice commitado, é completado a partir do log do Raft antes de aceitar tráfego.
 4. **Applier:** retoma pelo progresso **por item** `(índice, ordem)`, persistido no volume do log ([ADR-048](../../03_adr/ADR-048-skip-por-item.md)), até o high-water mark anterior; as leituras fortes só abrem depois (evita ler dado velho e ressuscitar DELETE). A regra é imposta por código e coberta por teste de propriedade ([ADR-047](../../03_adr/ADR-047-delete-real-invariante-e-reconstrucao-em-tabela-sombra.md), invariante `I-DEL`). Líder recém-eleita só atende leitura forte depois de reconstruir o gate ([C08](C08-queda-de-celula-lider-ou-az-aws.md)).

@@ -38,10 +38,10 @@ Os arquivos de `01_arquitetura/` mantêm a numeração original das seções (5.
 |---|---|
 | 2, 3 | [01_forma_do_app_e_escopo](01_arquitetura/01_forma_do_app_e_escopo.md) |
 | 4 | [02_comunicacao_grpc](01_arquitetura/02_comunicacao_grpc.md) |
-| 5 (5.1 a 5.5.1) | [03_consenso_raft_quorum_e_gate](01_arquitetura/03_consenso_raft_quorum_e_gate.md) |
-| 6.1 a 6.3, 6.5 a 6.8 | [04_wal_e_fsync](01_arquitetura/04_wal_e_fsync.md) |
+| 5 (5.1 a 5.5.2) | [03_consenso_raft_quorum_e_gate](01_arquitetura/03_consenso_raft_quorum_e_gate.md) |
+| 6.0 a 6.3, 6.5 a 6.8, 6.9 (log de replicação), 6.10 (group commit) | [04_wal_e_fsync](01_arquitetura/04_wal_e_fsync.md) |
 | 6.4, 6.4.1, 6.4.2, 6.9 | [05_dados_versao_delete_ttl_gsi_e_banco_por_celula](01_arquitetura/05_dados_versao_delete_ttl_gsi_e_banco_por_celula.md) |
-| 7, 7.1, 7.2 | [06_modos_de_escrita_e_leitura_e_latencia](01_arquitetura/06_modos_de_escrita_e_leitura_e_latencia.md) |
+| 7, 7.1, 7.2 | [06_leitura_forte_escrita_serial_e_latencia](01_arquitetura/06_leitura_forte_escrita_serial_e_latencia.md) |
 | 8 | [07_go_memoria_cpu_e_disco](01_arquitetura/07_go_memoria_cpu_e_disco.md) |
 | 9 (9.1 a 9.4) | [08_resiliencia_autocura_e_timeouts](01_arquitetura/08_resiliencia_autocura_e_timeouts.md) |
 | 10, 11 | [09_12factors_cloud_native_e_sdks](01_arquitetura/09_12factors_cloud_native_e_sdks.md) |

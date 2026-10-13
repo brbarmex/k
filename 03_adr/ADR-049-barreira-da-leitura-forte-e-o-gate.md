@@ -19,10 +19,10 @@ A leitura forte esperava `applied >= ReadIndex`, com o `ReadIndex` do commit Raf
 
 ## Consequências
 
-- Requer que `applied` nunca passe do gate ([ADR-053](ADR-053-eventual-sem-apply-paralelo-na-v1.md)), senão a leitura veria escrita não ACKada.
+- Requer que `applied` nunca passe do gate ([ADR-057](ADR-057-um-unico-modo-strong-consistency.md)), senão a leitura veria escrita não ACKada.
 - A leitura-do-que-escrevi continua garantida.
 
 ## Onde está o detalhe
 
-- [C05-leitura-strong-e-eventual.md](../02_cenarios/atualizados/C05-leitura-strong-e-eventual.md)
+- [C05-leitura-strong.md](../02_cenarios/atualizados/C05-leitura-strong.md)
 - [R16-leitura-forte-em-celulas-follower.md](../02_cenarios/a_rever/R16-leitura-forte-em-celulas-follower.md)

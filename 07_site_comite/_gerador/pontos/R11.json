@@ -1,68 +1,68 @@
 {
- "id": "R11",
- "pontos": [
-  {
-   "titulo": "Imagens de contêiner e registro do AKS",
-   "origem": "Checklist de dependências a eliminar ou duplicar na Azure",
-   "contexto": "Se as imagens do DataReplication ou de seus componentes só existem no ECR, o AKS não consegue puxá-las quando a AWS cai, e qualquer reinício de pod na Azure falha. Isso impede tanto a promoção quanto a recuperação de nós Azure durante o desastre. O impacto é direto no RTO: a promoção pode estar autorizada e ainda assim não haver binário para rodar.",
-   "na_fonte": "A fonte lista o item (ECR x ACR) no checklist e exige verificar item a item e testar com a AWS totalmente bloqueada; não há decisão sobre replicação de imagens.",
-   "sugestao": "Exigir que toda imagem usada pela instalação Azure seja publicada no ACR pelo pipeline e que os manifests da Azure apontem só para o ACR. No teste com a AWS bloqueada, forçar a recriação de todos os pods Azure (não só a promoção) para provar que nenhuma imagem é puxada da AWS."
-  },
-  {
-   "titulo": "Segredos, chaves e chaves de assinatura do manifesto",
-   "origem": "Checklist de dependências a eliminar ou duplicar na Azure",
-   "contexto": "Segredos e chaves guardados no Secrets Manager ficam inacessíveis com a AWS fora, incluindo as chaves de assinatura do manifesto. Sem elas, a Azure pode não conseguir validar ou aplicar a configuração da promoção, ou não conseguir autenticar nos próprios recursos. É uma dependência circular silenciosa, que só aparece no desastre.",
-   "na_fonte": "A fonte lista o item (Secrets Manager x Key Vault) no checklist, incluindo as chaves de assinatura do manifesto; a verificação item a item e o teste estão pendentes.",
-   "sugestao": "Inventariar cada segredo consumido pelos componentes Azure e pelo `drctl`, exigindo que a fonte de verdade na Azure seja o Key Vault com sincronização auditada. Incluir no teste com a AWS bloqueada uma rotação de segredo durante o bloqueio, para garantir que a rotação também não depende da AWS."
-  },
-  {
-   "titulo": "Autoridade de certificados do mTLS entre células",
-   "origem": "Checklist de dependências a eliminar ou duplicar na Azure",
-   "contexto": "O mTLS entre células depende de uma autoridade de certificados; se ela estiver na AWS, certificados não podem ser emitidos ou renovados quando a AWS cai. Após a promoção, as células Azure precisam continuar se autenticando entre si, e um certificado vencido durante um desastre longo pararia o consenso na Azure. O impacto é sobre a disponibilidade da Azure promovida, não só sobre o instante da promoção.",
-   "na_fonte": "A fonte lista a autoridade de certificados do mTLS no checklist; não há decisão sobre onde ela fica.",
-   "sugestao": "Definir uma CA (ou CA intermediária) operável a partir da Azure e medir a validade dos certificados em relação à duração esperada de um desastre. Incluir um teste de caos em que a AWS fica bloqueada por tempo maior que a validade dos certificados de teste, verificando que a renovação ocorre só com recursos Azure."
-  },
-  {
-   "titulo": "DNS, roteamento, Compass-Router e Agent",
-   "origem": "Checklist de dependências a eliminar ou duplicar na Azure",
-   "contexto": "Se o roteamento das aplicações depender do Route 53, a troca para a Azure pode não acontecer quando a AWS está fora, mesmo com a Azure promovida. O Compass-Router e o Agent são dependências externas já confirmadas nas duas clouds, mas o DNS que leva o cliente até eles ainda precisa ser verificado. Sem roteamento, o RTO efetivo para o cliente não termina com a promoção.",
-   "na_fonte": "A fonte lista o item (Route 53 x Azure DNS) e registra que Compass-Router e Agent já estão confirmados nas duas clouds; o restante do item está pendente de verificação.",
-   "sugestao": "Mapear a cadeia completa de resolução usada pelas aplicações (zonas, registros, TTLs) e garantir que a troca de destino possa ser feita a partir da Azure. Medir no teste com a AWS bloqueada o tempo entre o fim do `drctl promote` e a primeira escrita de cliente atendida, já que essa é a parte do RTO que o cliente vê."
-  },
-  {
-   "titulo": "Repositório e pipeline GitOps",
-   "origem": "Checklist de dependências a eliminar ou duplicar na Azure",
-   "contexto": "Se o repositório e o pipeline que aplicam os manifests estiverem hospedados na AWS, não é possível alterar a configuração da Azure durante o desastre, por exemplo para trocar papéis ou aplicar correções. A própria fonte deixa a pergunta em aberto (\"GitOps hospedado na AWS?\"). Isso pode impedir a promoção se ela depender de um commit de configuração.",
-   "na_fonte": "Não decidido na fonte. Proposta na fonte: verificar se o GitOps está hospedado na AWS e eliminar ou duplicar a dependência na Azure.",
-   "sugestao": "Confirmar onde o repositório e o executor do pipeline estão hospedados e garantir um caminho de aplicação de manifests que funcione só com a Azure. Documentar no runbook um procedimento de break-glass para aplicar configuração na Azure sem o pipeline, testado no exercício com a AWS bloqueada."
-  },
-  {
-   "titulo": "Federação de identidade e acesso do operador",
-   "origem": "Checklist de dependências a eliminar ou duplicar na Azure",
-   "contexto": "Se o acesso do operador ao console e às APIs da Azure for federado a partir do IAM da AWS, quem decide a promoção pode simplesmente não conseguir entrar na Azure quando a AWS cai. É uma dependência que impede a execução do `drctl promote` mesmo com toda a infraestrutura Azure saudável. Também se liga a H10, sobre incidentes de identidade dos provedores.",
-   "na_fonte": "A fonte lista a federação de identidade (IAM x Entra ID) e o acesso do operador ao console da Azure no checklist; não há decisão registrada.",
-   "sugestao": "Garantir contas de plantão com acesso à Azure via Entra ID sem passar pela AWS, com credenciais de emergência guardadas fora das duas clouds. Testar periodicamente, no game day, o login do operador e a execução do `drctl promote` a partir de uma máquina que não alcança nenhum endpoint AWS."
-  },
-  {
-   "titulo": "Observabilidade e alertas",
-   "origem": "Checklist de dependências a eliminar ou duplicar na Azure",
-   "contexto": "Se os painéis e alertas estiverem na AWS, o operador fica cego no desastre: não vê o estado da Azure, o backlog do Cosmos nem o tempo desde o último contato. Isso alonga a fase de perceber e decidir do RTO (R10) e aumenta o risco de decisão errada. A detecção da queda da AWS também não pode depender de um sistema que está na AWS.",
-   "na_fonte": "A fonte lista o item no checklist e, no R10, propõe sinais externos independentes da AWS (monitoramento sintético a partir da Azure e de fora, status do provedor).",
-   "sugestao": "Definir um conjunto mínimo de painéis e alertas hospedados na Azure ou fora das duas clouds (tempo desde o último contato da AWS, lag do Cosmos, estado do lease), suficiente para executar o runbook. Incluir no teste com a AWS bloqueada um critério de aceite: o operador consegue decidir e executar só com esse conjunto."
-  },
-  {
-   "titulo": "Contador de D + M local à Azure",
-   "origem": "Checklist de dependências a eliminar ou duplicar na Azure",
-   "contexto": "A `ForcePromote` recusa antes de D + M desde o último contato da AWS, e esse contador precisa funcionar com a AWS fora. Se o instante do último contato ou o relógio usado dependessem de algo na AWS, a promoção poderia ficar bloqueada para sempre ou ser liberada cedo demais. É uma questão de segurança (split-brain) e de RTO ao mesmo tempo.",
-   "na_fonte": "A fonte decide que o instante do último contato e o relógio monotônico ficam na própria Azure, sem consultar a AWS (ADR-044).",
-   "sugestao": "Verificar no TLA+ e em teste que o contador sobrevive ao reinício de nós Azure (persistência do instante do último contato) e que um reinício não zera nem adianta o contador. Definir o que conta como \"contato da AWS\" em conjunto com H-DR14, porque uma partição assimétrica pode manter o contador renovado enquanto a AWS já degradou."
-  },
-  {
-   "titulo": "Inventário real de dependências e data do primeiro teste",
-   "origem": "Pontos em aberto",
-   "contexto": "O princípio de não haver dependência circular de uma cloud perdida já está nos controles essenciais, mas falta o inventário real por componente. Sem inventário e sem um teste com a AWS totalmente bloqueada, qualquer item do checklist pode estar falhando sem que se saiba, e o RTO do desastre fica sem garantia de que a promoção sequer é possível.",
-   "na_fonte": "Não decidido na fonte. Proposta na fonte: inventário por componente com dono no time de plataforma e teste com a AWS bloqueada, ainda sem data.",
-   "sugestao": "Pedir ao time de plataforma o inventário com uma data de entrega e marcar o primeiro teste com a AWS bloqueada como critério de entrada para o primeiro cliente. Repetir o teste a cada mudança relevante de infraestrutura, já que novas dependências na AWS tendem a surgir sem aviso."
-  }
- ]
+  "id": "R11",
+  "pontos": [
+    {
+      "titulo": "Imagens de contêiner e registro do AKS",
+      "origem": "Checklist de dependências a eliminar ou duplicar na Azure",
+      "contexto": "Se as imagens do DataReplication ou de seus componentes só existem no ECR, o AKS não consegue puxá-las quando a AWS cai, e qualquer reinício de pod na Azure falha. Isso impede tanto a promoção quanto a recuperação de nós Azure durante o desastre. O impacto é direto no RTO: a promoção pode estar autorizada e ainda assim não haver binário para rodar.",
+      "na_fonte": "A fonte lista o item (ECR x ACR) no checklist e exige verificar item a item e testar com a AWS totalmente bloqueada; não há decisão sobre replicação de imagens.",
+      "sugestao": "Exigir que toda imagem usada pela instalação Azure seja publicada no ACR pelo pipeline e que os manifests da Azure apontem só para o ACR. No teste com a AWS bloqueada, forçar a recriação de todos os pods Azure (não só a promoção) para provar que nenhuma imagem é puxada da AWS."
+    },
+    {
+      "titulo": "Segredos, chaves e chaves de assinatura do manifesto",
+      "origem": "Checklist de dependências a eliminar ou duplicar na Azure",
+      "contexto": "Segredos e chaves guardados no Secrets Manager ficam inacessíveis com a AWS fora, incluindo as chaves de assinatura do manifesto. Sem elas, a Azure pode não conseguir validar ou aplicar a configuração da promoção, ou não conseguir autenticar nos próprios recursos. É uma dependência circular silenciosa, que só aparece no desastre.",
+      "na_fonte": "A fonte lista o item (Secrets Manager x Key Vault) no checklist, incluindo as chaves de assinatura do manifesto; a verificação item a item e o teste estão pendentes.",
+      "sugestao": "Inventariar cada segredo consumido pelos componentes Azure e pelo `drctl`, exigindo que a fonte de verdade na Azure seja o Key Vault com sincronização auditada. Incluir no teste com a AWS bloqueada uma rotação de segredo durante o bloqueio, para garantir que a rotação também não depende da AWS."
+    },
+    {
+      "titulo": "Autoridade de certificados do mTLS entre células",
+      "origem": "Checklist de dependências a eliminar ou duplicar na Azure",
+      "contexto": "O mTLS entre células depende de uma autoridade de certificados; se ela estiver na AWS, certificados não podem ser emitidos ou renovados quando a AWS cai. Após a promoção, as células Azure precisam continuar se autenticando entre si, e um certificado vencido durante um desastre longo pararia o consenso na Azure. O impacto é sobre a disponibilidade da Azure promovida, não só sobre o instante da promoção.",
+      "na_fonte": "A fonte lista a autoridade de certificados do mTLS no checklist; não há decisão sobre onde ela fica.",
+      "sugestao": "Definir uma CA (ou CA intermediária) operável a partir da Azure e medir a validade dos certificados em relação à duração esperada de um desastre. Incluir um teste de caos em que a AWS fica bloqueada por tempo maior que a validade dos certificados de teste, verificando que a renovação ocorre só com recursos Azure."
+    },
+    {
+      "titulo": "DNS, roteamento, Compass-Router e Agent",
+      "origem": "Checklist de dependências a eliminar ou duplicar na Azure",
+      "contexto": "Se o roteamento das aplicações depender do Route 53, a troca para a Azure pode não acontecer quando a AWS está fora, mesmo com a Azure promovida. O Compass-Router e o Agent são dependências externas já confirmadas nas duas clouds, mas o DNS que leva o cliente até eles ainda precisa ser verificado. Sem roteamento, o RTO efetivo para o cliente não termina com a promoção.",
+      "na_fonte": "A fonte lista o item (Route 53 x Azure DNS) e registra que Compass-Router e Agent já estão confirmados nas duas clouds; o restante do item está pendente de verificação.",
+      "sugestao": "Mapear a cadeia completa de resolução usada pelas aplicações (zonas, registros, TTLs) e garantir que a troca de destino possa ser feita a partir da Azure. Medir no teste com a AWS bloqueada o tempo entre o fim do `drctl promote` e a primeira escrita de cliente atendida, já que essa é a parte do RTO que o cliente vê."
+    },
+    {
+      "titulo": "Repositório e pipeline GitOps",
+      "origem": "Checklist de dependências a eliminar ou duplicar na Azure",
+      "contexto": "Se o repositório e o pipeline que aplicam os manifests estiverem hospedados na AWS, não é possível alterar a configuração da Azure durante o desastre, por exemplo para trocar papéis ou aplicar correções. A própria fonte deixa a pergunta em aberto (\"GitOps hospedado na AWS?\"). Isso pode impedir a promoção se ela depender de um commit de configuração.",
+      "na_fonte": "Não decidido na fonte. Proposta na fonte: verificar se o GitOps está hospedado na AWS e eliminar ou duplicar a dependência na Azure.",
+      "sugestao": "Confirmar onde o repositório e o executor do pipeline estão hospedados e garantir um caminho de aplicação de manifests que funcione só com a Azure. Documentar no runbook um procedimento de break-glass para aplicar configuração na Azure sem o pipeline, testado no exercício com a AWS bloqueada."
+    },
+    {
+      "titulo": "Federação de identidade e acesso do operador",
+      "origem": "Checklist de dependências a eliminar ou duplicar na Azure",
+      "contexto": "Se o acesso do operador ao console e às APIs da Azure for federado a partir do IAM da AWS, quem decide a promoção pode simplesmente não conseguir entrar na Azure quando a AWS cai. É uma dependência que impede a execução do `drctl promote` mesmo com toda a infraestrutura Azure saudável. Também se liga a H10, sobre incidentes de identidade dos provedores.",
+      "na_fonte": "A fonte lista a federação de identidade (IAM x Entra ID) e o acesso do operador ao console da Azure no checklist; não há decisão registrada.",
+      "sugestao": "Garantir contas de plantão com acesso à Azure via Entra ID sem passar pela AWS, com credenciais de emergência guardadas fora das duas clouds. Testar periodicamente, no game day, o login do operador e a execução do `drctl promote` a partir de uma máquina que não alcança nenhum endpoint AWS."
+    },
+    {
+      "titulo": "Observabilidade e alertas",
+      "origem": "Checklist de dependências a eliminar ou duplicar na Azure",
+      "contexto": "Se os painéis e alertas estiverem na AWS, o operador fica cego no desastre: não vê o estado da Azure, o backlog do Cosmos nem o tempo desde o último contato. Isso alonga a fase de perceber e decidir do RTO (R10) e aumenta o risco de decisão errada. A detecção da queda da AWS também não pode depender de um sistema que está na AWS.",
+      "na_fonte": "A fonte lista o item no checklist e, no R10, propõe sinais externos independentes da AWS (monitoramento sintético a partir da Azure e de fora, status do provedor).",
+      "sugestao": "Definir um conjunto mínimo de painéis e alertas hospedados na Azure ou fora das duas clouds (tempo desde o último contato da AWS, lag do Cosmos, estado do lease), suficiente para executar o runbook. Incluir no teste com a AWS bloqueada um critério de aceite: o operador consegue decidir e executar só com esse conjunto."
+    },
+    {
+      "titulo": "Contador de D + M local à Azure",
+      "origem": "Checklist de dependências a eliminar ou duplicar na Azure",
+      "contexto": "A `ForcePromote` recusa antes de D + M desde o último contato da AWS, e esse contador precisa funcionar com a AWS fora. Se o instante do último contato ou o relógio usado dependessem de algo na AWS, a promoção poderia ficar bloqueada para sempre ou ser liberada cedo demais. É uma questão de segurança (split-brain) e de RTO ao mesmo tempo.",
+      "na_fonte": "A fonte decide que o instante do último contato e o relógio monotônico ficam na própria Azure, sem consultar a AWS (ADR-044).",
+      "sugestao": "Verificar no TLA+ e em teste que o contador sobrevive ao reinício de nós Azure (persistência do instante do último contato) e que um reinício não zera nem adianta o contador. Definir o que conta como \"contato da AWS\" em conjunto com H-DR14, porque uma partição assimétrica pode manter o contador renovado enquanto a AWS já degradou."
+    },
+    {
+      "titulo": "Inventário real de dependências e data do primeiro teste",
+      "origem": "Pontos em aberto",
+      "contexto": "O princípio de não haver dependência circular de uma cloud perdida já está nos controles essenciais, mas falta o inventário real por componente. Sem inventário e sem um teste com a AWS totalmente bloqueada, qualquer item do checklist pode estar falhando sem que se saiba, e o RTO do desastre fica sem garantia de que a promoção sequer é possível.",
+      "na_fonte": "Não decidido na fonte. Proposta na fonte: inventário por componente com dono no time de infraestrutura e teste com a AWS bloqueada, ainda sem data.",
+      "sugestao": "Pedir ao time de infraestrutura o inventário com uma data de entrega e marcar o primeiro teste com a AWS bloqueada como critério de entrada para o primeiro cliente. Repetir o teste a cada mudança relevante de infraestrutura, já que novas dependências na AWS tendem a surgir sem aviso."
+    }
+  ]
 }

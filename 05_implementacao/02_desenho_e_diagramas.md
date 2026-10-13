@@ -60,10 +60,14 @@ flowchart TD
     API --> WS["WriteService<br/>usecase"]
     WS -->|"Propose"| RAFT["RaftNode<br/>adaptador etcdraft"]
     subgraph RL["Log do Raft: interno, vida curta, volume do Raft"]
+        WR["raftstore.Writer<br/>group commit por shard, sem espera fixa"]
         RLOG[("raftlog: wal do etcd<br/>fsync ANTES do ACK")]
     end
-    RAFT -->|"grava e fsync"| RLOG
-    RAFT <-->|"gRPC: AppendEntries"| PEERS["2 outros votantes AWS<br/>e 3 learners Azure"]
+    RAFT -->|"lote do Ready"| WR
+    WR -->|"um Save, um fdatasync"| RLOG
+    WR -->|"só depois do fsync: MsgAppResp, votos, auto-ACK, Advance"| RAFT
+    RAFT -->|"MsgApp da líder sai antes do fsync, F3"| PEERS["2 outros votantes AWS<br/>e 3 learners Azure"]
+    PEERS -->|"AppendEntries respondido só depois do fsync deles"| RAFT
     PEERS -->|"resposta do AppendEntries: termo, índice e learner, por evento"| GATE["Gate<br/>min Raft, maioria Azure"]
     RAFT -->|"commit Raft"| GATE
     RAFT -->|"entradas commitadas<br/>Committed"| PUMP["CommitPump<br/>usecase replicate"]
@@ -78,10 +82,10 @@ flowchart TD
 
 **Passo a passo de uma escrita:**
 1. `WriteService` chama `Propose` no `RaftNode` (única porta que fala com o Raft).
-2. O Raft grava a entrada no **log do Raft** com fsync e a replica por gRPC: 2 de 3 votantes AWS decidem o commit, e os 3 learners da Azure recebem a mesma entrada.
+2. O Raft envia a entrada aos pares (só o `MsgApp` da líder sai antes do fsync, F3) e o `raftstore.Writer` grava o lote no **log do Raft** com um fsync; nenhuma resposta (`MsgAppResp`, voto, auto-ACK da líder) sai antes do fsync ([ADR-056](../03_adr/ADR-056-group-commit-por-shard-e-nada-sai-antes-do-fsync.md)). Na replicação por gRPC, 2 de 3 votantes AWS decidem o commit, e os 3 learners da Azure recebem a mesma entrada.
 3. Cada learner informa o índice que já tornou durável **na resposta do `AppendEntries`**, com o termo e a identidade dele ([ADR-046](../03_adr/ADR-046-gate-so-conta-progresso-validado-pelo-raft.md)). Cada resposta alimenta o `Gate` na hora, sem esperar um commit novo; o gate só adota o termo atual e guarda `min(commit do Raft, maioria Azure)`. **Só aqui o ACK é liberado.**
 4. Os lotes commitados chegam ao `CommitPump`, que os entrega ao `Applier` **pela memória** e ao **log de replicação** em lote, fora do caminho do ACK. O progresso dos learners corre em outra goroutine do `CommitPump`: um `Append` lento não atrasa o gate.
-5. O `Applier` escreve no banco da célula com escrita condicional por versão, **sempre em série e depois do gate** ([ADR-053](../03_adr/ADR-053-eventual-sem-apply-paralelo-na-v1.md)); o checkpoint do applier é por item `(índice, ordem)` ([ADR-048](../03_adr/ADR-048-skip-por-item.md)).
+5. O `Applier` escreve no banco da célula com escrita condicional por versão, **sempre em série e depois do gate** ([ADR-057](../03_adr/ADR-057-um-unico-modo-strong-consistency.md)); o checkpoint do applier é por item `(índice, ordem)` ([ADR-048](../03_adr/ADR-048-skip-por-item.md)).
 6. O log do Raft só é truncado até o `DurableIndex` do log de replicação, que é o índice coberto pelo último checkpoint (fsync) do log de replicação, e não o índice apenas copiado (regra de segurança da 5.5.1, [ADR-055](../03_adr/ADR-055-log-de-replicacao-segmentado-derivado-do-raft.md)).
 
 **Quem grava o quê, por escrita lógica:**
@@ -163,11 +167,11 @@ sequenceDiagram
     API-->>App: 200 (header x-dr-mode se degradado)
 ```
 
-**O ACK sai só depois do gate e do apply na célula da líder** (6.9, item 4 do documento de arquitetura). O apply é sempre serial e depois do gate, em todas as instalações; `WRITE_MODE` e o apply paralelo saíram da v1 ([ADR-053](../03_adr/ADR-053-eventual-sem-apply-paralelo-na-v1.md)). Antes de responder, a líder ainda confere a validade do lease se o shard estiver degradado ([ADR-044](../03_adr/ADR-044-lease-do-modo-degradado-e-promocao-da-azure.md)).
+**O ACK sai só depois do gate e do apply na célula da líder** (6.9, item 4 do documento de arquitetura). O apply é sempre serial e depois do gate, em todas as instalações (modo único, [ADR-057](../03_adr/ADR-057-um-unico-modo-strong-consistency.md)). Antes de responder, a líder ainda confere a validade do lease se o shard estiver degradado ([ADR-044](../03_adr/ADR-044-lease-do-modo-degradado-e-promocao-da-azure.md)).
 
 ### 5.1b Escrita em modo degradado (política `accept`, com lease)
 
-O Eventual (E1) é só de **leitura** ([ADR-053](../03_adr/ADR-053-eventual-sem-apply-paralelo-na-v1.md)): a escrita tem um único caminho, o do 5.1. O que muda o caminho é a Azure fora do alcance, e só com `DEGRADED_POLICY=accept` ([ADR-045](../03_adr/ADR-045-politica-de-degradacao-por-instalacao.md)).
+Há um único modo, strong ([ADR-057](../03_adr/ADR-057-um-unico-modo-strong-consistency.md)): a escrita tem um único caminho, o do 5.1. O que muda o caminho é a Azure fora do alcance, e só com `DEGRADED_POLICY=accept` ([ADR-045](../03_adr/ADR-045-politica-de-degradacao-por-instalacao.md)).
 
 ```mermaid
 sequenceDiagram
@@ -240,17 +244,14 @@ flowchart TD
     K --> M["header x-dr-mode se degradado"]
 ```
 
-### 6.2 Leitura (Strong x Eventual)
+### 6.2 Leitura (sempre forte, ADR-057)
 
 ```mermaid
 flowchart TD
-    A["GetItem ou Query"] --> I0{"Query em GSI com<br/>ConsistentRead true?"}
-    I0 -->|sim| V["400 ValidationException"]
-    I0 -->|não| B{"tabela base e<br/>(ConsistentRead true ou default strong)?"}
-    B -->|não| C["lê o banco local sem barreira<br/>em GSI: header x-dr-consistency eventual"]
-    C --> R["responde"]
-    B -->|sim| D["ReadIndex e gate<br/>na mesma resposta da líder"]
-    D -->|líder inalcançável ou gate não reconstruído| E["erro recuperável, SDK retenta"]
+    A["GetItem, Query ou Scan"] --> I0{"IndexName de GSI?"}
+    I0 -->|sim| V["400 ValidationException (ADR-050)"]
+    I0 -->|não| D["ReadIndex e gate<br/>na mesma resposta da líder"]
+    D -->|líder inalcançável ou gate não reconstruído| E["503 recuperável, SDK retenta"]
     D --> F["R = min(ReadIndex, gate)"]
     F --> G{"appliedIndex maior ou igual a R?"}
     G -->|sim| H["lê o banco local"]
@@ -259,7 +260,7 @@ flowchart TD
     J -->|não| I["espera o Applier avançar"]
     I -->|deadline| E
     I --> H
-    H --> R
+    H --> R["responde"]
 ```
 
 A barreira é `min(ReadIndex, gate)` ([ADR-049](../03_adr/ADR-049-barreira-da-leitura-forte-e-o-gate.md)): toda escrita ACKada está abaixo do gate, então uma Azure lenta não atrasa a leitura forte. Isso exige que `applied` nunca passe do gate.

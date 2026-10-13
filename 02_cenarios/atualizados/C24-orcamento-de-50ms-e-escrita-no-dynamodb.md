@@ -1,6 +1,6 @@
 # C24 — Orçamento de 50 ms e a escrita no DynamoDB dentro do ACK (antes R21)
 
-**Status:** ✅ Atualizado (decidido pelo Bruno em 13/10/2026) · **ADRs:** [ADR-036](../../03_adr/ADR-036-slo-de-50ms-exclui-a-escrita-no-banco.md), [ADR-005](../../03_adr/ADR-005-ack-exige-gate.md), [ADR-023](../../03_adr/ADR-023-modos-de-escrita-e-leitura.md), [ADR-053](../../03_adr/ADR-053-eventual-sem-apply-paralelo-na-v1.md) · **Relacionados:** [C03](C03-escrita-strong.md), [C04](C04-escrita-eventual.md), [C07](C07-timeout-depois-do-commit.md)
+**Status:** ✅ Atualizado (decidido pelo Bruno em 13/10/2026) · **ADRs:** [ADR-036](../../03_adr/ADR-036-slo-de-50ms-exclui-a-escrita-no-banco.md), [ADR-005](../../03_adr/ADR-005-ack-exige-gate.md), [ADR-057](../../03_adr/ADR-057-um-unico-modo-strong-consistency.md), [ADR-057](../../03_adr/ADR-057-um-unico-modo-strong-consistency.md) · **Relacionados:** [C03](C03-escrita-strong.md), [C03](C03-escrita-strong.md), [C07](C07-timeout-depois-do-commit.md)
 
 ## Cenário
 
@@ -24,7 +24,7 @@ flowchart TD
 
 ## Etapas
 
-1. **Fórmula única:** `t_ack = t_parse + max(t_raft, t_azure) + t_apply + t_resp`. O apply é sempre serial e depois do gate; o apply paralelo do antigo modo Eventual de escrita saiu da v1 e o `WRITE_MODE` não existe mais ([ADR-053](../../03_adr/ADR-053-eventual-sem-apply-paralelo-na-v1.md)). Esconder `t_apply` atrás da Azure só voltará se o spike S5 mostrar que o orçamento estoura, como opt-in por instalação.
+1. **Fórmula única:** `t_ack = t_parse + max(t_raft, t_azure) + t_apply + t_resp`. O apply é sempre serial e depois do gate, no modo único strong ([ADR-057](../../03_adr/ADR-057-um-unico-modo-strong-consistency.md)). Se `t_apply` estourar o orçamento no spike S5, o ajuste é no banco ou no orçamento, não na garantia.
 2. **Overhead medido** = `t_ack − t_apply`.
 3. **Contrato com o cliente:** a latência que ele vê é `overhead + escrita no banco`; o P99 do DynamoDB faz parte dela. O SLO é medido **ponta a ponta**, sobre a operação completa (latência, taxa de erro e recuperação), e não pela soma de percentis de etapas.
 4. As quatro parcelas são métricas separadas (`t_parse`, `t_raft`, `t_azure`, `t_apply`).
@@ -33,7 +33,7 @@ flowchart TD
 
 - **Cauda do DynamoDB.** O P99 de `PutItem` condicional é de poucos ms, mas a cauda (retries internos, throttling em partição quente) pode passar de 50 ms e aparece inteira no ACK.
 - **Throttling vira PENDING.** Se o DynamoDB devolve throttling por mais que o prazo (7,5 s), a escrita commitada responde `503 PENDING` e o applier segue tentando ([C07](C07-timeout-depois-do-commit.md)).
-- **ACK antes do apply** reduziria a latência, mas quebra a leitura-do-que-escrevi da leitura forte local e reabre o ADR-023. Descartado.
+- **ACK antes do apply** reduziria a latência, mas quebra a leitura-do-que-escrevi da leitura forte local e contraria o modo único strong (ADR-057). Descartado.
 - **Várias escritas por transação do cliente.** Com 3 ou mais escritas sequenciais por transação de negócio, o alvo de 150 ms por transação não fecha mesmo com o overhead dentro de 50 ms (PEND-07).
 
 ## Pontos em aberto

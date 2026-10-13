@@ -18,6 +18,11 @@ Retry de fsync; reuso de identidade.
 
 Reconstrução automática fica como hipótese H-DR1.
 
+## Atualização de 13/10/2026 (ADR-056)
+
+Com group commit, uma falha de escrita ou de fsync encerra o processo **sem entregar nenhuma resposta do lote** (nem ACK, nem voto, nem `MsgAppResp`). Vale para o escritor do log do Raft nos modos síncrono e assíncrono ([ADR-056](ADR-056-group-commit-por-shard-e-nada-sai-antes-do-fsync.md)).
+
+
 ## Onde está o detalhe
 
 - [04_wal_e_fsync.md](../01_arquitetura/04_wal_e_fsync.md)

@@ -33,7 +33,7 @@ sequenceDiagram
 3. **Eleição:** A3 concede o voto porque o log de A2 é elegível; A2 vira líder no termo T+1.
 4. **Afirmação:** A2 grava um no-op do novo termo nos votantes e nos learners.
 5. **Gate:** A2 adota o 2º maior índice durável entre os learners que **responderam ao `AppendEntries` no termo T+1** (índice, termo e identidade); o gate nunca recua e é alimentado por evento, a cada resposta. Um learner que reporta um índice por outro canal, ou um sufixo de uma líder antiga, é ignorado até confirmar no termo novo.
-6. **Retomada:** A2 passa a ACKar, libera o applier e só então atende leitura forte (barreira `min(ReadIndex, gate)`, [C05](C05-leitura-strong-e-eventual.md)). As respostas informam a nova líder e o termo.
+6. **Retomada:** A2 passa a ACKar, libera o applier e só então atende leitura forte (barreira `min(ReadIndex, gate)`, [C05](C05-leitura-strong.md)). As respostas informam a nova líder e o termo.
 
 ## Falhas e tratativas
 

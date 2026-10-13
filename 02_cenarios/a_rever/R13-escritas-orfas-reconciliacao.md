@@ -45,4 +45,4 @@ flowchart TD
 
 ## Pontos em aberto
 
-- Dono do processo (negócio ou plataforma) e política de comunicação ao cliente. Liga com o aceite do RPO > 0 e do valor de D (PEND-02, [R23](R23-hipoteses-gerais.md)).
+- Dono do processo (negócio ou operação) e política de comunicação ao cliente. Liga com o aceite do RPO > 0 e do valor de D (PEND-02, [R23](R23-hipoteses-gerais.md)).

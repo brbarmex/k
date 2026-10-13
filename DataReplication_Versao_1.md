@@ -2,7 +2,7 @@
 
 [Início](00_COMECE_AQUI.md) · [Arquitetura](01_arquitetura/README.md) · [Cenários](02_cenarios/INDEX.md) · [ADRs](03_adr/INDEX.md) · [Diagramas](04_diagramas/INDEX.md) · [Implementação](05_implementacao/README.md) · [Pendências](06_pendencias_e_riscos/README.md) · [Glossário](01_arquitetura/00_glossario.md)
 
-**Estado:** 13/10/2026, com as decisões da revisão crítica (ADR-044 a ADR-054) e o log de replicação segmentado (ADR-055) · **Dono:** Bruno · **Papel deste documento:** reunir tudo o que importa sobre o `DataReplication` v1 e apontar, a cada assunto, o arquivo com o detalhe. Cada seção termina com os links para o aprofundamento.
+**Estado:** 13/10/2026, com as decisões da revisão crítica (ADR-044 a ADR-054) o log de replicação segmentado (ADR-055) e o group commit por shard (ADR-056) · **Dono:** Bruno · **Papel deste documento:** reunir tudo o que importa sobre o `DataReplication` v1 e apontar, a cada assunto, o arquivo com o detalhe. Cada seção termina com os links para o aprofundamento.
 
 ## Sumário
 
@@ -35,7 +35,7 @@ O que se quer:
 
 A organização usa arquitetura **celular** (células isoladas, como *bulkheads*). Um **shard** reúne células; dentro dele, uma líder coordena as escritas. A AWS é a nuvem primária e a **Azure** é a de failover; ambas somente em **São Paulo**.
 
-> **Não é objetivo da v1:** plataforma multi-cliente com muitos shards, `UpdateItem` com expressão, escritas condicionais e transações do DynamoDB, multirregião, terceiro provedor de nuvem.
+> **Não é objetivo da v1:** `UpdateItem` com expressão, escritas condicionais e transações do DynamoDB, multirregião, terceiro provedor de nuvem.
 
 Contexto e requisitos originais: [01_arquitetura/01_forma_do_app_e_escopo.md](01_arquitetura/01_forma_do_app_e_escopo.md).
 
@@ -77,7 +77,7 @@ Detalhe: [D01](04_diagramas/D01-visao-do-sistema.md), [C01](02_cenarios/atualiza
 | Capacidade | DynamoDB sob demanda; Cosmos em RU; 3 AZs por nuvem |
 | Política de degradação | `DEGRADED_POLICY` obrigatória por instalação: `accept` (com lease D) ou `reject` ([ADR-045](03_adr/ADR-045-politica-de-degradacao-por-instalacao.md)) |
 | Implantação | **Uma instalação por cliente**, com conta AWS própria; o cabo dedicado é compartilhado ([ADR-043](03_adr/ADR-043-uma-instalacao-por-cliente-identidade-por-configuracao.md), [C31](02_cenarios/atualizados/C31-implantacao-por-cliente-e-identidade.md)) |
-| Linguagem e plataforma | Go 1.27, cloud-native em AKS e EKS, 12 Factors |
+| Linguagem e execução | Go 1.27, cloud-native em AKS e EKS, 12 Factors |
 
 ### 3.2 Metas
 
@@ -129,6 +129,7 @@ Um arquivo por decisão, com contexto, decisão e consequências. Índice comple
 | [ADR-018](03_adr/ADR-018-dois-logs-raft-e-replicacao.md) | Dois logs separados: o do Raft e o de replicação | Decidido (Bruno) |
 | [ADR-019](03_adr/ADR-019-wal-proprio-volume-dedicado.md) | Log do Raft em volume de bloco dedicado; sem ACK em memória | Decidido (Bruno); revisado pelo ADR-055 |
 | [ADR-055](03_adr/ADR-055-log-de-replicacao-segmentado-derivado-do-raft.md) | Log de replicação segmentado, derivado do Raft, sem fsync no caminho do ACK e em volume separado | Decidido (Bruno, 1a 2b 3b e opção a) |
+| [ADR-056](03_adr/ADR-056-group-commit-por-shard-e-nada-sai-antes-do-fsync.md) | Group commit por shard; nada sai antes do fsync; `AsyncStorageWrites` decidido por spike | Decidido (Bruno, 1a 2a 3b 4a 5a 6a) |
 | [ADR-020](03_adr/ADR-020-raft-etcd-io-camada-multigrupo.md) | Raft: etcd-io/raft com camada multi-grupo própria | Decidido (Bruno) |
 | [ADR-021](03_adr/ADR-021-grpc-entre-celulas.md) | gRPC entre as células | Decidido (Bruno) |
 | [ADR-029](03_adr/ADR-029-gate-monotonico-na-troca-de-lider.md) | O gate nunca recua; líder nova reconstrói antes de ACKar | Decidido (Bruno) |
@@ -144,12 +145,9 @@ Um arquivo por decisão, com contexto, decisão e consequências. Índice comple
 
 | ADR | Decisão | Status |
 |---|---|---|
-| [ADR-009](03_adr/ADR-009-eventual-e1.md) | Modo Eventual = E1 (mesma escrita, leitura local) | Decidido (Bruno); apply paralelo retirado |
-| [ADR-012](03_adr/ADR-012-sem-downgrade-strong-eventual.md) | Sem downgrade automático de Strong para Eventual | Confirmado (requisito) |
+| [ADR-057](03_adr/ADR-057-um-unico-modo-strong-consistency.md) | Um único modo: strong consistency; leitura sempre forte, apply serial depois do gate | Decidido (Bruno) |
 | [ADR-015](03_adr/ADR-015-wal-post-image-e-versao.md) | O log guarda a post-image e a versão do item | Aceito |
 | [ADR-022](03_adr/ADR-022-banco-por-celula-nome-logico.md) | Um banco por célula; nome lógico com {cell} | Decidido (Bruno) |
-| [ADR-023](03_adr/ADR-023-modos-de-escrita-e-leitura.md) | Modos de escrita (Strong serial, Eventual paralelo) e de leitura (padrão forte) | Escrita substituída pelo ADR-053; leitura vigente |
-| [ADR-053](03_adr/ADR-053-eventual-sem-apply-paralelo-na-v1.md) | O modo Eventual é só de leitura; o apply paralelo sai da v1 | Decidido (Bruno) |
 | [ADR-024](03_adr/ADR-024-delete-real-ttl-local-gsi.md) | DELETE real com ordem por chave; TTL local; GSI | Decidido (Bruno) |
 | [ADR-025](03_adr/ADR-025-escopo-da-api-v1-e-sdks.md) | Escopo da API v1 e SDKs suportados | Decidido (Bruno) |
 | [ADR-026](03_adr/ADR-026-dedupe-de-retry-id-estavel.md) | Dedupe de retry na líder por identificador estável | Decidido (Bruno) |
@@ -157,7 +155,7 @@ Um arquivo por decisão, com contexto, decisão e consequências. Índice comple
 | [ADR-036](03_adr/ADR-036-slo-de-50ms-exclui-a-escrita-no-banco.md) | O SLO de 50 ms exclui a escrita no banco; publicado como overhead + banco | Decidido (Bruno) |
 | [ADR-047](03_adr/ADR-047-delete-real-invariante-e-reconstrucao-em-tabela-sombra.md) | DELETE real com invariante formal; reconstrução em tabela sombra | Decidido (Bruno) |
 | [ADR-048](03_adr/ADR-048-skip-por-item.md) | O SKIP identifica o item: (índice, ordem) | Decidido (Bruno) |
-| [ADR-050](03_adr/ADR-050-gsi-nao-tem-leitura-forte.md) | `ConsistentRead=true` em GSI é recusada, como no DynamoDB | Decidido (Bruno) |
+| [ADR-050](03_adr/ADR-050-query-em-gsi-recusada.md) | `ConsistentRead=true` em GSI é recusada, como no DynamoDB | Decidido (Bruno) |
 | [ADR-051](03_adr/ADR-051-compatibilidade-dynamodb-inventario-conformidade-e-idempotencia.md) | Compatibilidade com o DynamoDB: inventário, conformidade e limite da idempotência | Decidido (Bruno) |
 
 ### Operação e falhas
@@ -175,7 +173,6 @@ Um arquivo por decisão, com contexto, decisão e consequências. Índice comple
 | [ADR-037](03_adr/ADR-037-faixa-cinzenta-do-link-so-alerta.md) | Link lento na faixa cinzenta: só alertar, RPO continua 0 | Decidido (Bruno) |
 | [ADR-038](03_adr/ADR-038-skip-de-entrada-venenosa-sempre-humano.md) | O SKIP de uma entrada venenosa é sempre aprovado por uma pessoa | Decidido (Bruno) |
 | [ADR-039](03_adr/ADR-039-sem-lider-conhecida-espera-ate-1s-e-503.md) | Sem líder conhecida: esperar até 1 s no servidor e então 503 | Decidido (Bruno) |
-| [ADR-040](03_adr/ADR-040-leitura-eventual-na-azure-acima-do-limite.md) | Leitura eventual na Azure acima do limite: redirecionar à AWS ou recusar | Decidido (Bruno) |
 | [ADR-041](03_adr/ADR-041-disco-do-log-teto-de-70-por-cento-sem-s3-na-v1.md) | Disco do log: teto de 70% e reconstrução completa; sem S3 na v1 | Decidido (Bruno) |
 | [ADR-042](03_adr/ADR-042-aws-que-volta-boot-cercado-e-recriacao-da-celula.md) | AWS que volta depois da promoção: boot cercado, credenciais revogadas, célula recriada | Decidido (Bruno) |
 
@@ -203,28 +200,28 @@ Um **monolito modular** por célula (módulos `api`, `core`, log, Raft, transpor
 | Retenção | Curta; truncado só até o `DurableIndex` do log de replicação (índice coberto pelo último fsync de checkpoint), mais uma folga | Longa; teto de 70% do volume, medido no espaço lógico |
 | Quem lê | Só o Raft | Applier, Azure atrasada, `drctl`, reconstrução |
 
-O **fsync é o gargalo**: só o log do Raft está no caminho do ACK, com o `wal` do etcd (segmentos pré-alocados, `fdatasync`, CRC) em **volume de bloco dedicado** (NVMe local descartado). O WAL próprio saiu em 13/10: o log de replicação vira um **log segmentado simples**, derivado do Raft, sem fsync no caminho do ACK, em outro volume; o Raft obedece ao checkpoint do log de replicação e este obedece à Azure (o Pebble foi avaliado e descartado) ([ADR-055](03_adr/ADR-055-log-de-replicacao-segmentado-derivado-do-raft.md)). **Falha de fsync é fatal**; disco perdido volta com **identidade nova** como learner e a reconstrução é manual assistida (`drctl rebuild`). Não existe ACK com quórum só em memória.
+O **fsync é o gargalo**: só o log do Raft está no caminho do ACK, com o `wal` do etcd (segmentos pré-alocados, `fdatasync`, CRC) em **volume de bloco dedicado** (NVMe local descartado). O WAL próprio saiu em 13/10: o log de replicação vira um **log segmentado simples**, derivado do Raft, sem fsync no caminho do ACK, em outro volume; o Raft obedece ao checkpoint do log de replicação e este obedece à Azure (o Pebble foi avaliado e descartado) ([ADR-055](03_adr/ADR-055-log-de-replicacao-segmentado-derivado-do-raft.md)). **Falha de fsync é fatal**; disco perdido volta com **identidade nova** como learner e a reconstrução é manual assistida (`drctl rebuild`). Não existe ACK com quórum só em memória. **Group commit por shard** ([ADR-056](03_adr/ADR-056-group-commit-por-shard-e-nada-sai-antes-do-fsync.md)): o buffer em memória só monta o lote; nenhum ACK, voto ou resposta de `AppendEntries` sai antes do fsync; a líder envia `MsgApp` antes de gravar (F3) no modo síncrono, e o `AsyncStorageWrites` entra só se o spike S1b mostrar ganho; o buffer tem teto de 32 MiB por shard, com `ThrottlingException` acima disso.
 
-→ [03_consenso_raft_quorum_e_gate](01_arquitetura/03_consenso_raft_quorum_e_gate.md) (5.5.1), [04_wal_e_fsync](01_arquitetura/04_wal_e_fsync.md), [D04](04_diagramas/D04-dois-logs-e-commitpump.md), [X04](02_cenarios/complexos/X04-partida-recuperacao-e-dois-logs.md), [ADR-018](03_adr/ADR-018-dois-logs-raft-e-replicacao.md), [ADR-019](03_adr/ADR-019-wal-proprio-volume-dedicado.md), [ADR-055](03_adr/ADR-055-log-de-replicacao-segmentado-derivado-do-raft.md), [ADR-034](03_adr/ADR-034-fsync-fatal-e-identidade-nova.md).
+→ [03_consenso_raft_quorum_e_gate](01_arquitetura/03_consenso_raft_quorum_e_gate.md) (5.5.1), [04_wal_e_fsync](01_arquitetura/04_wal_e_fsync.md), [D04](04_diagramas/D04-dois-logs-e-commitpump.md), [X04](02_cenarios/complexos/X04-partida-recuperacao-e-dois-logs.md), [ADR-018](03_adr/ADR-018-dois-logs-raft-e-replicacao.md), [ADR-019](03_adr/ADR-019-wal-proprio-volume-dedicado.md), [ADR-055](03_adr/ADR-055-log-de-replicacao-segmentado-derivado-do-raft.md), [ADR-056](03_adr/ADR-056-group-commit-por-shard-e-nada-sai-antes-do-fsync.md), [ADR-034](03_adr/ADR-034-fsync-fatal-e-identidade-nova.md).
 
 ### 5.4 Dados: versão, DELETE, TTL, GSI e banco por célula
 
 - O log guarda a **post-image** e a **versão = índice do Raft**. O applier grava só se `versão guardada < versão da entrada` (atributo reservado `_dr_v`): o *replay* é idempotente.
-- **DELETE real** com ordem por chave no applier (o tombstone conflitaria com o TTL do cliente), protegido por uma **invariante formal** (com leituras abertas, o estado é a dobra do log) e por um protocolo de reconstrução em **tabela sombra** ([ADR-047](03_adr/ADR-047-delete-real-invariante-e-reconstrucao-em-tabela-sombra.md)). **TTL expira localmente** em cada célula e não é replicado. **GSI** só tem leitura eventual: `ConsistentRead=true` em GSI é recusada ([ADR-050](03_adr/ADR-050-gsi-nao-tem-leitura-forte.md)). **Scan** sem snapshot. `_dr_v` nunca aparece nas respostas.
+- **DELETE real** com ordem por chave no applier (o tombstone conflitaria com o TTL do cliente), protegido por uma **invariante formal** (com leituras abertas, o estado é a dobra do log) e por um protocolo de reconstrução em **tabela sombra** ([ADR-047](03_adr/ADR-047-delete-real-invariante-e-reconstrucao-em-tabela-sombra.md)). **TTL expira localmente** em cada célula e não é replicado. **Query em GSI é recusada** (o índice global nunca é forte; [ADR-050](03_adr/ADR-050-query-em-gsi-recusada.md)). **Scan** sem snapshot. `_dr_v` nunca aparece nas respostas.
 - **Um banco por célula, mantido** ([ADR-054](03_adr/ADR-054-banco-por-celula-mantido.md)). O DynamoDB é regional: o ganho das seis cópias é isolamento lógico, não domínio físico de falha. O nome lógico troca o `CELL_ID` pelo marcador `{cell}` e tem geração para o cutover da reconstrução; todas as células têm as mesmas tabelas lógicas. Um único escritor por tabela (o applier da célula).
 
 → [05_dados_versao_delete_ttl_gsi_e_banco_por_celula](01_arquitetura/05_dados_versao_delete_ttl_gsi_e_banco_por_celula.md), [X06](02_cenarios/complexos/X06-delete-ttl-gsi.md), [D08](04_diagramas/D08-uma-escrita-seis-bancos.md), [ADR-015](03_adr/ADR-015-wal-post-image-e-versao.md), [ADR-022](03_adr/ADR-022-banco-por-celula-nome-logico.md), [ADR-024](03_adr/ADR-024-delete-real-ttl-local-gsi.md), [C33](02_cenarios/atualizados/C33-reconstrucao-em-tabela-sombra.md).
 
-### 5.5 Modos de escrita e de leitura
+### 5.5 Modo único: strong consistency
 
-| Modo | Escrita | Leitura |
-|---|---|---|
-| **Strong** | Apply no banco **em série, depois do gate** (único comportamento de escrita da v1) | Espera `min(ReadIndex, gate)` e o apply local |
-| **Eventual** (E1) | A mesma escrita; **só a leitura muda** | Leitura local, informa a defasagem |
+O `DataReplication` tem **um único modo**, sem segundo fluxo na escrita, na replicação ou no Raft ([ADR-057](03_adr/ADR-057-um-unico-modo-strong-consistency.md)):
 
-`READ_MODE_DEFAULT` (padrão **forte**) é variável **obrigatória**; `ConsistentRead=true` é sempre forte na tabela base e **recusada em GSI**. O apply paralelo e a variável `WRITE_MODE` saíram da v1 ([ADR-053](03_adr/ADR-053-eventual-sem-apply-paralelo-na-v1.md)). A barreira da leitura forte é `min(ReadIndex, gate)`, que desacopla a leitura da saúde da Azure ([ADR-049](03_adr/ADR-049-barreira-da-leitura-forte-e-o-gate.md)). Não há *downgrade* automático de Strong para Eventual.
+- **Escrita:** apply no banco **em série, depois do gate**; o ACK sai depois do apply.
+- **Leitura:** sempre forte na tabela base. As aplicações enviam `ConsistentRead=true`; a leitura espera `min(ReadIndex, gate)` e o apply local, o que desacopla a leitura da saúde da Azure ([ADR-049](03_adr/ADR-049-barreira-da-leitura-forte-e-o-gate.md)). Sem barreira no prazo, `503` recuperável, nunca dado velho.
+- **Query e Scan em GSI são recusados** ([ADR-050](03_adr/ADR-050-query-em-gsi-recusada.md)).
+- Não há variável de modo (`READ_MODE_DEFAULT` e `WRITE_MODE` não existem).
 
-→ [06_modos_de_escrita_e_leitura_e_latencia](01_arquitetura/06_modos_de_escrita_e_leitura_e_latencia.md), [C03](02_cenarios/atualizados/C03-escrita-strong.md), [C04](02_cenarios/atualizados/C04-escrita-eventual.md), [C05](02_cenarios/atualizados/C05-leitura-strong-e-eventual.md), [ADR-009](03_adr/ADR-009-eventual-e1.md), [ADR-012](03_adr/ADR-012-sem-downgrade-strong-eventual.md), [ADR-023](03_adr/ADR-023-modos-de-escrita-e-leitura.md), [ADR-049](03_adr/ADR-049-barreira-da-leitura-forte-e-o-gate.md), [ADR-053](03_adr/ADR-053-eventual-sem-apply-paralelo-na-v1.md).
+→ [06_leitura_forte_escrita_serial_e_latencia](01_arquitetura/06_leitura_forte_escrita_serial_e_latencia.md), [C03](02_cenarios/atualizados/C03-escrita-strong.md), [C05](02_cenarios/atualizados/C05-leitura-strong.md), [ADR-057](03_adr/ADR-057-um-unico-modo-strong-consistency.md), [ADR-049](03_adr/ADR-049-barreira-da-leitura-forte-e-o-gate.md), [ADR-050](03_adr/ADR-050-query-em-gsi-recusada.md).
 
 ### 5.6 Prazos em cascata e idempotência
 
@@ -244,7 +241,7 @@ Prazo estourado **depois do commit** vira `503 PENDING`: a escrita não se perde
 
 → [08_resiliencia_autocura_e_timeouts](01_arquitetura/08_resiliencia_autocura_e_timeouts.md) (9.4), [X05](02_cenarios/complexos/X05-timeouts-e-idempotencia.md), [C07](02_cenarios/atualizados/C07-timeout-depois-do-commit.md), [D07](04_diagramas/D07-prazos-em-cascata.md), [ADR-026](03_adr/ADR-026-dedupe-de-retry-id-estavel.md), [ADR-028](03_adr/ADR-028-timeouts-em-cascata.md).
 
-### 5.7 Resiliência, autocura e plataforma
+### 5.7 Resiliência, autocura e cloud-native
 
 - **Probes:** `startupProbe` cobre a recuperação do log; `readinessProbe` não depende de quórum; `livenessProbe` nunca olha o estado do cluster. Desligamento limpo transfere a liderança.
 - **Backpressure** com os erros do DynamoDB que o SDK já entende; entradas que já estouraram o prazo são descartadas sem trabalho.
@@ -276,7 +273,7 @@ flowchart TD
     J --> H
 ```
 
-Detalhe: [C03](02_cenarios/atualizados/C03-escrita-strong.md) (Strong), [C04](02_cenarios/atualizados/C04-escrita-eventual.md) (Eventual, só leitura), [C06](02_cenarios/atualizados/C06-follower-encaminha.md) (follower), [C32](02_cenarios/atualizados/C32-particao-e-lease-do-modo-degradado.md) (partição e lease).
+Detalhe: [C03](02_cenarios/atualizados/C03-escrita-strong.md) (escrita), [C06](02_cenarios/atualizados/C06-follower-encaminha.md) (follower), [C32](02_cenarios/atualizados/C32-particao-e-lease-do-modo-degradado.md) (partição e lease).
 
 ### 6.2 Estados do shard
 
@@ -320,11 +317,10 @@ Detalhe: [C17](02_cenarios/atualizados/C17-maquina-de-estados.md), [D06](04_diag
 | Link lento, mas abaixo de 2 s | Só alerta; RPO continua 0 e a latência sobe | 0 | [C25](02_cenarios/atualizados/C25-link-lento-faixa-cinzenta.md) |
 | Entrada que o banco recusa para sempre | O shard para; `SKIP` por item, sempre decidido por uma pessoa | 0 | [C26](02_cenarios/atualizados/C26-entrada-venenosa.md) |
 | Eleição em curso, sem líder conhecida | Espera até 1 s no servidor e então `503` | 0 | [C27](02_cenarios/atualizados/C27-encaminhamento-sem-lider-conhecida.md) |
-| Leitura eventual na Azure com defasagem alta | Redireciona à AWS se possível, senão recusa | — | [C28](02_cenarios/atualizados/C28-leitura-eventual-na-azure-defasada.md) |
 | Disco do log enche em degradação longa | Teto de 70%; Azure fora da janela e reconstrução completa | > 0 | [C29](02_cenarios/atualizados/C29-disco-do-log-em-degradacao-longa.md) |
 | Duas AZs da AWS caem | O shard **para**; promoção humana (regra a decidir com o TLA+) | 0 em normal | [R06](02_cenarios/a_rever/R06-duas-azs-aws-caem.md) |
 
-As falhas que **ainda não têm decisão completa** (órfãs, backlog do Cosmos, ressincronização, RTO, entre outras) estão em [`a_rever/`](02_cenarios/INDEX.md). Link lento, entrada venenosa, disco do log, fencing do banco, lote, líder ausente e leitura eventual defasada foram decididos em 13/10 (C23 a C31); a partição com lease, a reconstrução em tabela sombra e a autorização por aplicação vêm da revisão crítica (C32 a C34).
+As falhas que **ainda não têm decisão completa** (órfãs, backlog do Cosmos, ressincronização, RTO, entre outras) estão em [`a_rever/`](02_cenarios/INDEX.md). Link lento, entrada venenosa, disco do log, fencing do banco, lote e líder ausente foram decididos em 13/10 (C23 a C31); a partição com lease, a reconstrução em tabela sombra e a autorização por aplicação vêm da revisão crítica (C32 a C34).
 
 **Quem age em cada falha** (automático, assistido ou manual): matriz em [08_resiliencia_autocura_e_timeouts](01_arquitetura/08_resiliencia_autocura_e_timeouts.md).
 
@@ -342,21 +338,21 @@ Todos os cenários têm diagrama Mermaid. Totais: **34 atualizados**, **6 comple
 
 ## 9. Implementação
 
-- **Código:** Go 1.27, hexagonal, injeção por Fx (só no `bootstrap`), `fasthttp`, `grpc-go` + `vtprotobuf`, `zerolog`, `viper`, `etcd-io/raft/v3` com o `wal` do etcd, log de replicação segmentado próprio (`replog`). Guia: [05_implementacao/README.md](05_implementacao/README.md).
+- **Código:** Go 1.27, hexagonal, injeção por Fx (só no `bootstrap`), `fasthttp`, `grpc-go` + `vtprotobuf`, `zerolog`, `viper`, `etcd-io/raft/v3` com o `wal` do etcd e escritor de group commit por shard (`raftstore`, ADR-056), log de replicação segmentado próprio (`replog`). Guia: [05_implementacao/README.md](05_implementacao/README.md).
 - **Estrutura de pastas e regras de lint:** [01_principios_bibliotecas_e_pastas](05_implementacao/01_principios_bibliotecas_e_pastas.md).
 - **Desenho e diagramas de processo e de fluxo:** [02_desenho_e_diagramas](05_implementacao/02_desenho_e_diagramas.md).
 - **Exemplos de código** (compilados) e **tabela de structs:** [03](05_implementacao/03_exemplos_de_codigo.md), [04](05_implementacao/04_tabela_de_structs.md), [codigo_exemplo/](05_implementacao/codigo_exemplo/README.md).
-- **Testes, armadilhas e ordem de implementação:** [05](05_implementacao/05_testes_armadilhas_e_ordem.md). **Spikes S1 a S7:** [06](05_implementacao/06_testes_e_spikes.md).
+- **Testes, armadilhas e ordem de implementação:** [05](05_implementacao/05_testes_armadilhas_e_ordem.md). **Spikes S1, S1b e S2 a S7:** [06](05_implementacao/06_testes_e_spikes.md).
 
 **Ordem de trabalho em cinco fases** (decidida na revisão crítica): (1) decisões e contratos de segurança; (2) modelo TLA+ ampliado, que nasce junto com a fase 1 porque o lease só vale se for modelado; (3) **núcleo mínimo verificável** (gate, lease, dois logs, um caminho de banco) antes de qualquer outro; (4) os seis caminhos de banco, o rebuild em tabela sombra e a anti-entropia; (5) conformidade, game days, medição do RTO e prontidão. Detalhe: [05_implementacao](05_implementacao/README.md).
 
 ## 10. Pendências, riscos e perguntas em aberto
 
-- **Perguntas para o Bruno** (formato `1a 2b`, com recomendação; abertas: 16 e 17, sobre o log do Raft e a perda do volume do log de replicação): [03_perguntas_para_o_bruno](06_pendencias_e_riscos/03_perguntas_para_o_bruno.md).
+- **Perguntas para o Bruno** (formato `1a 2b`, com recomendação; aberta: 17, sobre a perda do volume do log de replicação; a 16 foi confirmada na prática pela resposta 2a do group commit): [03_perguntas_para_o_bruno](06_pendencias_e_riscos/03_perguntas_para_o_bruno.md).
 - **Bloqueante:** PEND-02, o aceite formal do RPO > 0 no modo degradado, agora **com o valor de D** (a validade do lease). **PEND-01** (promoção da Azure, split-brain) tem desenho decidido ([ADR-044](03_adr/ADR-044-lease-do-modo-degradado-e-promocao-da-azure.md)) e fecha quando D e M forem aprovados e o modelo TLA+ provar a regra.
 - **Pendências numeradas:** [01_pendencias](06_pendencias_e_riscos/01_pendencias.md). **Riscos priorizados:** [02_riscos](06_pendencias_e_riscos/02_riscos.md). **Revisões críticas:** [12/10](06_pendencias_e_riscos/revisao_critica_12_10.md) e [13/10](06_pendencias_e_riscos/revisao_critica_13_10.md).
 
-Os riscos de maior atenção, incluindo os **bloqueantes de segurança** da revisão de 13/10: (1) duas pontas aceitando escrita na partição (mitigado pelo lease, a provar no TLA+); (2) prefixo do gate e reconstrução na troca de líder; (3) DELETE e replay sem prova; (4) RPO > 0 sem teto e sem aceite; (5) entrada venenosa trava o shard; (6) disco do log esgota em degradação longa; (7) Cosmos lento enchendo o disco do learner e degradando a AWS; (8) compatibilidade com o DynamoDB sem inventário nem suíte.
+Os riscos de maior atenção, incluindo os **bloqueantes de segurança** da revisão de 13/10: (1) duas pontas aceitando escrita na partição (mitigado pelo lease, a provar no TLA+); (2) prefixo do gate e reconstrução na troca de líder; (3) DELETE e replay sem prova; (4) RPO > 0 sem teto e sem aceite; (5) entrada venenosa trava o shard; (6) disco do log esgota em degradação longa; (7) Cosmos lento enchendo o disco do learner e degradando a AWS; (8) compatibilidade com o DynamoDB sem inventário nem suíte; (9) no modo síncrono com F3, uma resposta enviada antes do fsync faria o gate contar durabilidade inexistente (risco 34, [ADR-056](03_adr/ADR-056-group-commit-por-shard-e-nada-sai-antes-do-fsync.md)).
 
 ## 11. Definição de pronto da v1
 

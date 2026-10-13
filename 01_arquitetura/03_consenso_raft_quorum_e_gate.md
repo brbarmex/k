@@ -68,7 +68,7 @@
 | `last_committed` | Último índice commitado pelo Raft (maioria AWS) |
 | `last_azure_durable` | `azureMajorityIndex`: 2º maior índice durável dos learners, no termo atual |
 | `last_acked` | Último índice cuja escrita já foi respondida ao cliente (sempre menor ou igual ao gate) |
-| `last_applied` | Último índice aplicado por inteiro no banco da célula (nunca passa do gate, [ADR-053](../03_adr/ADR-053-eventual-sem-apply-paralelo-na-v1.md)) |
+| `last_applied` | Último índice aplicado por inteiro no banco da célula (nunca passa do gate, [ADR-057](../03_adr/ADR-057-um-unico-modo-strong-consistency.md)) |
 | `last_reconciled` | Último índice verificado por checksum de faixa de chaves (anti-entropia, [ADR-047](../03_adr/ADR-047-delete-real-invariante-e-reconstrucao-em-tabela-sombra.md)) |
 
 Mais `lease_remaining` (tempo restante do modo degradado) e `poison_entry_index` (por item). A lista completa de métricas está em [10_pontos_adicionais_e_metricas](10_pontos_adicionais_e_metricas.md) (12.1).
@@ -105,13 +105,13 @@ A leitura forte esperava `applied >= ReadIndex`. Como o apply só ocorre depois 
 - Na célula follower, a líder devolve o `ReadIndex` e o gate **na mesma resposta**; um gate antigo guardado na follower enfraqueceria a garantia.
 - A líder recém-eleita só atende leitura forte **depois de reconstruir o gate** (5.3, ADR-029, ADR-046).
 - Com o applier parado por entrada venenosa, a leitura forte do shard **falha rápido com `503`**, em vez de esperar até o timeout.
-- Depende de `applied` nunca passar do gate (apply serial depois do gate, ADR-053).
+- Depende de `applied` nunca passar do gate (apply serial depois do gate, ADR-057).
 
-Detalhe: [06_modos_de_escrita_e_leitura_e_latencia](06_modos_de_escrita_e_leitura_e_latencia.md) (7.2) e [R16](../02_cenarios/a_rever/R16-leitura-forte-em-celulas-follower.md).
+Detalhe: [06_leitura_forte_escrita_serial_e_latencia](06_leitura_forte_escrita_serial_e_latencia.md) (7.2) e [R16](../02_cenarios/a_rever/R16-leitura-forte-em-celulas-follower.md).
 
 ### 5.3.5 Modelo TLA+ ampliado (ADR-046, ADR-030)
 
-O modelo cobre, além do gate monotônico: promoção entre nuvens com lease, troca de membros (disco substituído, identidade nova), dedupe, resultado desconhecido, DELETE e replay (I-DEL). Ele **nasce junto com a fase 1** do plano, porque o lease só vale se for modelado, e o núcleo mínimo verificável vem **antes** de qualquer caminho de banco.
+O modelo cobre, além do gate monotônico: promoção entre nuvens com lease, troca de membros (disco substituído, identidade nova), dedupe, resultado desconhecido, DELETE e replay (I-DEL) e, desde o ADR-056, log volátil x durável por nó com queda em qualquer passo e a invariante "toda entrada ACKada está no log durável de 2 nós AWS e 2 nós Azure" (5.5.2). Ele **nasce junto com a fase 1** do plano, porque o lease só vale se for modelado, e o núcleo mínimo verificável vem **antes** de qualquer caminho de banco.
 
 ### 5.4 Recomendação e plano B
 
@@ -147,7 +147,7 @@ O modelo cobre, além do gate monotônico: promoção entre nuvens com lease, tr
 **Interfaces e regras que continuam valendo (vindas do L1):**
 1. **Registro próprio.** Cada entrada do log é um registro DataReplication (6.3) com `term` e `index` no cabeçalho, mais o payload opaco. Nenhum tipo da biblioteca (`raftpb` etc.) vai para o disco nem para fora do adaptador.
 2. **Interface `ReplicationLog`** (do `core`): anexar em lote, ler por intervalo, truncar sufixo, compactar prefixo, índice durável. É o que o applier, a ressincronização da Azure e o `drctl` usam. **Nenhum deles passa pelo Raft para ler dado.**
-3. **Interface `ConsensusEngine`** (do `core`): propor, índice commitado (eventos), liderança e transferência, `ReadIndex`, membros e progresso dos learners (`LearnerDurable()` devolve termo, índice e identidade, ADR-046). O gate (5.3) usa só essa interface.
+3. **Interface `ConsensusEngine`** (do `core`): propor, índice commitado (eventos; entradas já estáveis no disco da própria líder, ADR-056), liderança e transferência, `ReadIndex`, membros e progresso dos learners (`LearnerDurable()` devolve termo, índice e identidade, ADR-046). O gate (5.3) usa só essa interface.
 4. **Adaptador `consensus/etcdraft`.** É o **único pacote** que importa `go.etcd.io/raft`. Traduz o `ReplicationLog` para o que a biblioteca espera de armazenamento e guarda separadamente o estado próprio dela (term, voto, configuração) num `ConsensusStateStore`. Uma regra de lint (ex.: `depguard`) impede importar a biblioteca fora do adaptador.
 5. **Suíte de conformidade.** Os mesmos testes (simulação de falhas, linearizabilidade, queda no WAL) rodam contra a interface, não contra a biblioteca. Trocar o Raft = escrever outro adaptador e passar na mesma suíte.
 
@@ -180,3 +180,33 @@ O modelo cobre, além do gate monotônico: promoção entre nuvens com lease, tr
 - **Duas coisas para manter consistentes**: o índice do log de replicação é o próprio índice Raft (sem sequência paralela), e a suíte de conformidade (5.5) passa a testar também a recuperação nos casos de queda entre os dois logs.
 - **O gate (5.3) não muda**: a durabilidade que conta para o ACK é a do log do Raft.
 - **Interface `ReplicationLog` (5.5)**: passa a ser a interface do log de replicação, e o adaptador do Raft recebe os registros commitados por um callback.
+
+### 5.5.2 Escrita do log do Raft: group commit por shard e nada sai antes do fsync (ADR-056, 13/10)
+
+> **Decisão do Bruno (13/10, respostas 1a 2a 3b 4a 5a 6a).** Detalhe em [ADR-056](../03_adr/ADR-056-group-commit-por-shard-e-nada-sai-antes-do-fsync.md) e em [04_wal_e_fsync](04_wal_e_fsync.md) (6.10).
+
+**Invariante:** nenhum ACK ao cliente, nenhum voto (`MsgVoteResp`) e nenhuma resposta de `AppendEntries` (`MsgAppResp`) sai antes do fsync que cobre a entrada, em nenhum dos 6 nós. A líder só se conta no quórum depois do próprio fsync. O buffer em memória é só a área de montagem do lote.
+
+**Modo da biblioteca na fase 1: síncrono com F3.**
+
+| Mensagem do `Ready` | Pode sair antes do fsync do lote? | Motivo |
+|---|---|---|
+| `MsgApp` da líder para seguidores e learners | **Sim** (F3, seção 10.2.1 da tese) | O par só responde depois do próprio fsync; a líder só se conta depois do dela |
+| `MsgAppResp` (seguidor AWS ou learner Azure) | **Não** | O gate e o commit contariam durabilidade que não existe |
+| `MsgVoteResp`, `MsgPreVoteResp` | **Não** | O voto precisa estar no `HardState` durável |
+| Heartbeat e demais | **Não** no modo síncrono | Regra simples e única; o ganho de antecipar é nenhum |
+
+A regra está em `domain.CanSendBeforeSync` no [código de exemplo](../05_implementacao/codigo_exemplo/README.md). `Advance` só é chamado depois do fsync.
+
+**Interação com o resto do consenso:**
+- **Gate** (5.3, 5.3.1): o progresso dos learners vem só do `MsgAppResp` no termo atual, que só sai depois do fsync do learner. O commit da AWS pode ser alcançado por dois seguidores enquanto o disco da líder grava: continua 2 de 3 com fsync.
+- **ReadIndex e barreira `min(ReadIndex, gate)`** (5.3.4): o ReadIndex depende de heartbeat com quórum, não do disco. O commit da líder pode estar acima do disco dela, mas a leitura espera `applied`, que só anda com entrada estável na líder.
+- **Eleição e transferência** (ADR-013): o voto só sai depois de termo e voto estarem no disco; a eleição fica um fsync mais lenta.
+- **Fsync lento no modo síncrono** congela o laço do shard: sem heartbeats, seguidores podem iniciar eleição e o processamento das respostas da Azure atrasa, o que pode fazer o lease do modo degradado (5.3.2) parecer vencido. Atenuação: `ElectionTick` bem acima do P99.9 de fsync e F7 (transferir a liderança com fsync lento). O spike S1b mede se o `AsyncStorageWrites` elimina isso.
+
+**`AsyncStorageWrites`: critério de entrada (spike S1b).** Entra se reduzir o P99 do commit em pelo menos 20% **ou** eliminar eleições causadas por fsync lento (atraso de disco injetado de 50 a 500 ms). No modo assíncrono a biblioteca já prende `MsgAppResp`, votos e o auto-ACK da líder à escrita (`msgsAfterAppend`) e só entrega à aplicação entradas estáveis localmente. O escritor (`raftstore.Writer`) já nasce com a forma do assíncrono, então a troca muda só a ligação no adaptador `etcdraft`. Não há variável para escolher o modo em produção.
+
+**Contrapressão:** `MaxUncommittedEntriesSize` de 32 MiB por shard e `MaxInflightBytes` configurado; acima disso a proposta é recusada com `ThrottlingException`, que os SDKs repetem, e o dedupe absorve a repetição.
+
+**TLA+ (ADR-030):** o modelo separa log volátil e durável por nó, com queda em qualquer passo, e verifica que toda entrada ACKada está no log durável de 2 nós AWS e 2 nós Azure, nos dois modos.
+

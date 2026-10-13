@@ -20,20 +20,19 @@ Gerado em 13/10/2026 a partir do pacote DataReplication_Versao_1.
 <nav class="sidebar" aria-label="Navegação">
 <a class="marca" href="index.html">DataReplication v1<span>Comitê técnico</span></a>
 <a class="nav-inicio atual" href="index.html">Resumo e requisitos</a>
-<details class="grupo"><summary>Success path <span class="qtd">10</span></summary><ul>
+<details class="grupo"><summary>Success path <span class="qtd">9</span></summary><ul>
 <li><a class="idx" href="success-path/index.html">Índice da seção</a></li>
 <li><a href="success-path/C01-visao-geral.html"><b>C01</b> Visão geral da arquitetura</a></li>
 <li><a href="success-path/C02-dentro-da-celula.html"><b>C02</b> Dentro da célula: apps do cliente e DataReplication</a></li>
 <li><a href="success-path/C03-escrita-strong.html"><b>C03</b> Caminho feliz: escrita (apply serial depois do gate)</a></li>
-<li><a href="success-path/C04-escrita-eventual.html"><b>C04</b> Modo Eventual: só de leitura (sem apply paralelo na v1)</a></li>
-<li><a href="success-path/C05-leitura-strong-e-eventual.html"><b>C05</b> Caminho feliz: leitura Strong e Eventual</a></li>
+<li><a href="success-path/C05-leitura-strong.html"><b>C05</b> Caminho feliz: leitura strong</a></li>
 <li><a href="success-path/C06-follower-encaminha.html"><b>C06</b> Requisição chega numa célula que não é a líder</a></li>
 <li><a href="success-path/C11-transferencia-planejada.html"><b>C11</b> Transferência planejada de liderança (manutenção)</a></li>
 <li><a href="success-path/C18-partida-e-recuperacao-do-no.html"><b>C18</b> Partida, recuperação e parada limpa do nó</a></li>
 <li><a href="success-path/C23-batchwriteitem-lote-uma-entrada.html"><b>C23</b> BatchWriteItem: o lote é uma entrada e o apply é por item (antes R15)</a></li>
 <li><a href="success-path/C31-implantacao-por-cliente-e-identidade.html"><b>C31</b> Uma instalação por cliente e identificação na API (antes R19)</a></li>
 </ul></details>
-<details class="grupo"><summary>Fail path <span class="qtd">24</span></summary><ul>
+<details class="grupo"><summary>Fail path <span class="qtd">23</span></summary><ul>
 <li><a class="idx" href="fail-path/index.html">Índice da seção</a></li>
 <li><a href="fail-path/C07-timeout-depois-do-commit.html"><b>C07</b> Prazo estoura depois do commit, antes do ACK (retry do SDK)</a></li>
 <li><a href="fail-path/C08-queda-de-celula-lider-ou-az-aws.html"><b>C08</b> Queda da célula líder ou de uma AZ na AWS</a></li>
@@ -53,7 +52,6 @@ Gerado em 13/10/2026 a partir do pacote DataReplication_Versao_1.
 <li><a href="fail-path/C25-link-lento-faixa-cinzenta.html"><b>C25</b> Link lento ou saturado (faixa cinzenta): só alertar (antes R01)</a></li>
 <li><a href="fail-path/C26-entrada-venenosa.html"><b>C26</b> Entrada venenosa: um item que o banco recusa para sempre (antes R02)</a></li>
 <li><a href="fail-path/C27-encaminhamento-sem-lider-conhecida.html"><b>C27</b> Loop de encaminhamento e espera pela líder durante a eleição (antes R05)</a></li>
-<li><a href="fail-path/C28-leitura-eventual-na-azure-defasada.html"><b>C28</b> Leitura eventual na Azure durante a degradação (antes R04)</a></li>
 <li><a href="fail-path/C29-disco-do-log-em-degradacao-longa.html"><b>C29</b> Disco do log esgota durante uma degradação longa (antes R08)</a></li>
 <li><a href="fail-path/C30-aws-que-volta-boot-cercado.html"><b>C30</b> Fencing: o DynamoDB e o applier da AWS que voltam depois da promoção (antes R14)</a></li>
 <li><a href="fail-path/C32-particao-e-lease-do-modo-degradado.html"><b>C32</b> Partição entre AWS e Azure: lease do modo degradado e promoção da Azure</a></li>
@@ -92,14 +90,14 @@ Gerado em 13/10/2026 a partir do pacote DataReplication_Versao_1.
 
 <h1>DataReplication v1</h1>
 <p class="lead">Camada intermediária entre a aplicação e o banco que só confirma a escrita depois de o dado estar
-durável na AWS (DynamoDB) e na Azure (Cosmos DB). Estado da documentação: 13/10/2026, com as decisões da revisão crítica (ADR-044 a ADR-054) e o log de replicação segmentado (ADR-055).</p>
+durável na AWS (DynamoDB) e na Azure (Cosmos DB). Estado da documentação: 13/10/2026, com as decisões da revisão crítica (ADR-044 a ADR-054) o log de replicação segmentado (ADR-055) e o group commit por shard (ADR-056).</p>
 <div class="kpis">
 <div><b>RPO = 0</b><span>em operação normal</span></div>
 <div><b>RTO = Delta-T</b><span>sem número: não decidido na fonte</span></div>
 <div><b>~3.000 TPS</b><span>PutItem e BatchWriteItem</span></div>
 <div><b>P99 ≤ 50 ms</b><span>overhead, sem a escrita no banco</span></div>
 </div>
-<nav class="cartoes secoes" aria-label="Seções do site"><a class="cartao secao success-path" href="success-path/index.html"><span class="t">Success path</span><span class="st">10 páginas</span><span class="r">Fluxos em regime normal, sem falha.</span></a><a class="cartao secao fail-path" href="fail-path/index.html"><span class="t">Fail path</span><span class="st">24 páginas</span><span class="r">Falhas e degradações com tratamento decidido.</span></a><a class="cartao secao complex-path" href="complex-path/index.html"><span class="t">Complex path</span><span class="st">6 páginas</span><span class="r">Cenários compostos e aprofundados.</span></a><a class="cartao secao parking-lot" href="parking-lot/index.html"><span class="t">Parking lot</span><span class="st">14 páginas</span><span class="r">Riscos e questões ainda sem decisão fechada.</span></a></nav>
+<nav class="cartoes secoes" aria-label="Seções do site"><a class="cartao secao success-path" href="success-path/index.html"><span class="t">Success path</span><span class="st">9 páginas</span><span class="r">Fluxos em regime normal, sem falha.</span></a><a class="cartao secao fail-path" href="fail-path/index.html"><span class="t">Fail path</span><span class="st">23 páginas</span><span class="r">Falhas e degradações com tratamento decidido.</span></a><a class="cartao secao complex-path" href="complex-path/index.html"><span class="t">Complex path</span><span class="st">6 páginas</span><span class="r">Cenários compostos e aprofundados.</span></a><a class="cartao secao parking-lot" href="parking-lot/index.html"><span class="t">Parking lot</span><span class="st">14 páginas</span><span class="r">Riscos e questões ainda sem decisão fechada.</span></a></nav>
 
 <section id="resumo"><h2>Resumo executivo</h2>
 <h3>O problema</h3>
@@ -140,13 +138,13 @@ durável na AWS (DynamoDB) e na Azure (Cosmos DB). Estado da documentação: 13/
 <li>ACK só depois do gate: commit do Raft na maioria AWS e índice durável na maioria Azure.</li>
 <li>API compatível com DynamoDB: <code>PutItem</code>, <code>DeleteItem</code>, <code>BatchWriteItem</code>, <code>GetItem</code>, <code>BatchGetItem</code>, <code>Query</code> e <code>Scan</code>.</li>
 <li>SDKs AWS Java 2.x, Go v2 e .NET v4.</li>
-<li>Leitura forte (padrão) e eventual; GSI sempre eventual.</li>
+<li>Um único modo, strong consistency: leitura sempre forte na tabela base; Query e Scan em GSI recusadas.</li>
 <li>Modo degradado por política da instalação (<code>DEGRADED_POLICY</code> accept com lease D, ou reject).</li>
 <li>Uma instalação por cliente; autorização por aplicação com mTLS.</li>
 </ul>
 <p class="nota">Itens condensados das seções 2 e 3 do documento principal.</p></div>
 <div class="caixa fora"><h3>Fora da v1</h3>
-<p>plataforma multi-cliente com muitos shards, <code>UpdateItem</code> com expressão, escritas condicionais e transações do DynamoDB, multirregião, terceiro provedor de nuvem.</p>
+<p><code>UpdateItem</code> com expressão, escritas condicionais e transações do DynamoDB, multirregião, terceiro provedor de nuvem.</p>
 <p class="nota">Texto do documento principal, seção 1 (“Não é objetivo da v1”). Valores de D, M e do RTO: <b>não decididos na fonte</b>.</p></div>
 </div>
 <h3>RPO, RTO e metas</h3>
@@ -196,7 +194,7 @@ durável na AWS (DynamoDB) e na Azure (Cosmos DB). Estado da documentação: 13/
 <td><strong>Uma instalação por cliente</strong>, com conta AWS própria; o cabo dedicado é compartilhado (<a href="../03_adr/ADR-043-uma-instalacao-por-cliente-identidade-por-configuracao.md">ADR-043</a>, <a href="success-path/C31-implantacao-por-cliente-e-identidade.html">C31</a>)</td>
 </tr>
 <tr>
-<td>Linguagem e plataforma</td>
+<td>Linguagem e execução</td>
 <td>Go 1.27, cloud-native em AKS e EKS, 12 Factors</td>
 </tr>
 </tbody>
@@ -238,11 +236,11 @@ durável na AWS (DynamoDB) e na Azure (Cosmos DB). Estado da documentação: 13/
 
 <section id="pendencias"><h2>Pendências e riscos em aberto</h2>
 <ul>
-<li><strong>Perguntas para o Bruno</strong> (formato <code>1a 2b</code>, com recomendação; abertas: 16 e 17, sobre o log do Raft e a perda do volume do log de replicação): <a href="../06_pendencias_e_riscos/03_perguntas_para_o_bruno.md">03_perguntas_para_o_bruno</a>.</li>
+<li><strong>Perguntas para o Bruno</strong> (formato <code>1a 2b</code>, com recomendação; aberta: 17, sobre a perda do volume do log de replicação; a 16 foi confirmada na prática pela resposta 2a do group commit): <a href="../06_pendencias_e_riscos/03_perguntas_para_o_bruno.md">03_perguntas_para_o_bruno</a>.</li>
 <li><strong>Bloqueante:</strong> PEND-02, o aceite formal do RPO &gt; 0 no modo degradado, agora <strong>com o valor de D</strong> (a validade do lease). <strong>PEND-01</strong> (promoção da Azure, split-brain) tem desenho decidido (<a href="../03_adr/ADR-044-lease-do-modo-degradado-e-promocao-da-azure.md">ADR-044</a>) e fecha quando D e M forem aprovados e o modelo TLA+ provar a regra.</li>
 <li><strong>Pendências numeradas:</strong> <a href="../06_pendencias_e_riscos/01_pendencias.md">01_pendencias</a>. <strong>Riscos priorizados:</strong> <a href="../06_pendencias_e_riscos/02_riscos.md">02_riscos</a>. <strong>Revisões críticas:</strong> <a href="../06_pendencias_e_riscos/revisao_critica_12_10.md">12/10</a> e <a href="../06_pendencias_e_riscos/revisao_critica_13_10.md">13/10</a>.</li>
 </ul>
-<p>Os riscos de maior atenção, incluindo os <strong>bloqueantes de segurança</strong> da revisão de 13/10: (1) duas pontas aceitando escrita na partição (mitigado pelo lease, a provar no TLA+); (2) prefixo do gate e reconstrução na troca de líder; (3) DELETE e replay sem prova; (4) RPO &gt; 0 sem teto e sem aceite; (5) entrada venenosa trava o shard; (6) disco do log esgota em degradação longa; (7) Cosmos lento enchendo o disco do learner e degradando a AWS; (8) compatibilidade com o DynamoDB sem inventário nem suíte.</p>
+<p>Os riscos de maior atenção, incluindo os <strong>bloqueantes de segurança</strong> da revisão de 13/10: (1) duas pontas aceitando escrita na partição (mitigado pelo lease, a provar no TLA+); (2) prefixo do gate e reconstrução na troca de líder; (3) DELETE e replay sem prova; (4) RPO &gt; 0 sem teto e sem aceite; (5) entrada venenosa trava o shard; (6) disco do log esgota em degradação longa; (7) Cosmos lento enchendo o disco do learner e degradando a AWS; (8) compatibilidade com o DynamoDB sem inventário nem suíte; (9) no modo síncrono com F3, uma resposta enviada antes do fsync faria o gate contar durabilidade inexistente (risco 34, <a href="../03_adr/ADR-056-group-commit-por-shard-e-nada-sai-antes-do-fsync.md">ADR-056</a>).</p>
 </section>
 
 <section id="pronto"><h2>Definição de pronto da v1</h2>

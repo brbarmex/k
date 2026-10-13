@@ -40,7 +40,7 @@ flowchart TD
 3. **Mudança de regra (`accept`):** o gate passa a ser o commit Raft; as escritas em espera saem com o header de modo degradado e a métrica `degraded_mode`.
 4. **Lease:** a validade é conferida a cada ACK, depois do fsync e antes de responder, e não apenas em um temporizador. Ao fim de D vem `503 LEASE_EXPIRED`; o alerta de lease chegando ao fim dispara com antecedência (limiar a definir).
 5. **Alerta:** a operação é avisada do modo degradado desde o índice `fromIndex`.
-6. **Células Azure:** respondem erro recuperável ou leitura eventual defasada com a defasagem informada ([C28](C28-leitura-eventual-na-azure-defasada.md)).
+6. **Células Azure:** não alcançam a líder e respondem `503` recuperável; nunca devolvem dado defasado ([C05](C05-leitura-strong.md)).
 7. **Saída:** a volta da Azure leva à ressincronização e ao `RESTORE` ([C13](C13-ressincronizacao-da-azure.md)).
 
 ## Falhas e tratativas

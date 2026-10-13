@@ -46,7 +46,6 @@ func (stubApplied) WaitApplied(context.Context, domain.Index) error { return nil
 
 func setEnv(t *testing.T, policy string) {
 	t.Setenv("CELL_ID", "a")
-	t.Setenv("READ_MODE_DEFAULT", "strong")
 	t.Setenv("DEGRADED_POLICY", policy)
 	t.Setenv("DEGRADED_LEASE", "5m")
 	t.Setenv("DEGRADE_AFTER", "50ms")

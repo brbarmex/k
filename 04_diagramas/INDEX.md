@@ -11,7 +11,7 @@ Todos os 86 diagramas **Mermaid** do pacote, por pasta. Os diagramas de cada cen
 | [D01](D01-visao-do-sistema.md) | Contexto (mTLS por aplicação) e regra do ACK (gate por termo, `accept` com lease, `reject` com `503 PENDING`) |
 | [D02](D02-implantacao-da-celula.md) | Pod, namespace, volume, IAM e lista de permissões por aplicação |
 | [D03](D03-camadas-hexagonais.md) | Regra de dependência entre camadas |
-| [D04](D04-dois-logs-e-commitpump.md) | Caminho do dado, os dois logs, gate por evento e progresso do applier por item |
+| [D04](D04-dois-logs-e-commitpump.md) | Caminho do dado, os dois logs, escritor de group commit (nada sai antes do fsync), gate por evento e progresso do applier por item |
 | [D05](D05-gate-e-quorum.md) | Composição do gate: termo atual, evento, lease e barreira da leitura forte |
 | [D06](D06-estados-do-shard-e-do-no.md) | Modos do shard (lease expirado, sem gate com `reject`, promoção depois de D + M) e estados do nó |
 | [D07](D07-prazos-em-cascata.md) | Prazos dentro dos 30 s do SDK e o lease D fora da cascata |
@@ -34,6 +34,12 @@ Todos os 86 diagramas **Mermaid** do pacote, por pasta. Os diagramas de cada cen
 | [D07-prazos-em-cascata.md](../04_diagramas/D07-prazos-em-cascata.md) | Cascata de prazos | fluxo |
 | [D08-uma-escrita-seis-bancos.md](../04_diagramas/D08-uma-escrita-seis-bancos.md) | Fan-out da escrita | fluxo |
 
+## Índice de cenários
+
+| Arquivo | Seção | Tipo |
+|---|---|---|
+| [INDEX.md](../02_cenarios/INDEX.md) | Como os cenários se conectam | fluxo |
+
 ## Cenários atualizados
 
 | Arquivo | Seção | Tipo |
@@ -41,8 +47,7 @@ Todos os 86 diagramas **Mermaid** do pacote, por pasta. Os diagramas de cada cen
 | [C01-visao-geral.md](../02_cenarios/atualizados/C01-visao-geral.md) | Diagrama | fluxo |
 | [C02-dentro-da-celula.md](../02_cenarios/atualizados/C02-dentro-da-celula.md) | Diagrama | fluxo |
 | [C03-escrita-strong.md](../02_cenarios/atualizados/C03-escrita-strong.md) | Diagrama | sequência |
-| [C04-escrita-eventual.md](../02_cenarios/atualizados/C04-escrita-eventual.md) | Diagrama | sequência |
-| [C05-leitura-strong-e-eventual.md](../02_cenarios/atualizados/C05-leitura-strong-e-eventual.md) | Diagrama | sequência |
+| [C05-leitura-strong.md](../02_cenarios/atualizados/C05-leitura-strong.md) | Diagrama | sequência |
 | [C06-follower-encaminha.md](../02_cenarios/atualizados/C06-follower-encaminha.md) | Diagrama | sequência |
 | [C07-timeout-depois-do-commit.md](../02_cenarios/atualizados/C07-timeout-depois-do-commit.md) | Diagrama | sequência |
 | [C07-timeout-depois-do-commit.md](../02_cenarios/atualizados/C07-timeout-depois-do-commit.md) | Diagrama: prazos em cascata | fluxo |
@@ -67,7 +72,6 @@ Todos os 86 diagramas **Mermaid** do pacote, por pasta. Os diagramas de cada cen
 | [C25-link-lento-faixa-cinzenta.md](../02_cenarios/atualizados/C25-link-lento-faixa-cinzenta.md) | Diagrama: Três faixas de latência do gate | fluxo |
 | [C26-entrada-venenosa.md](../02_cenarios/atualizados/C26-entrada-venenosa.md) | Diagrama: Defesa em camadas | fluxo |
 | [C27-encaminhamento-sem-lider-conhecida.md](../02_cenarios/atualizados/C27-encaminhamento-sem-lider-conhecida.md) | Diagrama: Salto único e termo no encaminhamento | fluxo |
-| [C28-leitura-eventual-na-azure-defasada.md](../02_cenarios/atualizados/C28-leitura-eventual-na-azure-defasada.md) | Diagrama: Limite máximo de defasagem | fluxo |
 | [C29-disco-do-log-em-degradacao-longa.md](../02_cenarios/atualizados/C29-disco-do-log-em-degradacao-longa.md) | Diagrama: Teto de retenção | fluxo |
 | [C30-aws-que-volta-boot-cercado.md](../02_cenarios/atualizados/C30-aws-que-volta-boot-cercado.md) | Diagrama: Boot cercado | fluxo |
 | [C31-implantacao-por-cliente-e-identidade.md](../02_cenarios/atualizados/C31-implantacao-por-cliente-e-identidade.md) | Diagrama: Fronteiras de confiança e o que é compartilhado | fluxo |
@@ -117,11 +121,12 @@ Todos os 86 diagramas **Mermaid** do pacote, por pasta. Os diagramas de cada cen
 | [02_desenho_e_diagramas.md](../05_implementacao/02_desenho_e_diagramas.md) | 4.2 Como o Raft e a replicação atuam (os dois logs) | fluxo |
 | [02_desenho_e_diagramas.md](../05_implementacao/02_desenho_e_diagramas.md) | 4.2 Como o Raft e a replicação atuam (os dois logs) | fluxo |
 | [02_desenho_e_diagramas.md](../05_implementacao/02_desenho_e_diagramas.md) | 5.1 Escrita em modo Strong (caminho feliz) | sequência |
-| [02_desenho_e_diagramas.md](../05_implementacao/02_desenho_e_diagramas.md) | 5.1b Escrita em modo Eventual (caminho feliz) | sequência |
+| [02_desenho_e_diagramas.md](../05_implementacao/02_desenho_e_diagramas.md) | 5.1b Escrita em modo degradado (política `accept`, com lease) | sequência |
 | [02_desenho_e_diagramas.md](../05_implementacao/02_desenho_e_diagramas.md) | 5.2 Ciclo de vida do processo (partida e parada) | fluxo |
-| [02_desenho_e_diagramas.md](../05_implementacao/02_desenho_e_diagramas.md) | 6.1 Decisão de ACK (gate e modo degradado) | fluxo |
-| [02_desenho_e_diagramas.md](../05_implementacao/02_desenho_e_diagramas.md) | 6.2 Leitura (Strong x Eventual) | fluxo |
+| [02_desenho_e_diagramas.md](../05_implementacao/02_desenho_e_diagramas.md) | 6.1 Decisão de ACK (gate, política e lease) | fluxo |
+| [02_desenho_e_diagramas.md](../05_implementacao/02_desenho_e_diagramas.md) | 6.2 Leitura (sempre forte, ADR-057) | fluxo |
 | [02_desenho_e_diagramas.md](../05_implementacao/02_desenho_e_diagramas.md) | 6.3 Estados do nó | estados |
+| [02_desenho_e_diagramas.md](../05_implementacao/02_desenho_e_diagramas.md) | 6.4 Estados do modo degradado (lease) | estados |
 | [03_exemplos_de_codigo.md](../05_implementacao/03_exemplos_de_codigo.md) | 7.6b Prazos em cascata (timeouts) | fluxo |
 | [07_fases_de_trabalho.md](../05_implementacao/07_fases_de_trabalho.md) | Visão geral das cinco fases | fluxo |
 
@@ -138,3 +143,9 @@ Todos os 86 diagramas **Mermaid** do pacote, por pasta. Os diagramas de cada cen
 | [DataReplication_Versao_1.md](../DataReplication_Versao_1.md) | 2. A solução em uma página | fluxo |
 | [DataReplication_Versao_1.md](../DataReplication_Versao_1.md) | 6.1 Escrita (modo Strong) | fluxo |
 | [DataReplication_Versao_1.md](../DataReplication_Versao_1.md) | 6.2 Estados do shard | estados |
+
+## Pendências e análises
+
+| Arquivo | Seção | Tipo |
+|---|---|---|
+| [analise_group_commit_e_async_storage_13_10.md](../06_pendencias_e_riscos/analise_group_commit_e_async_storage_13_10.md) | 3. `AsyncStorageWrites` (fluxo da escrita com respostas presas ao fsync) | sequência |

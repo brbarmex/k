@@ -21,20 +21,19 @@ Gerado em 13/10/2026 a partir do pacote DataReplication_Versao_1.
 <nav class="sidebar" aria-label="Navegação">
 <a class="marca" href="../index.html">DataReplication v1<span>Comitê técnico</span></a>
 <a class="nav-inicio" href="../index.html">Resumo e requisitos</a>
-<details class="grupo"><summary>Success path <span class="qtd">10</span></summary><ul>
+<details class="grupo"><summary>Success path <span class="qtd">9</span></summary><ul>
 <li><a class="idx" href="../success-path/index.html">Índice da seção</a></li>
 <li><a href="../success-path/C01-visao-geral.html"><b>C01</b> Visão geral da arquitetura</a></li>
 <li><a href="../success-path/C02-dentro-da-celula.html"><b>C02</b> Dentro da célula: apps do cliente e DataReplication</a></li>
 <li><a href="../success-path/C03-escrita-strong.html"><b>C03</b> Caminho feliz: escrita (apply serial depois do gate)</a></li>
-<li><a href="../success-path/C04-escrita-eventual.html"><b>C04</b> Modo Eventual: só de leitura (sem apply paralelo na v1)</a></li>
-<li><a href="../success-path/C05-leitura-strong-e-eventual.html"><b>C05</b> Caminho feliz: leitura Strong e Eventual</a></li>
+<li><a href="../success-path/C05-leitura-strong.html"><b>C05</b> Caminho feliz: leitura strong</a></li>
 <li><a href="../success-path/C06-follower-encaminha.html"><b>C06</b> Requisição chega numa célula que não é a líder</a></li>
 <li><a href="../success-path/C11-transferencia-planejada.html"><b>C11</b> Transferência planejada de liderança (manutenção)</a></li>
 <li><a href="../success-path/C18-partida-e-recuperacao-do-no.html"><b>C18</b> Partida, recuperação e parada limpa do nó</a></li>
 <li><a href="../success-path/C23-batchwriteitem-lote-uma-entrada.html"><b>C23</b> BatchWriteItem: o lote é uma entrada e o apply é por item (antes R15)</a></li>
 <li><a href="../success-path/C31-implantacao-por-cliente-e-identidade.html"><b>C31</b> Uma instalação por cliente e identificação na API (antes R19)</a></li>
 </ul></details>
-<details class="grupo" open><summary>Fail path <span class="qtd">24</span></summary><ul>
+<details class="grupo" open><summary>Fail path <span class="qtd">23</span></summary><ul>
 <li><a class="idx" href="index.html">Índice da seção</a></li>
 <li><a href="C07-timeout-depois-do-commit.html"><b>C07</b> Prazo estoura depois do commit, antes do ACK (retry do SDK)</a></li>
 <li><a href="C08-queda-de-celula-lider-ou-az-aws.html"><b>C08</b> Queda da célula líder ou de uma AZ na AWS</a></li>
@@ -54,7 +53,6 @@ Gerado em 13/10/2026 a partir do pacote DataReplication_Versao_1.
 <li><a href="C25-link-lento-faixa-cinzenta.html"><b>C25</b> Link lento ou saturado (faixa cinzenta): só alertar (antes R01)</a></li>
 <li><a class="atual" aria-current="page" href="C26-entrada-venenosa.html"><b>C26</b> Entrada venenosa: um item que o banco recusa para sempre (antes R02)</a></li>
 <li><a href="C27-encaminhamento-sem-lider-conhecida.html"><b>C27</b> Loop de encaminhamento e espera pela líder durante a eleição (antes R05)</a></li>
-<li><a href="C28-leitura-eventual-na-azure-defasada.html"><b>C28</b> Leitura eventual na Azure durante a degradação (antes R04)</a></li>
 <li><a href="C29-disco-do-log-em-degradacao-longa.html"><b>C29</b> Disco do log esgota durante uma degradação longa (antes R08)</a></li>
 <li><a href="C30-aws-que-volta-boot-cercado.html"><b>C30</b> Fencing: o DynamoDB e o applier da AWS que voltam depois da promoção (antes R14)</a></li>
 <li><a href="C32-particao-e-lease-do-modo-degradado.html"><b>C32</b> Partição entre AWS e Azure: lease do modo degradado e promoção da Azure</a></li>
@@ -206,8 +204,8 @@ Gerado em 13/10/2026 a partir do pacote DataReplication_Versao_1.
 <tr><td class="nw"><a href="../../03_adr/ADR-038-skip-de-entrada-venenosa-sempre-humano.md">ADR-038</a></td><td>O SKIP de uma entrada venenosa é sempre aprovado por uma pessoa</td><td>SKIP de entrada venenosa é sempre decidido por uma pessoa, como entrada replicada e auditada.</td><td><a href="../../03_adr/ADR-038-skip-de-entrada-venenosa-sempre-humano.md">ADR-038-skip-de-entrada-venenosa-sempre-humano.md</a></td></tr>
 <tr><td class="nw"><a href="../../03_adr/ADR-048-skip-por-item.md">ADR-048</a></td><td>O SKIP identifica o item: (índice, ordem)</td><td>O SKIP identifica o item por (índice, ordem) e o applier persiste o progresso por item.</td><td><a href="../../03_adr/ADR-048-skip-por-item.md">ADR-048-skip-por-item.md</a></td></tr>
 <tr><td class="nw"><a href="../../03_adr/ADR-049-barreira-da-leitura-forte-e-o-gate.md">ADR-049</a></td><td>A leitura forte espera <code>min(ReadIndex, gate)</code></td><td>A leitura forte espera min(ReadIndex, gate), obtidos da líder na mesma resposta.</td><td><a href="../../03_adr/ADR-049-barreira-da-leitura-forte-e-o-gate.md">ADR-049-barreira-da-leitura-forte-e-o-gate.md</a></td></tr>
-<tr><td class="nw"><a href="../../03_adr/ADR-023-modos-de-escrita-e-leitura.md">ADR-023</a></td><td>Modos de escrita (Strong serial, Eventual paralelo) e de leitura (padrão forte)</td><td>READ_MODE_DEFAULT obrigatória (padrão strong); a parte de escrita (WRITE_MODE) foi substituída pelo <a href="../../03_adr/ADR-053-eventual-sem-apply-paralelo-na-v1.md">ADR-053</a>.</td><td><a href="../../03_adr/ADR-023-modos-de-escrita-e-leitura.md">ADR-023-modos-de-escrita-e-leitura.md</a></td></tr>
-<tr><td class="nw"><a href="../../03_adr/ADR-024-delete-real-ttl-local-gsi.md">ADR-024</a></td><td>DELETE real com ordem por chave; TTL local; GSI</td><td>DELETE real com ordem por chave; TTL expira local em cada célula; leitura em GSI sempre eventual.</td><td><a href="../../03_adr/ADR-024-delete-real-ttl-local-gsi.md">ADR-024-delete-real-ttl-local-gsi.md</a></td></tr>
+<tr><td class="nw"><a href="../../03_adr/ADR-057-um-unico-modo-strong-consistency.md">ADR-057</a></td><td>Um único modo: strong consistency</td><td>Um único modo, strong consistency, na escrita, na replicação e no Raft; leitura sempre forte; sem variável de modo.</td><td><a href="../../03_adr/ADR-057-um-unico-modo-strong-consistency.md">ADR-057-um-unico-modo-strong-consistency.md</a></td></tr>
+<tr><td class="nw"><a href="../../03_adr/ADR-024-delete-real-ttl-local-gsi.md">ADR-024</a></td><td>DELETE real com ordem por chave; TTL local; GSI</td><td>DELETE real com ordem por chave; TTL expira local em cada célula; Query em GSI recusada (<a href="../../03_adr/ADR-050-query-em-gsi-recusada.md">ADR-050</a>).</td><td><a href="../../03_adr/ADR-024-delete-real-ttl-local-gsi.md">ADR-024-delete-real-ttl-local-gsi.md</a></td></tr>
 <tr><td class="nw"><a href="../../03_adr/ADR-015-wal-post-image-e-versao.md">ADR-015</a></td><td>O log guarda a post-image e a versão do item</td><td>Cada entrada guarda a post-image e a versão (= índice Raft); o applier grava com condição v &lt; índice.</td><td><a href="../../03_adr/ADR-015-wal-post-image-e-versao.md">ADR-015-wal-post-image-e-versao.md</a></td></tr>
 </tbody></table></div>
 <p class="nota">Lista extraída do cabeçalho “ADRs” do arquivo fonte. A decisão resumida condensa a seção “Decisão” de cada ADR.</p>

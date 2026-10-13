@@ -1,47 +1,47 @@
 {
- "id": "C24",
- "pontos": [
-  {
-   "titulo": "Cauda do DynamoDB no caminho do ACK",
-   "origem": "Falhas e tratativas",
-   "contexto": "O ACK só sai depois do apply na célula da líder, então o tempo de escrita no DynamoDB, com a sua cauda, entra inteiro na latência vista pelo cliente. Retries internos e throttling em partição quente podem passar de 50 ms. O SLO de 50 ms de overhead pode estar cumprido e o cliente ainda assim ver latência muito acima da meta.",
-   "na_fonte": "Decidido no ADR-036: o SLO de 50 ms continua excluindo a escrita no DynamoDB e passa a ser publicado como `overhead + banco`, medido ponta a ponta; as parcelas `t_parse`, `t_raft`, `t_azure` e `t_apply` são métricas separadas.",
-   "sugestao": "Publicar o contrato com dois números (overhead e P99 do banco) e alertar separadamente quando o P99 de `t_apply` passar da referência do DynamoDB direto (limiar a definir). Incluir em teste de carga uma partição quente proposital para mostrar ao cliente o comportamento da cauda."
-  },
-  {
-   "titulo": "Throttling vira PENDING",
-   "origem": "Falhas e tratativas",
-   "contexto": "Se o DynamoDB devolve throttling por mais que o prazo de 7,5 s, a escrita já commitada não consegue ser aplicada a tempo e o cliente recebe `503 PENDING`, com resultado desconhecido. Do ponto de vista do cliente isso é indisponibilidade, mesmo com o dado seguro no log. Retries do SDK podem somar carga ao banco que já está limitando.",
-   "na_fonte": "A fonte decide responder `503 PENDING` e manter o applier tentando, com o tratamento de resultado desconhecido do C07.",
-   "sugestao": "Medir a taxa de `PENDING` por causa (throttling, Azure, eleição) e alertar por shard. Avaliar com o cliente a capacidade provisionada ou sob demanda das tabelas para que o throttling do applier não seja causado pela própria réplica, e testar o efeito dos retries do SDK sobre um shard em throttling."
-  },
-  {
-   "titulo": "ACK antes do apply descartado",
-   "origem": "Falhas e tratativas",
-   "contexto": "Responder o ACK antes do apply reduziria a latência, mas quebraria a leitura do que escrevi na leitura forte local. O tradeoff foi resolvido a favor da consistência, à custa de manter `t_apply` no caminho crítico.",
-   "na_fonte": "Descartado na fonte, pois reabriria o ADR-023. O apply paralelo do antigo modo Eventual saiu da v1 (ADR-053) e só volta como opt-in por instalação se o spike S5 mostrar que o orçamento estoura.",
-   "sugestao": "Registrar no TLA+ a propriedade de leitura do que escrevi associada ao ACK depois do apply, para que qualquer opt-in futuro seja avaliado contra ela. Definir antes do spike qual resultado do S5 dispararia a reavaliação."
-  },
-  {
-   "titulo": "Várias escritas por transação do cliente",
-   "origem": "Falhas e tratativas",
-   "contexto": "Com 3 ou mais escritas sequenciais por transação de negócio, o alvo de 150 ms por transação não fecha mesmo com o overhead dentro de 50 ms por escrita. O problema não é da camada isoladamente, mas do padrão de acesso da aplicação. Sem esse número, o contrato de latência pode ser aceito por clientes que não conseguirão cumpri-lo.",
-   "na_fonte": "Não decidido na fonte. Proposta na fonte: assumir 1 a 2 escritas por transação e medir por tracing (PEND-07).",
-   "sugestao": "Incluir no inventário do cliente (PEND-15) o número de escritas sequenciais por transação, medido por tracing distribuído, e recusar ou renegociar o SLO com quem passa do limite. Sugerir paralelizar escritas independentes ou usar lote onde a aplicação permitir."
-  },
-  {
-   "titulo": "Medir as parcelas da latência separadamente",
-   "origem": "Pontos em aberto",
-   "contexto": "O orçamento de latência depende de `t_parse`, `t_raft`, `t_azure` e `t_apply`, e nenhuma delas foi medida ainda. Sem a medição não se sabe se o overhead cabe em 50 ms nem qual parcela domina.",
-   "na_fonte": "Não decidido na fonte. A medição está prevista no spike S1.",
-   "sugestao": "No spike S1, publicar o histograma de cada parcela sob a carga de referência e com link degradado, e fixar um critério de aceite para o overhead P99 antes de avançar para o próximo marco."
-  },
-  {
-   "titulo": "Número de escritas sequenciais por transação (PEND-07)",
-   "origem": "Pontos em aberto",
-   "contexto": "O número de escritas sequenciais por transação de negócio define se o alvo por transação é viável. Enquanto não for conhecido, o dimensionamento do SLO fica baseado em suposição.",
-   "na_fonte": "Não decidido na fonte. Proposta na fonte: assumir 1 a 2 e medir por tracing (PEND-07, responsável Bruno).",
-   "sugestao": "Levar a PEND-07 aos times clientes como item obrigatório do inventário, com medição por tracing em produção atual, e fechar antes da definição do contrato de latência."
-  }
- ]
+  "id": "C24",
+  "pontos": [
+    {
+      "titulo": "Cauda do DynamoDB no caminho do ACK",
+      "origem": "Falhas e tratativas",
+      "contexto": "O ACK só sai depois do apply na célula da líder, então o tempo de escrita no DynamoDB, com a sua cauda, entra inteiro na latência vista pelo cliente. Retries internos e throttling em partição quente podem passar de 50 ms. O SLO de 50 ms de overhead pode estar cumprido e o cliente ainda assim ver latência muito acima da meta.",
+      "na_fonte": "Decidido no ADR-036: o SLO de 50 ms continua excluindo a escrita no DynamoDB e passa a ser publicado como `overhead + banco`, medido ponta a ponta; as parcelas `t_parse`, `t_raft`, `t_azure` e `t_apply` são métricas separadas.",
+      "sugestao": "Publicar o contrato com dois números (overhead e P99 do banco) e alertar separadamente quando o P99 de `t_apply` passar da referência do DynamoDB direto (limiar a definir). Incluir em teste de carga uma partição quente proposital para mostrar ao cliente o comportamento da cauda."
+    },
+    {
+      "titulo": "Throttling vira PENDING",
+      "origem": "Falhas e tratativas",
+      "contexto": "Se o DynamoDB devolve throttling por mais que o prazo de 7,5 s, a escrita já commitada não consegue ser aplicada a tempo e o cliente recebe `503 PENDING`, com resultado desconhecido. Do ponto de vista do cliente isso é indisponibilidade, mesmo com o dado seguro no log. Retries do SDK podem somar carga ao banco que já está limitando.",
+      "na_fonte": "A fonte decide responder `503 PENDING` e manter o applier tentando, com o tratamento de resultado desconhecido do C07.",
+      "sugestao": "Medir a taxa de `PENDING` por causa (throttling, Azure, eleição) e alertar por shard. Avaliar com o cliente a capacidade provisionada ou sob demanda das tabelas para que o throttling do applier não seja causado pela própria réplica, e testar o efeito dos retries do SDK sobre um shard em throttling."
+    },
+    {
+      "titulo": "ACK antes do apply descartado",
+      "origem": "Falhas e tratativas",
+      "contexto": "Responder o ACK antes do apply reduziria a latência, mas quebraria a leitura do que escrevi na leitura forte local. O tradeoff foi resolvido a favor da consistência, à custa de manter `t_apply` no caminho crítico.",
+      "na_fonte": "Descartado na fonte. O apply é sempre serial e depois do gate e o ACK sai depois do apply (modo único strong, ADR-057).",
+      "sugestao": "Registrar no TLA+ a propriedade de leitura do que escrevi associada ao ACK depois do apply. Definir antes do spike qual resultado do S5 exige ajuste do banco ou do orçamento."
+    },
+    {
+      "titulo": "Várias escritas por transação do cliente",
+      "origem": "Falhas e tratativas",
+      "contexto": "Com 3 ou mais escritas sequenciais por transação de negócio, o alvo de 150 ms por transação não fecha mesmo com o overhead dentro de 50 ms por escrita. O problema não é da camada isoladamente, mas do padrão de acesso da aplicação. Sem esse número, o contrato de latência pode ser aceito por clientes que não conseguirão cumpri-lo.",
+      "na_fonte": "Não decidido na fonte. Proposta na fonte: assumir 1 a 2 escritas por transação e medir por tracing (PEND-07).",
+      "sugestao": "Incluir no inventário do cliente (PEND-15) o número de escritas sequenciais por transação, medido por tracing distribuído, e recusar ou renegociar o SLO com quem passa do limite. Sugerir paralelizar escritas independentes ou usar lote onde a aplicação permitir."
+    },
+    {
+      "titulo": "Medir as parcelas da latência separadamente",
+      "origem": "Pontos em aberto",
+      "contexto": "O orçamento de latência depende de `t_parse`, `t_raft`, `t_azure` e `t_apply`, e nenhuma delas foi medida ainda. Sem a medição não se sabe se o overhead cabe em 50 ms nem qual parcela domina.",
+      "na_fonte": "Não decidido na fonte. A medição está prevista no spike S1.",
+      "sugestao": "No spike S1, publicar o histograma de cada parcela sob a carga de referência e com link degradado, e fixar um critério de aceite para o overhead P99 antes de avançar para o próximo marco."
+    },
+    {
+      "titulo": "Número de escritas sequenciais por transação (PEND-07)",
+      "origem": "Pontos em aberto",
+      "contexto": "O número de escritas sequenciais por transação de negócio define se o alvo por transação é viável. Enquanto não for conhecido, o dimensionamento do SLO fica baseado em suposição.",
+      "na_fonte": "Não decidido na fonte. Proposta na fonte: assumir 1 a 2 e medir por tracing (PEND-07, responsável Bruno).",
+      "sugestao": "Levar a PEND-07 aos times clientes como item obrigatório do inventário, com medição por tracing em produção atual, e fechar antes da definição do contrato de latência."
+    }
+  ]
 }

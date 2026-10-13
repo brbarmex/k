@@ -29,4 +29,4 @@ flowchart TD
 
 ## Pontos em aberto
 
-- Inventário real das dependências por componente (dono: time de plataforma) e data do primeiro teste com a AWS bloqueada.
+- Inventário real das dependências por componente (dono: time de infraestrutura) e data do primeiro teste com a AWS bloqueada.

@@ -1,33 +1,33 @@
 {
- "id": "R13",
- "pontos": [
-  {
-   "titulo": "Disco da AWS perdido",
-   "origem": "Falhas e tratativas",
-   "contexto": "As escritas órfãs só podem ser extraídas do log local da AWS; se o volume do log não sobrevive à falha, elas são irrecuperáveis. Essas escritas foram ACKadas ao cliente com `x-dr-mode: degraded`, então há perda real de dado confirmado (RPO > 0) sem possibilidade de relatório. O impacto é maior quanto maior o tempo em degradação, limitado por D e pelas prorrogações.",
-   "na_fonte": "Não decidido na fonte. Proposta na fonte: avaliar cópia periódica do log degradado para fora do volume (C29), que reduz a perda mas não a elimina; H2 também cita exportação para um armazenamento que a Azure consiga ler.",
-   "sugestao": "Decidir com o negócio se a cópia periódica entra na v1, considerando que o ADR-041 fixou o disco do log sem S3 na v1. Se não entrar, registrar explicitamente no aceite da PEND-02 que a perda das órfãs com disco perdido é total e não apenas não reconciliada."
-  },
-  {
-   "titulo": "DynamoDB com órfãs apagadas pela recriação",
-   "origem": "Falhas e tratativas",
-   "contexto": "Mesmo sem o log, o DynamoDB local da AWS contém o resultado das órfãs aplicadas antes da queda. Na volta da AWS, a célula é recriada a partir da réplica (ADR-042, C33), e recriar o banco apaga essas órfãs. Se a ordem for invertida por erro operacional, a única fonte restante das órfãs desaparece.",
-   "na_fonte": "A fonte decide a ordem: a extração do log e do banco local acontece antes do cutover da recriação, com a célula cercada, aprovação humana e PITR como rede de segurança (ADR-042, C33, C30).",
-   "sugestao": "Transformar a ordem em pré-condição técnica, fazendo a recriação recusar o cutover enquanto não houver um relatório de órfãs assinado para o episódio. Verificar também que o PITR do DynamoDB está habilitado e cobre o período desde `fromIndex`, com alerta caso esteja desligado em alguma tabela."
-  },
-  {
-   "titulo": "Órfã que a Azure já substituiu",
-   "origem": "Falhas e tratativas",
-   "contexto": "Se a mesma chave foi escrita de novo na Azure depois da promoção, reaplicar a órfã sobrescreveria um dado mais novo. A versão do apply (`v < índice`) não resolve isso, porque os índices vêm de logs diferentes após a troca de epoch. O conflito é de negócio e não pode ser resolvido de forma automática sem risco de corrupção.",
-   "na_fonte": "A fonte decide que a reaplicação é sempre decidida por pessoa, nunca automática, entrando no log como escrita nova e auditada (transação compensatória aprovada).",
-   "sugestao": "Definir no `drctl orphans export` uma classificação explícita (sem conflito, conflito por escrita posterior, conflito por delete) e um formato de relatório que o dono do processo consiga revisar por cliente. Pensar no caso de órfãs em itens dependentes (por exemplo saldo e extrato), em que reaplicar uma chave sem a outra deixa estado inconsistente, e exigir revisão por grupo de chaves relacionadas."
-  },
-  {
-   "titulo": "Dono do processo e política de comunicação ao cliente",
-   "origem": "Pontos em aberto",
-   "contexto": "Não há dono definido para a reconciliação (negócio ou plataforma) nem política de como e quando avisar o cliente sobre escritas que não puderam ser reaplicadas. Sem isso, após um desastre em modo degradado, as órfãs ficam em um relatório sem decisão, e o cliente não sabe que dado confirmado se perdeu. O assunto liga com o aceite do RPO > 0 e do valor de D (PEND-02).",
-   "na_fonte": "Não decidido na fonte. Proposta na fonte: extrair do log e decidir caso a caso (PEND-03), com os clientes podendo registrar os ACKs degradados para cruzar depois.",
-   "sugestao": "Levar a definição do dono e da política de comunicação junto com o aceite da PEND-02, já que ambos tratam do mesmo risco. Recomendar aos clientes `accept` que registrem os ACKs com `x-dr-mode: degraded` como requisito de entrada, pois sem esse registro a reconciliação depende só do disco da AWS."
-  }
- ]
+  "id": "R13",
+  "pontos": [
+    {
+      "titulo": "Disco da AWS perdido",
+      "origem": "Falhas e tratativas",
+      "contexto": "As escritas órfãs só podem ser extraídas do log local da AWS; se o volume do log não sobrevive à falha, elas são irrecuperáveis. Essas escritas foram ACKadas ao cliente com `x-dr-mode: degraded`, então há perda real de dado confirmado (RPO > 0) sem possibilidade de relatório. O impacto é maior quanto maior o tempo em degradação, limitado por D e pelas prorrogações.",
+      "na_fonte": "Não decidido na fonte. Proposta na fonte: avaliar cópia periódica do log degradado para fora do volume (C29), que reduz a perda mas não a elimina; H2 também cita exportação para um armazenamento que a Azure consiga ler.",
+      "sugestao": "Decidir com o negócio se a cópia periódica entra na v1, considerando que o ADR-041 fixou o disco do log sem S3 na v1. Se não entrar, registrar explicitamente no aceite da PEND-02 que a perda das órfãs com disco perdido é total e não apenas não reconciliada."
+    },
+    {
+      "titulo": "DynamoDB com órfãs apagadas pela recriação",
+      "origem": "Falhas e tratativas",
+      "contexto": "Mesmo sem o log, o DynamoDB local da AWS contém o resultado das órfãs aplicadas antes da queda. Na volta da AWS, a célula é recriada a partir da réplica (ADR-042, C33), e recriar o banco apaga essas órfãs. Se a ordem for invertida por erro operacional, a única fonte restante das órfãs desaparece.",
+      "na_fonte": "A fonte decide a ordem: a extração do log e do banco local acontece antes do cutover da recriação, com a célula cercada, aprovação humana e PITR como rede de segurança (ADR-042, C33, C30).",
+      "sugestao": "Transformar a ordem em pré-condição técnica, fazendo a recriação recusar o cutover enquanto não houver um relatório de órfãs assinado para o episódio. Verificar também que o PITR do DynamoDB está habilitado e cobre o período desde `fromIndex`, com alerta caso esteja desligado em alguma tabela."
+    },
+    {
+      "titulo": "Órfã que a Azure já substituiu",
+      "origem": "Falhas e tratativas",
+      "contexto": "Se a mesma chave foi escrita de novo na Azure depois da promoção, reaplicar a órfã sobrescreveria um dado mais novo. A versão do apply (`v < índice`) não resolve isso, porque os índices vêm de logs diferentes após a troca de epoch. O conflito é de negócio e não pode ser resolvido de forma automática sem risco de corrupção.",
+      "na_fonte": "A fonte decide que a reaplicação é sempre decidida por pessoa, nunca automática, entrando no log como escrita nova e auditada (transação compensatória aprovada).",
+      "sugestao": "Definir no `drctl orphans export` uma classificação explícita (sem conflito, conflito por escrita posterior, conflito por delete) e um formato de relatório que o dono do processo consiga revisar por cliente. Pensar no caso de órfãs em itens dependentes (por exemplo saldo e extrato), em que reaplicar uma chave sem a outra deixa estado inconsistente, e exigir revisão por grupo de chaves relacionadas."
+    },
+    {
+      "titulo": "Dono do processo e política de comunicação ao cliente",
+      "origem": "Pontos em aberto",
+      "contexto": "Não há dono definido para a reconciliação (negócio ou operação) nem política de como e quando avisar o cliente sobre escritas que não puderam ser reaplicadas. Sem isso, após um desastre em modo degradado, as órfãs ficam em um relatório sem decisão, e o cliente não sabe que dado confirmado se perdeu. O assunto liga com o aceite do RPO > 0 e do valor de D (PEND-02).",
+      "na_fonte": "Não decidido na fonte. Proposta na fonte: extrair do log e decidir caso a caso (PEND-03), com os clientes podendo registrar os ACKs degradados para cruzar depois.",
+      "sugestao": "Levar a definição do dono e da política de comunicação junto com o aceite da PEND-02, já que ambos tratam do mesmo risco. Recomendar aos clientes `accept` que registrem os ACKs com `x-dr-mode: degraded` como requisito de entrada, pois sem esse registro a reconciliação depende só do disco da AWS."
+    }
+  ]
 }

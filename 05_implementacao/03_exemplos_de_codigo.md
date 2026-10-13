@@ -18,10 +18,10 @@ O esboço original tinha oito defeitos, confirmados na [revisão](../06_pendenci
 | 4 | `b.Entries[len(b.Entries)-1]` quebrava com lote vazio; canal fechado não era tratado | Lote vazio é ignorado; canal fechado devolve `ErrStreamClosed` | `TestEmptyBatchDoesNotPanic`, `TestClosedChannelsReturnError` |
 | 5 | Sem líder conhecida o código seguia para `Propose` | Espera até `WAIT_LEADER` (1 s) e devolve `ErrNoLeader` (503); requisição já encaminhada nunca é reencaminhada; teto de esperantes ([ADR-039](../03_adr/ADR-039-sem-lider-conhecida-espera-ate-1s-e-503.md)) | `TestNoLeaderWaitsThenFailsWithoutPropose`, `TestForwardedIsNeverReforwarded`, `TestMaxWaitingLeader` |
 | 6 | Nenhuma validade do modo degradado; `DEGRADED_POLICY` inexistente | `Lease` contado desde `t_c`, o último contato com a maioria Azure (não desde a proposta do `DEGRADE`), conferido a cada ACK com relógio injetável (`now < t_c + D`, `503 LEASE_EXPIRED`); líder nova ou nó reiniciado herda o `DEGRADE` sem `t_c` (vencido até contato ou `RENEW`); `reject` nunca propõe `DEGRADE` ([ADR-044](../03_adr/ADR-044-lease-do-modo-degradado-e-promocao-da-azure.md), [ADR-045](../03_adr/ADR-045-politica-de-degradacao-por-instalacao.md)) | `TestLateDegradeWithOldContactIsExpired`, `TestNewLeaderWithoutContactIsExpired`, `TestLeaseRenewAndClear`, `TestLeaseCheckedAtEveryAck`, `TestRejectNeverDegrades`, `TestConcurrentWritesEnterDegradedOnce` |
-| 7 | `WriteTimeout` de 5 s contra `REQUEST_DEADLINE` de 7,5 s; erro JSON montado por concatenação | `WriteTimeout = REQUEST_DEADLINE + folga`; `IdleTimeout` da configuração; `json.Marshal`; `ConsistentRead` em GSI recusada ([ADR-050](../03_adr/ADR-050-gsi-nao-tem-leitura-forte.md)) | `TestTimeoutsAreCoherent`, `TestErrorBodyIsAlwaysValidJSON`, `TestConsistentReadOnGSIRefused` |
+| 7 | `WriteTimeout` de 5 s contra `REQUEST_DEADLINE` de 7,5 s; erro JSON montado por concatenação | `WriteTimeout = REQUEST_DEADLINE + folga`; `IdleTimeout` da configuração; `json.Marshal`; `ConsistentRead` em GSI recusada ([ADR-050](../03_adr/ADR-050-query-em-gsi-recusada.md)) | `TestTimeoutsAreCoherent`, `TestErrorBodyIsAlwaysValidJSON`, `TestConsistentReadOnGSIRefused` |
 | 8 | `Degraded` sempre `false`: o header `x-dr-mode` nunca saía | O `WriteService` pergunta ao `Degrader` (estado real do shard: lease ativo) | `TestDegradedFlagFollowsShardState`, `TestWriterDegradedFollowsRealShardState` |
 
-Também mudou a configuração: `DEGRADED_POLICY` é obrigatória e sem padrão; `DEGRADED_LEASE` também não tem padrão e é obrigatória **só com `DEGRADED_POLICY=accept`** (com `reject` é ignorada, sem erro); `WRITE_MODE` saiu da v1 ([ADR-053](../03_adr/ADR-053-eventual-sem-apply-paralelo-na-v1.md)). Que uma `WRITE_MODE` ainda definida derrube a partida é uma **proposta a confirmar** (evita um manifesto antigo ser ignorado em silêncio).
+Também mudou a configuração: `DEGRADED_POLICY` é obrigatória e sem padrão; `DEGRADED_LEASE` também não tem padrão e é obrigatória **só com `DEGRADED_POLICY=accept`** (com `reject` é ignorada, sem erro); não há variável de modo ([ADR-057](../03_adr/ADR-057-um-unico-modo-strong-consistency.md)), e `READ_MODE_DEFAULT`, `WRITE_MODE` ou `MAX_STALENESS` ainda definidas derrubam a partida (evita um manifesto antigo ser ignorado em silêncio).
 
 **Pontos que o esboço não resolve (de propósito):** `Log.Append` continua síncrono dentro da goroutine de commits (o gate não depende dela, mas o próximo lote ao `Applier` sim; a versão final usa fila limitada); o `DegradeService` é disparado por requisição que espera a Azure, enquanto a versão final terá um monitor com histerese (`DegradeController`); a regra de promoção contra prorrogação (H-DR13) fica para o TLA+; o `t_c` depende de o adaptador do Raft preencher `SentAt` (instante de envio, relógio monotônico da líder) em cada resposta de learner, heartbeat incluído; o parser, a leitura (barreira `min(ReadIndex, gate)`, [ADR-049](../03_adr/ADR-049-barreira-da-leitura-forte-e-o-gate.md)), o `Applier` com checkpoint por item ([ADR-048](../03_adr/ADR-048-skip-por-item.md)) e o mTLS por aplicação ([ADR-052](../03_adr/ADR-052-autorizacao-por-aplicacao-com-mtls.md)) não existem no esboço.
 
@@ -663,7 +663,7 @@ var (
 
 // WriteService é o caso de uso "escrever": acha a líder, propõe, espera o gate, espera
 // o apply local, confere o lease e responde. O apply é sempre serial e depois do gate
-// (ADR-053); o ACK é sempre depois do gate E do apply.
+// (ADR-057); o ACK é sempre depois do gate E do apply.
 type WriteService struct {
 	Consensus port.ConsensusEngine
 	Forward   port.Forwarder
@@ -1212,13 +1212,13 @@ type APIError struct {
 
 func (e *APIError) Error() string { return e.Type + ": " + e.Message }
 
-// ValidateConsistentRead aplica o ADR-050: ConsistentRead=true em índice secundário
-// global é recusado com a mesma ValidationException do DynamoDB. O parser de Query/Scan
-// chama esta função assim que lê IndexName e ConsistentRead. Na tabela base vale
-// READ_MODE_DEFAULT; em GSI a leitura é sempre eventual (header x-dr-consistency).
-func ValidateConsistentRead(indexName string, consistentRead bool) error {
-	if indexName != "" && consistentRead {
-		return &APIError{Status: 400, Type: "ValidationException", Message: "Consistent reads are not supported on global secondary indexes"}
+// ValidateIndex aplica o ADR-050: Query ou Scan em índice secundário global (GSI) é
+// recusado com ValidationException, com ou sem ConsistentRead, porque o GSI nunca é
+// forte e o DataReplication tem um único modo, strong (ADR-057). O parser de Query/Scan
+// chama esta função assim que lê IndexName; isGlobal vem do catálogo de tabelas.
+func ValidateIndex(indexName string, isGlobal bool) error {
+	if indexName != "" && isGlobal {
+		return &APIError{Status: 400, Type: "ValidationException", Message: "Queries on global secondary indexes are not supported: the DataReplication serves only strongly consistent reads"}
 	}
 	return nil
 }
@@ -1295,7 +1295,7 @@ func (s *Server) Shutdown(ctx context.Context) error {
 
 ### 7.6 Configuração (12 Factors)
 
-> O esboço lê as variáveis de ambiente direto, para não puxar dependência. A versão final lê o YAML com `viper` (`UnmarshalExact`, para recusar chaves desconhecidas) e valida do mesmo jeito: variável obrigatória ausente ou prazos fora de ordem impedem a partida ([ADR-031](../03_adr/ADR-031-hexagonal-e-bibliotecas.md)). `DEGRADED_POLICY` e `DEGRADED_LEASE` não têm valor padrão ([ADR-045](../03_adr/ADR-045-politica-de-degradacao-por-instalacao.md)); `DEGRADED_LEASE` só é exigida com `accept` e é ignorada, sem erro, com `reject`. O valor de D depende do negócio (PEND-02) e não é sugerido aqui. Uma `WRITE_MODE` ainda definida derruba a partida (proposta a confirmar).
+> O esboço lê as variáveis de ambiente direto, para não puxar dependência. A versão final lê o YAML com `viper` (`UnmarshalExact`, para recusar chaves desconhecidas) e valida do mesmo jeito: variável obrigatória ausente ou prazos fora de ordem impedem a partida ([ADR-031](../03_adr/ADR-031-hexagonal-e-bibliotecas.md)). `DEGRADED_POLICY` e `DEGRADED_LEASE` não têm valor padrão ([ADR-045](../03_adr/ADR-045-politica-de-degradacao-por-instalacao.md)); `DEGRADED_LEASE` só é exigida com `accept` e é ignorada, sem erro, com `reject`. O valor de D depende do negócio (PEND-02) e não é sugerido aqui. Não há variável de modo (modo único strong, [ADR-057](../03_adr/ADR-057-um-unico-modo-strong-consistency.md)): `READ_MODE_DEFAULT`, `WRITE_MODE` ou `MAX_STALENESS` ainda definidas derrubam a partida.
 
 ```go
 package config
@@ -1309,11 +1309,10 @@ import (
 
 // Config é lido uma vez na partida e é imutável (12 Factors, III). Sem hot reload.
 type Config struct {
-	CellID          string // env CELL_ID (obrigatória)
-	ReadModeDefault string // env READ_MODE_DEFAULT: strong | eventual (obrigatória; só tabela base, ADR-050)
-	APIAddr         string
-	AdminAddr       string
-	WALDir          string
+	CellID    string // env CELL_ID (obrigatória)
+	APIAddr   string
+	AdminAddr string
+	WALDir    string
 
 	// Modo degradado (ADR-044 e ADR-045). DEGRADED_POLICY é OBRIGATÓRIA e sem valor
 	// padrão. DEGRADED_LEASE (D) também não tem padrão e é obrigatória só com
@@ -1331,6 +1330,9 @@ type Config struct {
 	IdleTimeout     time.Duration // IDLE_TIMEOUT: conexão ociosa; padrão 120s (> idle dos SDKs)
 }
 
+// RemovedModeVars são as variáveis do antigo modo Eventual (ADR-057).
+var RemovedModeVars = []string{"READ_MODE_DEFAULT", "WRITE_MODE", "MAX_STALENESS"}
+
 // MinIdleTimeout é o maior idle de SDK conhecido (Go, 90 s). O servidor precisa ficar
 // acima, senão o SDK reusa uma conexão que o servidor já fechou.
 const MinIdleTimeout = 90 * time.Second
@@ -1343,12 +1345,11 @@ func Load() (Config, error) { return LoadFrom(os.Getenv) }
 func LoadFrom(getenv func(string) string) (Config, error) {
 	var errs []error
 	c := Config{
-		CellID:          getenv("CELL_ID"),
-		ReadModeDefault: getenv("READ_MODE_DEFAULT"),
-		DegradedPolicy:  getenv("DEGRADED_POLICY"),
-		APIAddr:         ":8000",
-		AdminAddr:       ":9090",
-		WALDir:          "/var/lib/dr/wal",
+		CellID:         getenv("CELL_ID"),
+		DegradedPolicy: getenv("DEGRADED_POLICY"),
+		APIAddr:        ":8000",
+		AdminAddr:      ":9090",
+		WALDir:         "/var/lib/dr/wal",
 	}
 	dur := func(key string, def time.Duration, required bool) time.Duration {
 		s := getenv(key)
@@ -1375,21 +1376,20 @@ func LoadFrom(getenv func(string) string) (Config, error) {
 	c.ForwardTimeout = dur("FORWARD_TIMEOUT", 3*time.Second, false)
 	c.IdleTimeout = dur("IDLE_TIMEOUT", 120*time.Second, false)
 
-	for k, v := range map[string]string{"CELL_ID": c.CellID, "READ_MODE_DEFAULT": c.ReadModeDefault, "DEGRADED_POLICY": c.DegradedPolicy} {
+	for k, v := range map[string]string{"CELL_ID": c.CellID, "DEGRADED_POLICY": c.DegradedPolicy} {
 		if v == "" {
 			errs = append(errs, errors.New("variável obrigatória ausente: "+k))
 		}
 	}
-	if c.ReadModeDefault != "" && c.ReadModeDefault != "strong" && c.ReadModeDefault != "eventual" {
-		errs = append(errs, fmt.Errorf("READ_MODE_DEFAULT inválida %q: use strong ou eventual", c.ReadModeDefault))
-	}
 	if c.DegradedPolicy != "" && c.DegradedPolicy != "accept" && c.DegradedPolicy != "reject" {
 		errs = append(errs, fmt.Errorf("DEGRADED_POLICY inválida %q: use accept ou reject", c.DegradedPolicy))
 	}
-	// WRITE_MODE saiu da v1 (ADR-053): o apply é sempre serial e depois do gate. Um
-	// manifesto antigo que ainda a define falha na partida, em vez de ser ignorado.
-	if getenv("WRITE_MODE") != "" {
-		errs = append(errs, errors.New("WRITE_MODE foi removida da v1 (ADR-053): retire-a da configuração"))
+	// Modo único strong (ADR-057): não há variável de modo. Um manifesto antigo que ainda
+	// define uma delas falha na partida, em vez de ser ignorado.
+	for _, k := range RemovedModeVars {
+		if getenv(k) != "" {
+			errs = append(errs, fmt.Errorf("%s não existe mais (modo único strong, ADR-057): retire-a da configuração", k))
+		}
 	}
 
 	// Regras de consistência entre prazos: quem está mais dentro responde antes de quem está mais fora.
@@ -1611,3 +1611,44 @@ func (c *Checkpointer) Tick(ctx context.Context) error {
 	return c.Log.CompactPrefix(ctx, domain.ReplogTruncateLimit(c.Retention()))
 }
 ```
+
+### 7.10 Escritor do log do Raft e regra de envio (ADR-056)
+
+> No [`codigo_exemplo/`](codigo_exemplo/README.md), compilado e testado: `internal/adapter/out/raftstore` (escritor com group commit por shard) e `internal/domain/sendrule.go` (o que pode sair antes do fsync). O adaptador `etcdraft`, que ainda não existe, liga os dois ao `wal` do etcd e ao `MemoryStorage`.
+
+```go
+// raftstore.Writer.write: um grupo de lotes, um fsync, depois as respostas.
+func (w *Writer) write(group []Batch) error {
+	st, ents, err := Merge(group) // reescrita de índices corta o lote anterior; vale o último HardState
+	if err != nil {
+		return err
+	}
+	if err := w.st.Persist(st, ents); err != nil { // um wal.Save com fdatasync
+		return fmt.Errorf("raftstore: persist: %w", err) // fatal, sem liberar respostas (ADR-034)
+	}
+	if err := w.st.Publish(st, ents); err != nil { // MemoryStorage.Append e SetHardState
+		return fmt.Errorf("raftstore: publish: %w", err)
+	}
+	for _, b := range group { // só agora: MsgAppResp, votos, auto-ACK da líder, Advance
+		if b.Release != nil {
+			b.Release()
+		}
+	}
+	return nil
+}
+```
+
+No modo síncrono com F3, o laço do shard separa as mensagens do `Ready` antes de entregar o lote ao escritor:
+
+```go
+before, after := domain.SplitBeforeSync(isLeader, rd.Messages, kindOf) // só MsgApp da líder em before
+transport.Send(before)                                                // F3: corre em paralelo ao fsync
+done := make(chan struct{})
+_ = writer.Submit(ctx, raftstore.Batch{Entries: toRecords(rd.Entries), State: hardState(rd), Barrier: hasSnapshot(rd),
+	Release: func() { transport.Send(after); close(done) }})
+<-done        // modo síncrono: o laço espera o próprio lote
+node.Advance() // só depois do fsync
+```
+
+Erros de proposta: `raft.ErrProposalDropped` (buffer acima de `MaxUncommittedEntriesSize`) vira `usecase.ErrBackpressure`, que o adaptador HTTP responde como `ThrottlingException` (HTTP 400).
+

@@ -9,11 +9,10 @@ import (
 
 // Config é lido uma vez na partida e é imutável (12 Factors, III). Sem hot reload.
 type Config struct {
-	CellID          string // env CELL_ID (obrigatória)
-	ReadModeDefault string // env READ_MODE_DEFAULT: strong | eventual (obrigatória; só tabela base, ADR-050)
-	APIAddr         string
-	AdminAddr       string
-	WALDir          string
+	CellID    string // env CELL_ID (obrigatória)
+	APIAddr   string
+	AdminAddr string
+	WALDir    string
 
 	// Modo degradado (ADR-044 e ADR-045). DEGRADED_POLICY é OBRIGATÓRIA e sem valor
 	// padrão. DEGRADED_LEASE (D) também não tem padrão e é obrigatória só com
@@ -31,6 +30,9 @@ type Config struct {
 	IdleTimeout     time.Duration // IDLE_TIMEOUT: conexão ociosa; padrão 120s (> idle dos SDKs)
 }
 
+// RemovedModeVars são as variáveis do antigo modo Eventual (ADR-057).
+var RemovedModeVars = []string{"READ_MODE_DEFAULT", "WRITE_MODE", "MAX_STALENESS"}
+
 // MinIdleTimeout é o maior idle de SDK conhecido (Go, 90 s). O servidor precisa ficar
 // acima, senão o SDK reusa uma conexão que o servidor já fechou.
 const MinIdleTimeout = 90 * time.Second
@@ -43,12 +45,11 @@ func Load() (Config, error) { return LoadFrom(os.Getenv) }
 func LoadFrom(getenv func(string) string) (Config, error) {
 	var errs []error
 	c := Config{
-		CellID:          getenv("CELL_ID"),
-		ReadModeDefault: getenv("READ_MODE_DEFAULT"),
-		DegradedPolicy:  getenv("DEGRADED_POLICY"),
-		APIAddr:         ":8000",
-		AdminAddr:       ":9090",
-		WALDir:          "/var/lib/dr/wal",
+		CellID:         getenv("CELL_ID"),
+		DegradedPolicy: getenv("DEGRADED_POLICY"),
+		APIAddr:        ":8000",
+		AdminAddr:      ":9090",
+		WALDir:         "/var/lib/dr/wal",
 	}
 	dur := func(key string, def time.Duration, required bool) time.Duration {
 		s := getenv(key)
@@ -75,21 +76,20 @@ func LoadFrom(getenv func(string) string) (Config, error) {
 	c.ForwardTimeout = dur("FORWARD_TIMEOUT", 3*time.Second, false)
 	c.IdleTimeout = dur("IDLE_TIMEOUT", 120*time.Second, false)
 
-	for k, v := range map[string]string{"CELL_ID": c.CellID, "READ_MODE_DEFAULT": c.ReadModeDefault, "DEGRADED_POLICY": c.DegradedPolicy} {
+	for k, v := range map[string]string{"CELL_ID": c.CellID, "DEGRADED_POLICY": c.DegradedPolicy} {
 		if v == "" {
 			errs = append(errs, errors.New("variável obrigatória ausente: "+k))
 		}
 	}
-	if c.ReadModeDefault != "" && c.ReadModeDefault != "strong" && c.ReadModeDefault != "eventual" {
-		errs = append(errs, fmt.Errorf("READ_MODE_DEFAULT inválida %q: use strong ou eventual", c.ReadModeDefault))
-	}
 	if c.DegradedPolicy != "" && c.DegradedPolicy != "accept" && c.DegradedPolicy != "reject" {
 		errs = append(errs, fmt.Errorf("DEGRADED_POLICY inválida %q: use accept ou reject", c.DegradedPolicy))
 	}
-	// WRITE_MODE saiu da v1 (ADR-053): o apply é sempre serial e depois do gate. Um
-	// manifesto antigo que ainda a define falha na partida, em vez de ser ignorado.
-	if getenv("WRITE_MODE") != "" {
-		errs = append(errs, errors.New("WRITE_MODE foi removida da v1 (ADR-053): retire-a da configuração"))
+	// Modo único strong (ADR-057): não há variável de modo. Um manifesto antigo que ainda
+	// define uma delas falha na partida, em vez de ser ignorado.
+	for _, k := range RemovedModeVars {
+		if getenv(k) != "" {
+			errs = append(errs, fmt.Errorf("%s não existe mais (modo único strong, ADR-057): retire-a da configuração", k))
+		}
 	}
 
 	// Regras de consistência entre prazos: quem está mais dentro responde antes de quem está mais fora.

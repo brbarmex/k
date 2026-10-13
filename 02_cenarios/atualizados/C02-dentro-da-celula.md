@@ -33,9 +33,9 @@ flowchart LR
 ## Etapas
 
 1. A app chama o AWS SDK apontando o endpoint para o Service do `DataReplication` no namespace e apresentando o certificado de cliente (mTLS). Trocar só o endpoint não basta.
-2. O `DataReplication` autentica a identidade, confere a lista de permissões (sem entrada, `403`) e classifica a chamada: escrita, leitura forte ou leitura eventual.
+2. O `DataReplication` autentica a identidade, confere a lista de permissões (sem entrada, `403`) e classifica a chamada: escrita ou leitura forte (Query em GSI é recusada).
 3. Escrita: segue o fluxo de C03 (apply serial depois do gate).
-4. Leitura: segue o fluxo de C05 (forte pela barreira `min(ReadIndex, gate)`; eventual e GSI pelo banco local).
+4. Leitura: segue o fluxo de C05 (sempre forte, pela barreira `min(ReadIndex, gate)`).
 5. O applier é o único com credencial de escrita no banco da célula; a app não consegue contornar a camada.
 
 ## Falhas e tratativas

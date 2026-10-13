@@ -15,7 +15,7 @@ Ordenados por impacto. **P0** = decidir antes de escrever código; **P1** = nece
 | X5 | **Modelo de erro e idempotência** (PEND-13, ADR-026, ADR-051) | O SDK retenta com `commandId` novo. Dedupe **por requisição** no líder, `PENDING` bem definido, resultado por item (ADR-048). O limite da janela de 5 min é documentado. | **P1** |
 | X6 | **Observabilidade** | Sem métricas por etapa não se prova o orçamento de 50ms. Ver 12.1. | **P1** |
 | X7 | **Segurança**: mTLS (inclusive **por aplicação**, ADR-052), IAM restrito, criptografia, sem dado em log | Seção 11. A lista de permissões por aplicação evita a ampliação de privilégio pelo proxy (PEND-19). | **P1** |
-| X8 | **Falha de fsync, corrupção e disco lento** | Seção 6.3 e 9.1. | **P1** |
+| X8 | **Falha de fsync, corrupção e disco lento** | Seção 6.3 e 9.1. Com group commit, a falha encerra o processo sem entregar nenhuma resposta do lote; nada sai antes do fsync (ADR-056). | **P1** |
 | X9 | **Evolução de versão** (rolling upgrade) | O WAL tem versão de formato; o protocolo gRPC tem versão; mudanças que afetam o estado replicado precisam de *feature flag* replicada no log, senão duas versões divergem. A atualização ocorre **uma célula por vez**, igual à manutenção. | **P1** |
 | X10 | **Testes de falha determinísticos** (seção 13) | A maior parte dos bugs de consenso só aparece sob falha. | **P1** |
 | X11 | **Relógio**: não depender de hora de parede. A leitura forte usa `min(ReadIndex, gate)`, não *lease*. **A única dependência de tempo é o lease do modo degradado** (ADR-044): relógio monotônico local, validade conferida a cada ACK, margem M para pausa de processo e deriva. | Deriva e pausas de processo são o inimigo clássico do lease; medir nos clusters (H-DR13, H-DR14). | **P1** |
@@ -38,8 +38,9 @@ Ordenados por impacto. **P0** = decidir antes de escrever código; **P1** = nece
   - `poison_entry_index`: índice (e ordem) do item que trava o applier, por item.
   - E o lag de cada um em relação ao anterior, por shard e por réplica.
 - `wal_disk_used_ratio`, `fsync_duration`, `group_commit_batch_size`.
+- Escrita do log do Raft (ADR-056), por shard: `raft_fsync_seconds` (P50, P99, P99.9), `raft_fsync_per_second`, `raft_batch_entries`, `raft_batch_bytes`, `raft_unpersisted_bytes`, `raft_throttled_total` (`ThrottlingException` por buffer cheio) e `raft_elections_total` (com o motivo, para separar eleição causada por fsync lento).
 - `degraded_mode` (0/1), `degraded_policy` (info), `azure_lag_entries`, `forwarded_writes_ratio` (do ADR-010), `leader_transfer_duration` (do ADR-013), `lease_expired_rejections` (contagem de `503 LEASE_EXPIRED`).
-- `dedupe_hits`, `pending_responses`, `rejected_by_reason` (inclui `403` por falta de permissão da aplicação, `ValidationException` de `ConsistentRead` em GSI e `rejected_client_version`).
+- `dedupe_hits`, `pending_responses`, `rejected_by_reason` (inclui `403` por falta de permissão da aplicação, `ValidationException` de Query em GSI e `rejected_client_version`) e `read_without_consistent_read` (leitura de tabela base sem `ConsistentRead=true`, servida como forte; acha a aplicação fora do contrato).
 - `apply_lag_by_cell` (principalmente o Cosmos, PEND-18) e, durante um rebuild, o progresso da cópia e o lag do replay desde F.
 - Go: `runtime/metrics` (heap, GC, goroutines), RSS e `GOMEMLIMIT`.
 - Traces com amostragem baixa e `traceId` propagado da API ao applier. `pprof` apenas na porta de admin, protegida.

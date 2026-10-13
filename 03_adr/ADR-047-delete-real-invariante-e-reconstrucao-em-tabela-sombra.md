@@ -12,7 +12,7 @@ O DELETE real sem tombstone ([ADR-024](ADR-024-delete-real-ttl-local-gsi.md)) é
 2. **Invariante `I-DEL`:** com as leituras abertas, o estado materializado da célula é a dobra do log até `applied`. A regra de abrir leituras só depois do high-water mark é imposta **por código** e coberta por teste de propriedade (sequências aleatórias de Put e Delete, com queda em qualquer ponto, convergem para o mesmo estado) e pelo modelo TLA+.
 3. **Protocolo de reconstrução em tabela sombra** (cópia difusa mais replay):
    1. registrar o índice **F** do log antes de começar e reter o log desde F;
-   2. criar a tabela sombra (com GSIs) e copiá-la por varredura, gravando cada item com a condição de versão;
+   2. criar a tabela sombra (sem GSIs, ADR-050) e copiá-la por varredura, gravando cada item com a condição de versão;
    3. reaplicar o log a partir de F até a cabeça (a cópia converge porque o apply é condicional por versão e o DELETE é reaplicado em ordem);
    4. com o lag abaixo do limite, pausar a escrita da célula, fechar o último trecho e fazer o **cutover** do mapeamento lógico para a tabela sombra;
    5. verificar por **checksum por faixa de chaves** (anti-entropia) antes de religar as leituras.

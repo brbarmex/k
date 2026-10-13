@@ -1,10 +1,10 @@
 # R03 — Backlog de apply no Cosmos (429 e RU insuficiente)
 
-**Status:** 🟡 A rever · parcialmente tratado; o limite de lag de apply para a elegibilidade ao failover é a PEND-18 (valor a definir) · **ADRs:** [ADR-017](../../03_adr/ADR-017-azure-learners-e-gate.md), [ADR-018](../../03_adr/ADR-018-dois-logs-raft-e-replicacao.md), [ADR-023](../../03_adr/ADR-023-modos-de-escrita-e-leitura.md) · **Relacionados:** [C13](../atualizados/C13-ressincronizacao-da-azure.md), [C05](../atualizados/C05-leitura-strong-e-eventual.md), [X04](../complexos/X04-partida-recuperacao-e-dois-logs.md)
+**Status:** 🟡 A rever · parcialmente tratado; o limite de lag de apply para a elegibilidade ao failover é a PEND-18 (valor a definir) · **ADRs:** [ADR-017](../../03_adr/ADR-017-azure-learners-e-gate.md), [ADR-018](../../03_adr/ADR-018-dois-logs-raft-e-replicacao.md), [ADR-057](../../03_adr/ADR-057-um-unico-modo-strong-consistency.md) · **Relacionados:** [C13](../atualizados/C13-ressincronizacao-da-azure.md), [C05](../atualizados/C05-leitura-strong.md), [X04](../complexos/X04-partida-recuperacao-e-dois-logs.md)
 
 ## Cenário
 
-O gate conta o índice **durável (fsync)** nos learners da Azure, não o apply. Por isso, se o Cosmos não tiver RU para o pico e devolver 429, o **RPO segue 0**, mas o atraso entre `commitIndex` e `appliedIndex` na Azure cresce sem limite. Consequências: leituras eventuais na Azure ficam velhas ([C28](../atualizados/C28-leitura-eventual-na-azure-defasada.md)) e, no failover, a Azure precisa drenar o backlog antes de abrir leituras fortes, então **o RTO real depende do tamanho da fila**.
+O gate conta o índice **durável (fsync)** nos learners da Azure, não o apply. Por isso, se o Cosmos não tiver RU para o pico e devolver 429, o **RPO segue 0**, mas o atraso entre `commitIndex` e `appliedIndex` na Azure cresce sem limite. Consequências: leituras eventuais na Azure ficam velhas ([C05](../atualizados/C05-leitura-strong.md)) e, no failover, a Azure precisa drenar o backlog antes de abrir leituras fortes, então **o RTO real depende do tamanho da fila**.
 
 **Efeito escondido (novo).** O log de replicação da Azure só pode ser truncado até o que foi aplicado. Backlog longo **enche o disco dos learners**; learner sem disco falha o fsync, sai do gate e a AWS acaba em modo degradado. **Um Cosmos lento pode, por esse caminho, causar RPO > 0.**
 
@@ -16,7 +16,7 @@ flowchart TD
     B --> C{"RU suficiente?"}
     C -->|"sim"| D["Atraso de apply baixo"]
     C -->|"não, 429"| E["Applier desacelera, atraso cresce"]
-    E --> F["Leitura eventual na Azure fica velha"]
+    E --> F["Leitura nas células Azure espera a barreira e falha com 503"]
     E --> G["No failover, drenar backlog antes das leituras fortes: RTO cresce"]
     E --> H["Log da Azure não pode ser truncado: disco enche"]
     H --> I["Learner falha o fsync e sai do gate"]

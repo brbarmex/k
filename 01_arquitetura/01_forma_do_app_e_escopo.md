@@ -39,7 +39,7 @@
 |---|---|---|
 | ~~A1~~ | **Retirada pelo Bruno (12/10)**, a reavaliar depois dos testes de carga. Era: "o overhead de 50ms é medido contra a escrita direta ao DynamoDB". Até lá, a tabela da seção 7 é só um alvo de trabalho, sem essa premissa. | Se a escrita no DynamoDB contar nos 50ms, o orçamento fica quase inviável (seção 7). Medir nos testes de carga. |
 | A2 | Uma célula tem **vários pods de aplicação** (ex.: 10 microsserviços) falando com 1 `DataReplication` por **uma única porta** (3.5). | Se a carga for maior que um processo suporta, voltar ao modelo com proxy separado (3.4). |
-| A3 | **Poucos shards lógicos** por cliente (Bruno, 12/10). A evolução para plataforma multi-cliente **não será considerada na v1**. | Com muitos grupos, seria preciso coalescer heartbeats e o Dragonboat ganharia peso (seção 5). |
+| A3 | **Poucos shards lógicos** por cliente (Bruno, 12/10). Cada cliente tem a sua instalação ([ADR-043](../03_adr/ADR-043-uma-instalacao-por-cliente-identidade-por-configuracao.md)). | Com muitos grupos, seria preciso coalescer heartbeats e o Dragonboat ganharia peso (seção 5). |
 | A4 | Item médio ≈ poucos KB. Limite de entrada do log: 4 MiB. | O DynamoDB aceita item de até 400 KB e batch de até 16 MB; acima do limite, a v1 recusa. |
 | A5 | **Confirmada pelo Bruno (12/10):** há um **link dedicado físico (cabo de rede)** entre AWS e Azure, com tráfego transitivo entre contas e VPCs, descrito como "extremamente rápido". O RTT ainda deve ser medido (S1). | O custo do RTT entra em todo ACK. Medir antes de fixar qualquer timeout. |
 | A6 | **Confirmada pelo Bruno (12/10) e mantida em 13/10 ([ADR-054](../03_adr/ADR-054-banco-por-celula-mantido.md)):** há **um DynamoDB (tabelas) por célula**. O applier de cada célula escreve só nas tabelas da própria célula. Exemplo: a célula `cell-120321` tem `cliente_cell_120321`. O DynamoDB é regional: o ganho é **isolamento lógico**, não domínio físico de falha. | Ver 6.9: nome lógico (com geração) × físico, custo de escrita multiplicado e um único escritor por tabela. |
@@ -72,9 +72,9 @@ flowchart LR
 
 Etapas:
 1. A aplicação chama o endpoint do Service como chamaria o DynamoDB, com a sua identidade mTLS.
-2. O `DataReplication` autentica a aplicação e confere a lista identidade → tabelas e operações (`403` sem entrada), valida, classifica (escrita / leitura forte / leitura eventual), canonicaliza e calcula o hash de dedupe.
+2. O `DataReplication` autentica a aplicação e confere a lista identidade → tabelas e operações (`403` sem entrada), valida, classifica (escrita / leitura forte; Query em GSI é recusada), canonicaliza e calcula o hash de dedupe.
 3. Se esta célula não for a líder do shard, **encaminha** para a líder ([ADR-010](../03_adr/ADR-010-follower-encaminha-para-lider.md)).
-4. A líder replica, espera o gate (seção 5.3) e aplica no banco (sempre depois do gate, [ADR-053](../03_adr/ADR-053-eventual-sem-apply-paralelo-na-v1.md)).
+4. A líder replica, espera o gate (seção 5.3) e aplica no banco (sempre depois do gate, [ADR-057](../03_adr/ADR-057-um-unico-modo-strong-consistency.md)).
 5. A resposta volta traduzida para o formato do DynamoDB (incluindo os erros que o SDK entende).
 
 ### 3.2 Monolito modular (decisão do Bruno, 12/10)

@@ -21,20 +21,19 @@ Gerado em 13/10/2026 a partir do pacote DataReplication_Versao_1.
 <nav class="sidebar" aria-label="Navegação">
 <a class="marca" href="../index.html">DataReplication v1<span>Comitê técnico</span></a>
 <a class="nav-inicio" href="../index.html">Resumo e requisitos</a>
-<details class="grupo"><summary>Success path <span class="qtd">10</span></summary><ul>
+<details class="grupo"><summary>Success path <span class="qtd">9</span></summary><ul>
 <li><a class="idx" href="../success-path/index.html">Índice da seção</a></li>
 <li><a href="../success-path/C01-visao-geral.html"><b>C01</b> Visão geral da arquitetura</a></li>
 <li><a href="../success-path/C02-dentro-da-celula.html"><b>C02</b> Dentro da célula: apps do cliente e DataReplication</a></li>
 <li><a href="../success-path/C03-escrita-strong.html"><b>C03</b> Caminho feliz: escrita (apply serial depois do gate)</a></li>
-<li><a href="../success-path/C04-escrita-eventual.html"><b>C04</b> Modo Eventual: só de leitura (sem apply paralelo na v1)</a></li>
-<li><a href="../success-path/C05-leitura-strong-e-eventual.html"><b>C05</b> Caminho feliz: leitura Strong e Eventual</a></li>
+<li><a href="../success-path/C05-leitura-strong.html"><b>C05</b> Caminho feliz: leitura strong</a></li>
 <li><a href="../success-path/C06-follower-encaminha.html"><b>C06</b> Requisição chega numa célula que não é a líder</a></li>
 <li><a href="../success-path/C11-transferencia-planejada.html"><b>C11</b> Transferência planejada de liderança (manutenção)</a></li>
 <li><a href="../success-path/C18-partida-e-recuperacao-do-no.html"><b>C18</b> Partida, recuperação e parada limpa do nó</a></li>
 <li><a href="../success-path/C23-batchwriteitem-lote-uma-entrada.html"><b>C23</b> BatchWriteItem: o lote é uma entrada e o apply é por item (antes R15)</a></li>
 <li><a href="../success-path/C31-implantacao-por-cliente-e-identidade.html"><b>C31</b> Uma instalação por cliente e identificação na API (antes R19)</a></li>
 </ul></details>
-<details class="grupo" open><summary>Fail path <span class="qtd">24</span></summary><ul>
+<details class="grupo" open><summary>Fail path <span class="qtd">23</span></summary><ul>
 <li><a class="idx" href="index.html">Índice da seção</a></li>
 <li><a href="C07-timeout-depois-do-commit.html"><b>C07</b> Prazo estoura depois do commit, antes do ACK (retry do SDK)</a></li>
 <li><a href="C08-queda-de-celula-lider-ou-az-aws.html"><b>C08</b> Queda da célula líder ou de uma AZ na AWS</a></li>
@@ -54,7 +53,6 @@ Gerado em 13/10/2026 a partir do pacote DataReplication_Versao_1.
 <li><a href="C25-link-lento-faixa-cinzenta.html"><b>C25</b> Link lento ou saturado (faixa cinzenta): só alertar (antes R01)</a></li>
 <li><a href="C26-entrada-venenosa.html"><b>C26</b> Entrada venenosa: um item que o banco recusa para sempre (antes R02)</a></li>
 <li><a href="C27-encaminhamento-sem-lider-conhecida.html"><b>C27</b> Loop de encaminhamento e espera pela líder durante a eleição (antes R05)</a></li>
-<li><a href="C28-leitura-eventual-na-azure-defasada.html"><b>C28</b> Leitura eventual na Azure durante a degradação (antes R04)</a></li>
 <li><a href="C29-disco-do-log-em-degradacao-longa.html"><b>C29</b> Disco do log esgota durante uma degradação longa (antes R08)</a></li>
 <li><a href="C30-aws-que-volta-boot-cercado.html"><b>C30</b> Fencing: o DynamoDB e o applier da AWS que voltam depois da promoção (antes R14)</a></li>
 <li><a href="C32-particao-e-lease-do-modo-degradado.html"><b>C32</b> Partição entre AWS e Azure: lease do modo degradado e promoção da Azure</a></li>
@@ -109,7 +107,7 @@ Gerado em 13/10/2026 a partir do pacote DataReplication_Versao_1.
     OP-&gt;&gt;DR: drctl rebuild, com aprovação
     DR-&gt;&gt;DR: confere retenção, capacidade, IAM e allowlist da sombra
     DR-&gt;&gt;LG: registra F e retém o log desde F
-    DR-&gt;&gt;SH: cria a tabela sombra com GSIs e TTL
+    DR-&gt;&gt;SH: cria a tabela sombra com TTL, sem GSIs
     loop varredura sem snapshot
         DR-&gt;&gt;OR: lê uma página de itens
         DR-&gt;&gt;SH: grava cada item com a condição de versão
@@ -155,7 +153,7 @@ Gerado em 13/10/2026 a partir do pacote DataReplication_Versao_1.
 <li><strong>Pedido:</strong> <code>drctl rebuild</code> é manual assistido, com aprovação humana. A tabela de origem é a de uma célula saudável do mesmo shard ou, para refazer só a estrutura, a própria tabela da célula (a escolha da origem entra no detalhamento do protocolo).</li>
 <li><strong>Pré-condições:</strong> o log de replicação cobre a duração estimada da varredura (ver retenção abaixo), há WCU ou RU para a cópia e o replay, e o papel do applier e a allowlist (<a href="../../03_adr/ADR-022-banco-por-celula-nome-logico.md">ADR-022</a>) admitem o nome da tabela sombra.</li>
 <li><strong>Registro de F:</strong> o índice F é o índice aplicado da origem <strong>antes</strong> de começar. Um F menor que o real só custa mais replay; um F maior perderia escritas. O log é retido desde F e F é persistido, para a reconstrução poder ser retomada depois de um reinício.</li>
-<li><strong>Tabela sombra:</strong> criada com os mesmos GSIs, o mesmo atributo de TTL e a mesma chave. No Cosmos, o Cloud-Adapter cria o container equivalente.</li>
+<li><strong>Tabela sombra:</strong> criada com o mesmo atributo de TTL e a mesma chave, sem GSIs (Query em GSI é recusada, <a href="../../03_adr/ADR-050-query-em-gsi-recusada.md">ADR-050</a>). No Cosmos, o Cloud-Adapter cria o container equivalente.</li>
 <li><strong>Cópia difusa:</strong> varredura por páginas, sem snapshot; cada item é gravado com a condição de versão, para nunca sobrescrever uma versão mais nova.</li>
 <li><strong>Replay:</strong> o log desde F é reaplicado em ordem até a cabeça, com <code>Put</code> e <code>Delete</code> condicionais por versão (<a href="../../03_adr/ADR-035-lote-batchwriteitem-uma-entrada-e-apply-condicional.md">ADR-035</a>). O estado da sombra é provisório e <strong>ninguém lê dele</strong>.</li>
 <li><strong>Cutover:</strong> com o lag abaixo de um limite (a definir), o applier da célula pausa, o último trecho é fechado e o nome lógico passa à <strong>geração g + 1</strong>, apontando para a tabela sombra. O cliente não percebe a troca do nome físico.</li>
@@ -182,11 +180,11 @@ Gerado em 13/10/2026 a partir do pacote DataReplication_Versao_1.
 </dl>
 </article>
 <article class="ponto">
-<h3><span class="num">3</span>GSI da tabela sombra <span class="origem">Falhas e tratativas</span></h3>
+<h3><span class="num">3</span>Sem GSI na tabela sombra <span class="origem">Falhas e tratativas</span></h3>
 <dl>
-<dt>Contexto</dt><dd>Os GSIs precisam existir antes ou durante a cópia; criar depois obriga o backfill do índice, com custo e tempo próprios. Como GSI é sempre eventual, o checksum compara só a tabela base, e um índice divergente passaria despercebido.</dd>
-<dt>O que a fonte define</dt><dd class="">A fonte decide que o GSI é sempre eventual (<a href="../../03_adr/ADR-050-gsi-nao-tem-leitura-forte.md">ADR-050</a>) e que o índice só é conferido por amostragem, a definir.</dd>
-<dt class="sug">Sugestão de encaminhamento <small>(inferência, não decidida)</small></dt><dd class="sug">Criar a sombra com os GSIs na mesma operação e definir a amostragem de conferência do índice, com critério de aceite antes do cutover.</dd>
+<dt>Contexto</dt><dd>Query em GSI é recusada pela camada, então a sombra nasce sem GSIs: não há backfill nem conferência de índice e o checksum compara só a tabela base.</dd>
+<dt>O que a fonte define</dt><dd class="">Decidido: Query e Scan em GSI recusadas (<a href="../../03_adr/ADR-050-query-em-gsi-recusada.md">ADR-050</a>, <a href="../../03_adr/ADR-057-um-unico-modo-strong-consistency.md">ADR-057</a>); a sombra é criada sem GSIs.</dd>
+<dt class="sug">Sugestão de encaminhamento <small>(inferência, não decidida)</small></dt><dd class="sug">Conferir no inventário de chamadas (<a href="../../03_adr/ADR-051-compatibilidade-dynamodb-inventario-conformidade-e-idempotencia.md">ADR-051</a>) que nenhuma aplicação do cliente depende de GSI antes da entrada; uma tabela de origem com GSI deve ter os índices removidos antes de entrar na camada.</dd>
 </dl>
 </article>
 <article class="ponto">
@@ -282,7 +280,7 @@ Gerado em 13/10/2026 a partir do pacote DataReplication_Versao_1.
 <div class="tabela"><table><thead><tr><th>ADR</th><th>Título</th><th>Decisão resumida</th><th>Arquivo</th></tr></thead><tbody>
 <tr><td class="nw"><a href="../../03_adr/ADR-047-delete-real-invariante-e-reconstrucao-em-tabela-sombra.md">ADR-047</a></td><td>DELETE real com invariante formal; reconstrução em tabela sombra</td><td>DELETE real com invariante I-DEL e reconstrução do banco em tabela sombra (cópia difusa mais replay).</td><td><a href="../../03_adr/ADR-047-delete-real-invariante-e-reconstrucao-em-tabela-sombra.md">ADR-047-delete-real-invariante-e-reconstrucao-em-tabela-sombra.md</a></td></tr>
 <tr><td class="nw"><a href="../../03_adr/ADR-022-banco-por-celula-nome-logico.md">ADR-022</a></td><td>Um banco por célula; nome lógico com {cell}</td><td>Um banco por célula; CELL_ID por deploy e nome lógico com {cell}; um escritor por tabela.</td><td><a href="../../03_adr/ADR-022-banco-por-celula-nome-logico.md">ADR-022-banco-por-celula-nome-logico.md</a></td></tr>
-<tr><td class="nw"><a href="../../03_adr/ADR-024-delete-real-ttl-local-gsi.md">ADR-024</a></td><td>DELETE real com ordem por chave; TTL local; GSI</td><td>DELETE real com ordem por chave; TTL expira local em cada célula; leitura em GSI sempre eventual.</td><td><a href="../../03_adr/ADR-024-delete-real-ttl-local-gsi.md">ADR-024-delete-real-ttl-local-gsi.md</a></td></tr>
+<tr><td class="nw"><a href="../../03_adr/ADR-024-delete-real-ttl-local-gsi.md">ADR-024</a></td><td>DELETE real com ordem por chave; TTL local; GSI</td><td>DELETE real com ordem por chave; TTL expira local em cada célula; Query em GSI recusada (<a href="../../03_adr/ADR-050-query-em-gsi-recusada.md">ADR-050</a>).</td><td><a href="../../03_adr/ADR-024-delete-real-ttl-local-gsi.md">ADR-024-delete-real-ttl-local-gsi.md</a></td></tr>
 <tr><td class="nw"><a href="../../03_adr/ADR-041-disco-do-log-teto-de-70-por-cento-sem-s3-na-v1.md">ADR-041</a></td><td>Disco do log em degradação longa: teto de 70% e reconstrução completa; sem S3 na v1</td><td>Retenção do log para a Azure com teto de 70% do volume, depois reconstrução completa; sem S3 na v1.</td><td><a href="../../03_adr/ADR-041-disco-do-log-teto-de-70-por-cento-sem-s3-na-v1.md">ADR-041-disco-do-log-teto-de-70-por-cento-sem-s3-na-v1.md</a></td></tr>
 <tr><td class="nw"><a href="../../03_adr/ADR-054-banco-por-celula-mantido.md">ADR-054</a></td><td>Um banco por célula mantido, com o trade-off registrado</td><td>Mantido um banco por célula (seis bancos) pelo isolamento lógico; o custo por cliente segue a estimar (<a href="../parking-lot/R20-custo-6x.html">R20</a>).</td><td><a href="../../03_adr/ADR-054-banco-por-celula-mantido.md">ADR-054-banco-por-celula-mantido.md</a></td></tr>
 <tr><td class="nw"><a href="../../03_adr/ADR-030-verificacao-formal-tla.md">ADR-030</a></td><td>Modelo TLA+ do gate antes do código do gate</td><td>Modelo TLA+ do gate, DEGRADE/RESTORE e troca de líder verificado antes de implementar o gate.</td><td><a href="../../03_adr/ADR-030-verificacao-formal-tla.md">ADR-030-verificacao-formal-tla.md</a></td></tr>
@@ -293,7 +291,7 @@ Gerado em 13/10/2026 a partir do pacote DataReplication_Versao_1.
 <details class="anexo"><summary>Falhas e tratativas</summary><ul>
 <li><strong>O log não cobre a varredura.</strong> Se a varredura demorar mais que a retenção do teto de 70% do volume (<a href="../../03_adr/ADR-041-disco-do-log-teto-de-70-por-cento-sem-s3-na-v1.md">ADR-041</a>), o log desde F é liberado e o rebuild <strong>falha e recomeça</strong> com um F novo. Estimar a duração (itens, tamanho, WCU ou RU disponíveis) antes de começar e alertar quando a folga de retenção encolher; as durações reais ainda não foram medidas (<a href="../parking-lot/R09-resincronizacao-lenta-ou-bloqueada.html">R09</a>).</li>
 <li><strong>Custo e throttling (WCU e RU).</strong> A varredura e o replay competem com a escrita ao vivo da célula, no DynamoDB e no Cosmos, e podem gerar throttling. Se a célula reconstruída for a líder, o throttling do applier vira latência de ACK e <code>503 PENDING</code> (<a href="C24-orcamento-de-50ms-e-escrita-no-dynamodb.html">C24</a>). Recomendação: transferir a liderança antes (<a href="../success-path/C11-transferencia-planejada.html">C11</a>) e limitar o ritmo da cópia. O custo da tabela dupla entra em <a href="../parking-lot/R20-custo-6x.html">R20</a>.</li>
-<li><strong>GSI da tabela sombra.</strong> Os GSIs precisam existir antes ou durante a cópia; criar depois obriga o backfill do índice, com custo e tempo próprios. GSI é sempre eventual (<a href="../../03_adr/ADR-050-gsi-nao-tem-leitura-forte.md">ADR-050</a>): o checksum compara a tabela base, e o índice só é conferido por amostragem (a definir).</li>
+<li><strong>Sem GSI na tabela sombra.</strong> Query em GSI é recusada pela camada (<a href="../../03_adr/ADR-050-query-em-gsi-recusada.md">ADR-050</a>), então a sombra nasce sem GSIs: não há backfill de índice nem conferência de índice, e o checksum compara só a tabela base.</li>
 <li><strong>Cosmos pelo Cloud-Adapter.</strong> O mesmo protocolo vale para a Azure e precisa estar no contrato do Cloud-Adapter: criar container, varrer, gravar com condição de versão, trocar o mapeamento. Os custos em RU, o limite de tamanho de item e o índice consistente do Cosmos entram na suíte de conformidade (<a href="../../03_adr/ADR-051-compatibilidade-dynamodb-inventario-conformidade-e-idempotencia.md">ADR-051</a>).</li>
 <li><strong>IAM e allowlist da sombra.</strong> O papel do applier não deve ganhar permissão de criar ou apagar tabelas por causa disso. Proposta: um papel de reconstrução separado e temporário, concedido com a aprovação do <code>drctl rebuild</code>, restrito ao padrão de nome da sombra (a definir com segurança). As aplicações continuam sem nenhuma permissão de escrita (<a href="C20-bypass-de-escrita-direta.html">C20</a>).</li>
 <li><strong>TTL.</strong> O replay pode recriar um item já expirado, e ele permanece legível até o TTL local apagá-lo de novo. É o comportamento do DynamoDB, onde o item expirado pode ser lido até a remoção, e deve estar documentado para os clientes. O checksum ignora itens expirados e a sombra precisa do mesmo atributo de TTL.</li>

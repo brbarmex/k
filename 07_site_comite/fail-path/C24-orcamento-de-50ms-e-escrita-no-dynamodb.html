@@ -21,20 +21,19 @@ Gerado em 13/10/2026 a partir do pacote DataReplication_Versao_1.
 <nav class="sidebar" aria-label="Navegação">
 <a class="marca" href="../index.html">DataReplication v1<span>Comitê técnico</span></a>
 <a class="nav-inicio" href="../index.html">Resumo e requisitos</a>
-<details class="grupo"><summary>Success path <span class="qtd">10</span></summary><ul>
+<details class="grupo"><summary>Success path <span class="qtd">9</span></summary><ul>
 <li><a class="idx" href="../success-path/index.html">Índice da seção</a></li>
 <li><a href="../success-path/C01-visao-geral.html"><b>C01</b> Visão geral da arquitetura</a></li>
 <li><a href="../success-path/C02-dentro-da-celula.html"><b>C02</b> Dentro da célula: apps do cliente e DataReplication</a></li>
 <li><a href="../success-path/C03-escrita-strong.html"><b>C03</b> Caminho feliz: escrita (apply serial depois do gate)</a></li>
-<li><a href="../success-path/C04-escrita-eventual.html"><b>C04</b> Modo Eventual: só de leitura (sem apply paralelo na v1)</a></li>
-<li><a href="../success-path/C05-leitura-strong-e-eventual.html"><b>C05</b> Caminho feliz: leitura Strong e Eventual</a></li>
+<li><a href="../success-path/C05-leitura-strong.html"><b>C05</b> Caminho feliz: leitura strong</a></li>
 <li><a href="../success-path/C06-follower-encaminha.html"><b>C06</b> Requisição chega numa célula que não é a líder</a></li>
 <li><a href="../success-path/C11-transferencia-planejada.html"><b>C11</b> Transferência planejada de liderança (manutenção)</a></li>
 <li><a href="../success-path/C18-partida-e-recuperacao-do-no.html"><b>C18</b> Partida, recuperação e parada limpa do nó</a></li>
 <li><a href="../success-path/C23-batchwriteitem-lote-uma-entrada.html"><b>C23</b> BatchWriteItem: o lote é uma entrada e o apply é por item (antes R15)</a></li>
 <li><a href="../success-path/C31-implantacao-por-cliente-e-identidade.html"><b>C31</b> Uma instalação por cliente e identificação na API (antes R19)</a></li>
 </ul></details>
-<details class="grupo" open><summary>Fail path <span class="qtd">24</span></summary><ul>
+<details class="grupo" open><summary>Fail path <span class="qtd">23</span></summary><ul>
 <li><a class="idx" href="index.html">Índice da seção</a></li>
 <li><a href="C07-timeout-depois-do-commit.html"><b>C07</b> Prazo estoura depois do commit, antes do ACK (retry do SDK)</a></li>
 <li><a href="C08-queda-de-celula-lider-ou-az-aws.html"><b>C08</b> Queda da célula líder ou de uma AZ na AWS</a></li>
@@ -54,7 +53,6 @@ Gerado em 13/10/2026 a partir do pacote DataReplication_Versao_1.
 <li><a href="C25-link-lento-faixa-cinzenta.html"><b>C25</b> Link lento ou saturado (faixa cinzenta): só alertar (antes R01)</a></li>
 <li><a href="C26-entrada-venenosa.html"><b>C26</b> Entrada venenosa: um item que o banco recusa para sempre (antes R02)</a></li>
 <li><a href="C27-encaminhamento-sem-lider-conhecida.html"><b>C27</b> Loop de encaminhamento e espera pela líder durante a eleição (antes R05)</a></li>
-<li><a href="C28-leitura-eventual-na-azure-defasada.html"><b>C28</b> Leitura eventual na Azure durante a degradação (antes R04)</a></li>
 <li><a href="C29-disco-do-log-em-degradacao-longa.html"><b>C29</b> Disco do log esgota durante uma degradação longa (antes R08)</a></li>
 <li><a href="C30-aws-que-volta-boot-cercado.html"><b>C30</b> Fencing: o DynamoDB e o applier da AWS que voltam depois da promoção (antes R14)</a></li>
 <li><a href="C32-particao-e-lease-do-modo-degradado.html"><b>C32</b> Partição entre AWS e Azure: lease do modo degradado e promoção da Azure</a></li>
@@ -91,7 +89,7 @@ Gerado em 13/10/2026 a partir do pacote DataReplication_Versao_1.
 <main>
 <div class="migalhas"><a href="../index.html">Início</a> / <a href="index.html">Fail path</a> / C24</div>
 <h1>C24 — Orçamento de 50 ms e a escrita no DynamoDB dentro do ACK (antes R21)</h1>
-<div class="meta"><span class="selo fail-path">Fail path</span><div><b>Status na fonte:</b> ✅ Atualizado (decidido pelo Bruno em 13/10/2026)</div><div><b>Relacionados:</b> <a href="../success-path/C03-escrita-strong.html">C03</a>, <a href="../success-path/C04-escrita-eventual.html">C04</a>, <a href="C07-timeout-depois-do-commit.html">C07</a></div></div>
+<div class="meta"><span class="selo fail-path">Fail path</span><div><b>Status na fonte:</b> ✅ Atualizado (decidido pelo Bruno em 13/10/2026)</div><div><b>Relacionados:</b> <a href="../success-path/C03-escrita-strong.html">C03</a>, <a href="../success-path/C03-escrita-strong.html">C03</a>, <a href="C07-timeout-depois-do-commit.html">C07</a></div></div>
 <section id="visao-geral"><h2>1. Visão geral do cenário</h2>
 <p>A meta de <strong>overhead P99 ≤ 50 ms</strong> não inclui a escrita no DynamoDB. Só que o ACK sai depois do apply na célula da líder (6.9, item 4): o tempo de escrita no DynamoDB, <strong>com a cauda dele</strong>, está no caminho do ACK. O cliente enxerga <code>overhead + escrita no banco</code>, e uma limitação de vazão do DynamoDB (partição quente, throttling) bloqueia o ACK.</p>
 <div class="caixa decisao"><h3>Decisão registrada na fonte</h3><p>O SLO de 50 ms <strong>continua excluindo</strong> a escrita no DynamoDB e passa a ser <strong>publicado como <code>overhead + banco</code></strong>, com o P99 do banco como parte do contrato com o cliente.</p></div>
@@ -112,6 +110,7 @@ Gerado em 13/10/2026 a partir do pacote DataReplication_Versao_1.
     API --&gt; DEG[&quot;DEGRADE_AFTER 2 s, só com accept&quot;]
     API --&gt; APPLY[&quot;Cliente do banco: 1 s por tentativa, até 2&quot;]
     API --&gt; MARGEM[&quot;Margem de resposta: 500 ms ou mais&quot;]
+    API --&gt;|&quot;buffer não persistido acima de 32 MiB no shard&quot;| THR[&quot;400 ThrottlingException imediato: nada entrou no log, o SDK repete com backoff&quot;]
     API --&gt;|&quot;estourou depois do commit&quot;| PEND[&quot;503 PENDING: não perdeu, o retry é absorvido pelo dedupe&quot;]
     PEND --&gt; DD[&quot;Dedupe de 5 min por requisição e versão condicional&quot;]
     DEG --&gt;|&quot;DEGRADE commitado&quot;| LEASE[&quot;Lease D, valor a definir: fora da cascata de 30 s&quot;]
@@ -120,7 +119,7 @@ Gerado em 13/10/2026 a partir do pacote DataReplication_Versao_1.
 </section>
 <section id="etapas"><h2>3. Legenda e etapas</h2>
 <div class="etapas"><ol>
-<li><strong>Fórmula única:</strong> <code>t_ack = t_parse + max(t_raft, t_azure) + t_apply + t_resp</code>. O apply é sempre serial e depois do gate; o apply paralelo do antigo modo Eventual de escrita saiu da v1 e o <code>WRITE_MODE</code> não existe mais (<a href="../../03_adr/ADR-053-eventual-sem-apply-paralelo-na-v1.md">ADR-053</a>). Esconder <code>t_apply</code> atrás da Azure só voltará se o spike S5 mostrar que o orçamento estoura, como opt-in por instalação.</li>
+<li><strong>Fórmula única:</strong> <code>t_ack = t_parse + max(t_raft, t_azure) + t_apply + t_resp</code>. O apply é sempre serial e depois do gate, no modo único strong (<a href="../../03_adr/ADR-057-um-unico-modo-strong-consistency.md">ADR-057</a>). Se <code>t_apply</code> estourar o orçamento no spike S5, o ajuste é no banco ou no orçamento, não na garantia.</li>
 <li><strong>Overhead medido</strong> = <code>t_ack − t_apply</code>.</li>
 <li><strong>Contrato com o cliente:</strong> a latência que ele vê é <code>overhead + escrita no banco</code>; o P99 do DynamoDB faz parte dela. O SLO é medido <strong>ponta a ponta</strong>, sobre a operação completa (latência, taxa de erro e recuperação), e não pela soma de percentis de etapas.</li>
 <li>As quatro parcelas são métricas separadas (<code>t_parse</code>, <code>t_raft</code>, <code>t_azure</code>, <code>t_apply</code>).</li>
@@ -148,8 +147,8 @@ Gerado em 13/10/2026 a partir do pacote DataReplication_Versao_1.
 <h3><span class="num">3</span>ACK antes do apply descartado <span class="origem">Falhas e tratativas</span></h3>
 <dl>
 <dt>Contexto</dt><dd>Responder o ACK antes do apply reduziria a latência, mas quebraria a leitura do que escrevi na leitura forte local. O tradeoff foi resolvido a favor da consistência, à custa de manter <code>t_apply</code> no caminho crítico.</dd>
-<dt>O que a fonte define</dt><dd class="">Descartado na fonte, pois reabriria o <a href="../../03_adr/ADR-023-modos-de-escrita-e-leitura.md">ADR-023</a>. O apply paralelo do antigo modo Eventual saiu da v1 (<a href="../../03_adr/ADR-053-eventual-sem-apply-paralelo-na-v1.md">ADR-053</a>) e só volta como opt-in por instalação se o spike S5 mostrar que o orçamento estoura.</dd>
-<dt class="sug">Sugestão de encaminhamento <small>(inferência, não decidida)</small></dt><dd class="sug">Registrar no TLA+ a propriedade de leitura do que escrevi associada ao ACK depois do apply, para que qualquer opt-in futuro seja avaliado contra ela. Definir antes do spike qual resultado do S5 dispararia a reavaliação.</dd>
+<dt>O que a fonte define</dt><dd class="">Descartado na fonte. O apply é sempre serial e depois do gate e o ACK sai depois do apply (modo único strong, <a href="../../03_adr/ADR-057-um-unico-modo-strong-consistency.md">ADR-057</a>).</dd>
+<dt class="sug">Sugestão de encaminhamento <small>(inferência, não decidida)</small></dt><dd class="sug">Registrar no TLA+ a propriedade de leitura do que escrevi associada ao ACK depois do apply. Definir antes do spike qual resultado do S5 exige ajuste do banco ou do orçamento.</dd>
 </dl>
 </article>
 <article class="ponto">
@@ -181,8 +180,7 @@ Gerado em 13/10/2026 a partir do pacote DataReplication_Versao_1.
 <div class="tabela"><table><thead><tr><th>ADR</th><th>Título</th><th>Decisão resumida</th><th>Arquivo</th></tr></thead><tbody>
 <tr><td class="nw"><a href="../../03_adr/ADR-036-slo-de-50ms-exclui-a-escrita-no-banco.md">ADR-036</a></td><td>O SLO de 50 ms exclui a escrita no banco e é publicado como "overhead + banco"</td><td>O SLO de 50 ms exclui a escrita no banco e é publicado como overhead + banco.</td><td><a href="../../03_adr/ADR-036-slo-de-50ms-exclui-a-escrita-no-banco.md">ADR-036-slo-de-50ms-exclui-a-escrita-no-banco.md</a></td></tr>
 <tr><td class="nw"><a href="../../03_adr/ADR-005-ack-exige-gate.md">ADR-005</a></td><td>ACK só depois do gate (Raft AWS e maioria durável Azure)</td><td>O ACK só sai quando gateIndex = min(commit Raft, maioria Azure durável) alcança o índice da escrita.</td><td><a href="../../03_adr/ADR-005-ack-exige-gate.md">ADR-005-ack-exige-gate.md</a></td></tr>
-<tr><td class="nw"><a href="../../03_adr/ADR-023-modos-de-escrita-e-leitura.md">ADR-023</a></td><td>Modos de escrita (Strong serial, Eventual paralelo) e de leitura (padrão forte)</td><td>READ_MODE_DEFAULT obrigatória (padrão strong); a parte de escrita (WRITE_MODE) foi substituída pelo <a href="../../03_adr/ADR-053-eventual-sem-apply-paralelo-na-v1.md">ADR-053</a>.</td><td><a href="../../03_adr/ADR-023-modos-de-escrita-e-leitura.md">ADR-023-modos-de-escrita-e-leitura.md</a></td></tr>
-<tr><td class="nw"><a href="../../03_adr/ADR-053-eventual-sem-apply-paralelo-na-v1.md">ADR-053</a></td><td>O modo Eventual é só de leitura; o apply paralelo sai da v1</td><td>O Eventual é só de leitura; o apply é sempre serial e depois do gate; WRITE_MODE sai da v1.</td><td><a href="../../03_adr/ADR-053-eventual-sem-apply-paralelo-na-v1.md">ADR-053-eventual-sem-apply-paralelo-na-v1.md</a></td></tr>
+<tr><td class="nw"><a href="../../03_adr/ADR-057-um-unico-modo-strong-consistency.md">ADR-057</a></td><td>Um único modo: strong consistency</td><td>Um único modo, strong consistency, na escrita, na replicação e no Raft; leitura sempre forte; sem variável de modo.</td><td><a href="../../03_adr/ADR-057-um-unico-modo-strong-consistency.md">ADR-057-um-unico-modo-strong-consistency.md</a></td></tr>
 </tbody></table></div>
 <p class="nota">Lista extraída do cabeçalho “ADRs” do arquivo fonte. A decisão resumida condensa a seção “Decisão” de cada ADR.</p>
 </section>
@@ -190,7 +188,7 @@ Gerado em 13/10/2026 a partir do pacote DataReplication_Versao_1.
 <details class="anexo"><summary>Falhas e tratativas</summary><ul>
 <li><strong>Cauda do DynamoDB.</strong> O P99 de <code>PutItem</code> condicional é de poucos ms, mas a cauda (retries internos, throttling em partição quente) pode passar de 50 ms e aparece inteira no ACK.</li>
 <li><strong>Throttling vira PENDING.</strong> Se o DynamoDB devolve throttling por mais que o prazo (7,5 s), a escrita commitada responde <code>503 PENDING</code> e o applier segue tentando (<a href="C07-timeout-depois-do-commit.html">C07</a>).</li>
-<li><strong>ACK antes do apply</strong> reduziria a latência, mas quebra a leitura-do-que-escrevi da leitura forte local e reabre o ADR-023. Descartado.</li>
+<li><strong>ACK antes do apply</strong> reduziria a latência, mas quebra a leitura-do-que-escrevi da leitura forte local e contraria o modo único strong (ADR-057). Descartado.</li>
 <li><strong>Várias escritas por transação do cliente.</strong> Com 3 ou mais escritas sequenciais por transação de negócio, o alvo de 150 ms por transação não fecha mesmo com o overhead dentro de 50 ms (PEND-07).</li>
 </ul></details>
 <details class="anexo"><summary>Pontos em aberto</summary><ul>
