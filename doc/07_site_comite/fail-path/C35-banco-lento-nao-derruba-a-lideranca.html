@@ -264,6 +264,7 @@ Gerado em 14/10/2026 a partir do pacote DataReplication_Versao_1.
 <details class="anexo"><summary>Como observar</summary><ul>
 <li>Dashboard v2, seção <strong>08</strong> (entrada HTTP por célula, códigos, latência, contrapressão por causa) e seção <strong>09</strong> (atraso do apply contra o teto, commit não entregue, fila do applier, duração do <code>Ready</code>, intervalo entre ticks).</li>
 <li><code>task diag</code> na POC imprime tudo por célula numa tabela.</li>
+<li><code>task test-banco-lento CELL=N</code> reproduz este cenário na POC: pausa o LocalStack só da célula N (cada célula tem o seu) enquanto escreve pela líder, e falha se o termo de alguma célula mudar.</li>
 <li><code>/status</code>: <code>apply.atraso</code>, <code>apply.atrasoMax</code>, <code>apply.fila</code>, <code>commitNaoEntregue</code>, <code>electionTicks</code>.</li>
 </ul></details>
 </section>

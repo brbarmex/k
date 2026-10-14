@@ -24,10 +24,10 @@ Provar, numa máquina local com Docker, o conceito central do DataReplication en
 | ID | Requisito |
 |---|---|
 | RF-01 | O projeto DEVE gerar uma imagem Docker do DR a partir de um `Dockerfile` na raiz da POC. |
-| RF-02 | Um `docker-compose.yml` DEVE subir o LocalStack (só DynamoDB) e **três serviços DR** (`cell-1`, `cell-2`, `cell-3`), todos com a mesma imagem e numa só rede, simulando três clusters. |
+| RF-02 | Um `docker-compose.yml` DEVE subir **um LocalStack por célula** (`localstack-1` a `localstack-3`, só DynamoDB; decisão do Bruno de 14/10, 1a 2a 3a) e **três serviços DR** (`cell-1`, `cell-2`, `cell-3`), todos com a mesma imagem e numa só rede, simulando três clusters. |
 | RF-03 | Cada célula DEVE ter **dois volumes locais** do Docker (driver `local`): um para o log do Raft (o "WAL") e outro para o log de replicação, como no [ADR-055](../doc/03_adr/ADR-055-log-de-replicacao-segmentado-derivado-do-raft.md). Os dados DEVEM sobreviver a `docker compose restart` e `down` (sem `-v`). |
 | RF-04 | Um `taskfile.yaml` (Task v3) DEVE oferecer: subir o compose, criar as tabelas, escrever um cliente via `awscli` no endpoint do DR, buscar os registros nas três tabelas via DR, ler via DR, inspecionar as tabelas direto no LocalStack, ver o estado das células, ver os logs, parar e limpar (lista na seção S.5). |
-| RF-05 | Existem três tabelas no DynamoDB do LocalStack: `cadastro_cliente_cell_1`, `cadastro_cliente_cell_2` e `cadastro_cliente_cell_3`, com chave de partição `pk` (String), sem chave de ordenação, sem índices, cobrança sob demanda. |
+| RF-05 | Existem três tabelas, cada uma no LocalStack da sua célula (como em produção, um DynamoDB por célula, ADR-022 e ADR-054): `cadastro_cliente_cell_1` em `localstack-1`, `cadastro_cliente_cell_2` em `localstack-2` e `cadastro_cliente_cell_3` em `localstack-3`, com chave de partição `pk` (String), sem chave de ordenação, sem índices, cobrança sob demanda. |
 | RF-06 | O cadastro do cliente DEVE ter `pk` e os campos fixos `nome`, `sobrenome`, `email` e `contato`. Só a `pk` muda a cada escrita: uma string com prefixo e o timestamp em nanossegundos (ex.: `cli-1791934579927602214`). |
 | RF-07 | A escrita DEVE usar `aws dynamodb put-item` apontando para o endpoint HTTP do DR da célula escolhida, com o nome físico da tabela **daquela** célula (`cadastro_cliente_cell_<id>`). |
 | RF-08 | A busca DEVE passar pelo DR: para cada uma das três células, um `aws dynamodb scan` no endpoint do DR daquela célula, na tabela daquela célula, com leitura forte. O stdout mostra o nome da tabela e os itens contidos nela, sem `_dr_v`. |
@@ -175,7 +175,7 @@ O gate é o índice máximo que pode ser confirmado ao cliente e aplicado em qua
 | AP-12 | **Gate pelo commit:** uma goroutine própria do `CommitPump` espera `CommitChanged()` e chama `SetTerm` e `SetRaftCommit(CommitIndex())`. O gate não depende do applier nem do log de replicação: na POC, gate = commit o tempo todo, mesmo com o applier parado. |
 | AP-13 | **Admissão por atraso do apply:** na líder, depois da checagem do lease e antes do `Propose`, se `gate − aplicado > APPLY_LAG_MAX` a escrita é recusada com 400 `ThrottlingException` (causa `atraso_apply`) e nada entra no log. `APPLY_LAG_MAX` tem padrão `APPLY_WORKERS × 256` (4.096 com 16 workers), de 1 a 10.000.000. A conta é contra o gate, nunca contra o commit. |
 | AP-14 | **Sem banco em memória** (Bruno, 14/10): a POC usa só o LocalStack. O teste de carga local é com TPS baixo (por exemplo 10 TPS) e o de vazão é na AWS. Com TPS baixo o applier acompanha a carga, então para exercitar a admissão (AP-13) localmente basta baixar `APPLY_LAG_MAX` (`task start APPLY_LAG_MAX=50`). |
-| AP-15 | **Teto do LocalStack:** o binário `benchstore` (na mesma imagem) mede o PutItem condicional do applier direto no LocalStack, com N workers por um tempo, e imprime vazão e p50, p95 e p99. É a referência de quanto o apply consegue andar na máquina. |
+| AP-15 | **Teto do LocalStack:** o binário `benchstore` (na mesma imagem) mede o PutItem condicional do applier direto em cada LocalStack (as três instâncias ao mesmo tempo, uma tabela em cada), com N workers por um tempo, e imprime vazão e p50, p95 e p99. É a referência de quanto o apply consegue andar na máquina. |
 
 ### A.6 Leitura forte (GetItem e Scan)
 
@@ -245,8 +245,8 @@ poc/
 
 | ID | Requisito |
 |---|---|
-| C-01 | Serviço `localstack` com a imagem **fixada** `localstack/localstack:4.14.0` (versões novas da imagem da comunidade podem exigir token, SG-14), `SERVICES=dynamodb`, porta 4566, healthcheck em `/_localstack/health`. |
-| C-02 | Serviços `cell-1`, `cell-2`, `cell-3` com a mesma imagem (`build: .` num deles e `image:` com o mesmo nome nos outros, para não construir três vezes), `depends_on` do LocalStack saudável, `restart: on-failure` e as variáveis da tabela S.6. |
+| C-01 | Três serviços `localstack-1`, `localstack-2` e `localstack-3` (um por célula, decisão do Bruno de 14/10, 1a 2a 3a), todos com a imagem **fixada** `localstack/localstack:4.14.0` (versões novas da imagem da comunidade podem exigir token, SG-14), `SERVICES=dynamodb`, `DYNAMODB_HEAP_SIZE=512m`, portas 4566, 4567 e 4568 no host, healthcheck em `/_localstack/health`. |
+| C-02 | Serviços `cell-1`, `cell-2`, `cell-3` com a mesma imagem (`build: .` num deles e `image:` com o mesmo nome nos outros, para não construir três vezes), `depends_on` do **próprio** LocalStack saudável (`cell-N` → `localstack-N`), `DYNAMODB_ENDPOINT=http://localstack-N:4566`, `restart: on-failure` e as variáveis da tabela S.6. |
 | C-03 | Portas no host: API da célula N em `800N` (8001, 8002, 8003) e administração em `909N` (9091, 9092, 9093). A porta gRPC não é publicada. |
 | C-04 | Volumes nomeados por célula: `cell-N-raft` em `/var/lib/dr/raft` e `cell-N-replog` em `/var/lib/dr/replog`, seis no total. O WAL do etcd fica num **subdiretório** (`/var/lib/dr/raft/wal`), porque o `wal.Create` renomeia o diretório e não pode renomear o ponto de montagem. |
 | C-05 | `PEERS` e `LEARNERS` são iguais nas três células (a `ConfState` de partida tem de ser a mesma em todas, RT-03). Ficam declarados uma vez no compose (bloco de extensão `x-`) e reaproveitados. `LEARNERS` fica vazia. |
@@ -256,16 +256,19 @@ poc/
 | Task | O que faz | Critério |
 |---|---|---|
 | `subir` | `docker compose up -d --build`, depois `criar-tabelas`, depois espera o `/readyz` das três células | CA-01 |
-| `criar-tabelas` | Cria as três tabelas no LocalStack se não existirem e espera ficarem ativas; idempotente | CA-02 |
+| `criar-tabelas` | Cria cada tabela no LocalStack da sua célula (`localhost:4566` a `4568`) se não existir e espera ficarem ativas; idempotente | CA-02 |
 | `escrever` | `put-item` via `awscli` no endpoint do DR da célula `CELL` (padrão 1), tabela `cadastro_cliente_cell_<CELL>`, payload da seção E; imprime a `pk` e o índice | CA-03, CA-04 |
 | `buscar` | Para cada célula: imprime o nome da tabela e faz `scan` **no endpoint do DR daquela célula**, mostrando os itens | CA-03 |
 | `ler` | `get-item` da `PK` informada no endpoint do DR de cada célula, imprimindo célula e item | CA-05 |
-| `inspecionar` | Para cada tabela: imprime o nome e faz `scan` **direto no LocalStack**, mostrando os itens com `_dr_v` | CA-03 |
+| `inspecionar` | Para cada tabela: imprime o nome e faz `scan` **direto no LocalStack da célula**, mostrando os itens com `_dr_v` | CA-03 |
 | `status` | Imprime o `/status` das três células | CA-01 |
 | `wal` | Lista os arquivos dos dois volumes de uma célula (`CELL`) | CA-11 |
 | `logs` | `docker compose logs -f` | |
 | `parar` | `docker compose down` (mantém os volumes) | |
 | `limpar` | `docker compose down -v` (apaga os volumes) | |
+| `bench-localstack` | Mede o teto de cada LocalStack com o `benchstore` (AP-15), as três instâncias ao mesmo tempo | |
+| `diag` | Tabela por célula com entrada, ACK, apply, atraso, laço do Raft e contrapressão, lida do Prometheus | CA-18 |
+| `test-banco-lento` | Pausa o LocalStack da célula `CELL` por `PAUSE` segundos (padrão 30) enquanto escreve pela líder; falha se o termo de qualquer célula mudar e depois confere que a célula alcançou o gate | CA-19 |
 | `e2e` | Roda `subir`, `escrever`, `buscar`, `ler` e `inspecionar`, e falha com mensagem clara se algo não bate | CA-03 a CA-05 |
 
 Requisitos do taskfile:
@@ -288,7 +291,7 @@ Requisitos do taskfile:
 | `PEERS` | `1=cell-1:7000,2=cell-2:7000,3=cell-3:7000` | Votantes, igual nas três células |
 | `LEARNERS` | vazia | Vazia = POC sem Azure (G-08). Com valor, 3 ids de learners |
 | `TABLES` | `cadastro_cliente_cell_{cell}` | Lista separada por vírgula; cada uma com `{cell}` uma vez |
-| `DYNAMODB_ENDPOINT` | `http://localstack:4566` | Vazio = AWS real |
+| `DYNAMODB_ENDPOINT` | `http://localstack-1:4566` | Um por célula (o da célula N é `localstack-N`); vazio = AWS real |
 | `AWS_REGION`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` | `sa-east-1`, `test`, `test` | Só teste |
 | `API_ADDR`, `PEER_ADDR`, `ADMIN_ADDR` | `:8000`, `:7000`, `:9090` | |
 | `RAFT_DIR`, `REPLOG_DIR` | `/var/lib/dr/raft/wal`, `/var/lib/dr/replog` | C-04 |
@@ -361,6 +364,7 @@ Docker com Compose v2, Task v3, AWS CLI v2. Nada de Go no host (o build é no co
 | **CA-16** | **Quando** rodo o benchmark do applier com banco simulado de 4 ms por item, **então** 16 workers aplicam pelo menos 10 vezes mais itens por segundo que 1 worker. **E**, com o ambiente de pé, o `task status` mostra `apply.workers: 16` nas três células. |
 | **CA-17** | **Quando** rodo `go test -race ./...`, **então** passam os testes de: 3.000 propostas com os consumidores do commit parados, sem troca de líder e com o commit publicado, e depois leitura contígua de tudo ao voltar; proposta numa follower descartada com a causa `nao_lider`; `Applied` da partida entre o snapshot e o commit; gate da POC acompanhando o commit com o applier parado; `CommitPump` começando na retomada e `ResumeFrom`; admissão recusando com `atraso_apply` e aceitando abaixo do teto; variáveis novas da S.6; séries novas de métricas. |
 | **CA-18** | **Dado** `task limpar` e `task subir`, **quando** rodo `task carga` e depois `task diag`, **então** a tabela por célula mostra entrada HTTP, ACK, pending, vazão e latência do apply, atraso, commit não entregue, tick e fsync P99, trocas de líder e contrapressão por causa, e o dashboard v2 mostra as seções 08 e 09. **E**, com a carga baixa (por exemplo 10 TPS), o termo **não muda**, `dr_raft_tick_gap_seconds` fica perto de 100 ms e não há contrapressão. **E**, com `task start APPLY_LAG_MAX=50` e uma rajada acima do teto do `task bench-localstack`, a líder recusa com `atraso_apply` sem troca de líder. |
+| **CA-19** | **Quando** rodo `task test-banco-lento CELL=N` com N uma follower, **então** as escritas pela líder continuam com ACK, o termo das três células não muda, o `/status` da célula N mostra `apply.atraso` e `commitNaoEntregue` crescendo, e depois de despausar ela alcança o gate. **Com N a líder**, as escritas falham (`PENDING` e depois `atraso_apply`), mas o termo também não muda ([C35](../doc/02_cenarios/atualizados/C35-banco-lento-nao-derruba-a-lideranca.md)). |
 
 ---
 
@@ -409,9 +413,9 @@ Docker com Compose v2, Task v3, AWS CLI v2. Nada de Go no host (o build é no co
 2. **O risco de "gate = commit" escapar para produção.** O modo sem Azure torna o ACK igual ao commit AWS. SG-12 exige que, fora da POC, a lista vazia derrube a partida.
 3. ~~**Applier lento trava o Raft.**~~ **Fechado pelo [ADR-060](../doc/03_adr/ADR-060-laco-do-raft-nunca-espera-o-apply-e-admissao-por-atraso.md) (14/10).** Aconteceu de fato no teste de carga de 14/10: com o LocalStack a cerca de 1 s por PutItem, as filas encheram, o laço do Ready parou em `committed <- lote` e vieram eleições em série (termo de 7 para 18). Agora o commit é um sinal (RT-13), o `CommitPump` lê por faixa e quem espera é ele. O que sobra: a memória do Raft cresce com o apply parado (item 7) e a líder com banco lento recusa escrita (`atraso_apply`, AP-13).
 4. **Retry do AWS CLI sem dedupe.** O AWS CLI v2 repete 503 automaticamente. Uma escrita `PENDING` repetida vira outra entrada no log, com outro índice. O item final é o mesmo, mas o `_dr_v` fica com o índice da repetição. É o comportamento esperado sem o [ADR-026](../doc/03_adr/ADR-026-dedupe-de-retry-id-estavel.md). T-05 desliga o retry nas tasks.
-5. **Um LocalStack para as três células.** As três tabelas estão no mesmo processo: não há isolamento de falha entre bancos. Serve para o conceito, não para medir.
+5. ~~**Um LocalStack para as três células.**~~ **Resolvido em 14/10:** um LocalStack por célula, como em produção. Cada célula tem o seu escritor do DynamoDB Local, e o banco de uma célula pode ser pausado sozinho (CA-19). Os três continuam dividindo a CPU e o SSD do notebook.
 6. **Leitura direta no LocalStack logo depois do ACK.** O ACK só espera o apply da líder (AP-09). Um `task inspecionar` imediato pode mostrar o item em 1 ou 2 tabelas. A busca via DR não tem esse problema, porque espera a barreira.
 7. **Memória do Raft sem compactação** (RT-11): rodar a POC por horas sob carga faz o processo crescer. Fora do escopo do teste de conceito. Com o RT-13 as entradas não consumidas também ficam aí enquanto o apply está atrasado (`dr_commit_undelivered`).
-10. **Teste de carga num notebook mede o notebook.** Três WALs, três logs de replicação, o LocalStack, o Prometheus e o k6 dividem o mesmo SSD e as mesmas CPUs. Começar de volumes limpos (`task limpar`), medir o LocalStack sozinho (`task bench-localstack`) e o disco (`fio`) antes. O Bruno decidiu (14/10) testar localmente com TPS baixo e medir vazão na AWS, sem banco em memória.
+10. **Teste de carga num notebook mede o notebook.** Três WALs, três logs de replicação, o LocalStack, o Prometheus e o k6 dividem o mesmo SSD e as mesmas CPUs. Começar de volumes limpos (`task limpar`), medir os LocalStacks sozinhos (`task bench-localstack`) e o disco (`fio`) antes. O Bruno decidiu (14/10) testar localmente com TPS baixo e medir vazão na AWS, sem banco em memória.
 8. **Gate atrasado nas follower.** Cada follower só aplica até o último gate recebido. Se uma mensagem `GateUpdate` se perde, a reenvio periódica (G-06) cobre; o atraso máximo é `GATE_PUBLISH_INTERVAL`.
 9. **Chave quente.** O paralelismo é entre chaves. Muitas escritas na mesma `pk` são gravadas uma por vez (no máximo `1 / tempo do PutItem` por segundo), atrasam as outras chaves do mesmo worker e, pela marca d'água contígua, o ACK de todas as escritas seguintes. Na POC o `task carga` usa `pk` diferentes e não exercita isso. Aparece como `dr_apply_inflight` alto com `dr_applied_index` parado ([ADR-058](../doc/03_adr/ADR-058-apply-paralelo-por-chave-com-marca-dagua.md)).

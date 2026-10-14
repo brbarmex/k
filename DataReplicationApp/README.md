@@ -52,7 +52,7 @@ task test-invalid-requests    # checks invalid/unsupported operations (CA-10/13)
 | `test` | runs `docker build --target test .` (`go test -race ./...`) | CA-14 |
 | `e2e` | starts the stack, writes, scans, reads, and inspects | `e2e: PASS` |
 
-Portas no host: API da célula N em `800N`, administração em `909N`, LocalStack em `4566`, Prometheus em `9095` e Grafana em `3000`. O gRPC entre células (7000) não é publicado.
+Portas no host: API da célula N em `800N`, administração em `909N`, LocalStack da célula N em `4565+N` (um por célula: 4566, 4567, 4568), Prometheus em `9095` e Grafana em `3000`. O gRPC entre células (7000) não é publicado.
 
 ## Observabilidade
 
@@ -141,6 +141,7 @@ O adaptador `prometheus/client_golang` fica isolado em `internal/adapter/out/pro
 - **gRPC sem `.proto`.** `api/peerv1` declara o serviço à mão com um codec JSON (N-03).
 - **Apply paralelo por chave (ADR-058).** O applier grava até `APPLY_WORKERS` itens ao mesmo tempo (padrão 16). Cada item vai para o worker escolhido pelo hash de (tabela, chave), então a mesma chave é sempre gravada na ordem do log. O `aplicado` é a marca d'água: o maior índice que, com todos os anteriores, está no banco; é ele que o ACK da líder e a leitura forte esperam, e é ele que vai para o arquivo `progress`. O `/status` mostra `apply.workers` e `apply.emVoo`. `APPLY_WORKERS=1` volta ao comportamento de um item por vez, útil para comparar.
 - **O laço do Raft nunca espera o apply (ADR-060).** O laço do `Ready` só publica o índice commitado e chama `Advance`; o `CommitPump` lê as entradas por faixa da memória do Raft quando o applier tem espaço, e o gate segue o commit numa goroutine própria. Na líder, quando `gate − aplicado` passa de `APPLY_LAG_MAX` (padrão `APPLY_WORKERS × 256`), a escrita é recusada com `ThrottlingException` (causa `atraso_apply`) antes do `Propose`. `ELECTION_TICKS` é configurável (30 no compose). Na partida, o nó retoma em `min(último do log de replicação + 1, progresso do applier)` em vez de reaplicar o log inteiro.
+- **Um LocalStack por célula.** Cada célula grava no seu `localstack-N` (`DYNAMODB_ENDPOINT` por célula), como em produção há um DynamoDB por célula. `task test-banco-lento CELL=N` pausa só o banco da célula N e confere que o termo do Raft não muda (ADR-060, C35).
 - **Teste de carga local com TPS baixo.** A POC usa só o LocalStack, sem banco em memória (decisão do Bruno, 14/10): carga local baixa (por exemplo 10 TPS) e vazão medida na AWS. Para exercitar a admissão localmente, `task start APPLY_LAG_MAX=50`.
 - **Applier estacionado.** Erro permanente do banco para o applier daquela célula sem pular o item e sem derrubar o processo; o `/readyz` cai e o `/status` mostra `erroApply`. Com workers em paralelo, os itens anteriores ao venenoso terminam, o despacho para, e a marca d'água fica logo antes dele. Erro transitório é repetido com backoff de 100 ms a 5 s.
 - **Checkpoint do log de replicação sem trava (ADR-059).** O `Append` roda numa goroutine própria do `CommitPump`, com fila de 1024 lotes, e grava cada lote com uma escrita só. O fsync do checkpoint (`REPLOG_SYNC_INTERVAL`) roda fora da trava do `Append`, então nem o gate nem o ACK param durante o checkpoint. O `Append` só espera o disco na rotação de segmento (a cada 64 MiB).
@@ -161,7 +162,7 @@ As da N-01: `fasthttp`, `net/http`, `zerolog`, `viper`, `fx`, `google.golang.org
 2. O modo sem Azure não pode escapar para produção (SG-12).
 3. ~~Applier lento ou estacionado segura o laço do Ready.~~ Fechado pelo ADR-060: aconteceu no teste de carga de 14/10 e gerou eleições em série. Agora o laço não espera o apply; o que sobra é a líder recusar escrita com `atraso_apply` enquanto o banco estiver lento e a memória do Raft crescer com o apply parado (`dr_commit_undelivered`).
 4. Sem dedupe de retry: uma escrita `PENDING` repetida vira outra entrada (as tasks usam `AWS_MAX_ATTEMPTS=1`).
-5. Um único LocalStack para as três células: sem isolamento de falha entre bancos.
+5. ~~Um único LocalStack para as três células.~~ Resolvido em 14/10: um LocalStack por célula, como em produção; os três ainda dividem a CPU e o disco do notebook.
 6. `inspecionar` logo depois do ACK pode mostrar o item em só 1 ou 2 tabelas.
 7. Sem compactação do Raft, a memória cresce com o uso.
 8. Uma follower só aplica até o último gate recebido (atraso máximo de `GATE_PUBLISH_INTERVAL`).

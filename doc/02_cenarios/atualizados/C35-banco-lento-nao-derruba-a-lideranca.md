@@ -82,4 +82,5 @@ sequenceDiagram
 
 - Dashboard v2, seção **08** (entrada HTTP por célula, códigos, latência, contrapressão por causa) e seção **09** (atraso do apply contra o teto, commit não entregue, fila do applier, duração do `Ready`, intervalo entre ticks).
 - `task diag` na POC imprime tudo por célula numa tabela.
+- `task test-banco-lento CELL=N` reproduz este cenário na POC: pausa o LocalStack só da célula N (cada célula tem o seu) enquanto escreve pela líder, e falha se o termo de alguma célula mudar.
 - `/status`: `apply.atraso`, `apply.atrasoMax`, `apply.fila`, `commitNaoEntregue`, `electionTicks`.

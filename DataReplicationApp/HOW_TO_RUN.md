@@ -43,7 +43,7 @@ task status  # one leader, same leader and term on all cells, "azure":"off"
 |---|---|
 | API (DynamoDB) da célula N | `800N` (8001, 8002, 8003) |
 | Administração da célula N (`/livez`, `/readyz`, `/status`) | `909N` (9091, 9092, 9093) |
-| LocalStack | `4566` |
+| LocalStack da célula N (um por célula) | `4565+N` (4566, 4567, 4568) |
 | Prometheus | `9095` |
 | Grafana | `3000` |
 
@@ -89,20 +89,29 @@ Num notebook, o teste de carga mede o notebook tanto quanto o DR: os três WALs,
 
 1. **Comece de volumes limpos.** `task clean` e depois `task start`. Volumes de testes anteriores deixam o apply com atraso desde o início (no teste de 14/10 eram cerca de 210 mil entradas).
 2. **Meça o disco** no diretório dos volumes do Docker: `fio --rw=write --ioengine=sync --fdatasync=1 --size=22m --bs=2300 --name=wal`. O P99 do fdatasync dá a ordem de grandeza do `ELECTION_TICKS` necessário.
-3. **Meça o LocalStack sozinho**, com o mesmo `PutItem` condicional do applier:
+3. **Meça os LocalStacks sozinhos** (um por célula, as três instâncias ao mesmo tempo), com o mesmo `PutItem` condicional do applier:
 
    ```bash
-   task bench-localstack                         # 16 workers por tabela, 30 s
+   task bench-localstack                         # 16 workers por célula, 30 s
    task bench-localstack WORKERS=32 DURATION=60s
    ```
 
-   A vazão impressa é o teto do apply na sua máquina. Se o gerador de carga passar disso, o atraso do apply cresce e a líder passa a recusar com `atraso_apply`. É o comportamento esperado, não defeito. O LocalStack sobe com `DYNAMODB_HEAP_SIZE=1G`; mude a variável de ambiente para testar outro valor.
+   A vazão impressa é o teto do apply na sua máquina. Se o gerador de carga passar disso, o atraso do apply cresce e a líder passa a recusar com `atraso_apply`. É o comportamento esperado, não defeito. Cada LocalStack sobe com `DYNAMODB_HEAP_SIZE=512m`; mude a variável de ambiente para testar outro valor.
 4. **Use TPS baixo localmente** (por exemplo 10 TPS). O LocalStack não aguenta a vazão de produção; a vazão se mede na AWS. Com carga baixa o apply acompanha e não deve haver contrapressão. Para ver a admissão por atraso funcionar sem carga alta, suba com um teto baixo:
 
    ```bash
    task clean
    task start APPLY_LAG_MAX=50    # a líder recusa com atraso_apply quando o apply fica 50 entradas atrás
    ```
+
+   Para ver o laço do Raft seguir com o banco de uma célula parado (o problema do teste de 14/10), pause só o LocalStack de uma célula:
+
+   ```bash
+   task test-banco-lento CELL=2            # pausa o banco da célula 2 por 30 s enquanto escreve pela líder
+   task test-banco-lento CELL=1 PAUSE=60   # se a célula 1 for a líder, as escritas falham, mas o termo não pode mudar
+   ```
+
+   A task falha se o termo de alguma célula mudar e, no fim, confere que a célula alcançou o gate.
 
 5. **Rode a carga e leia o diagnóstico:**
 
@@ -129,6 +138,7 @@ task test-follower-outage      # 10-second outage, 10 writes, recovery
 task test-leader-failover      # CA-09
 task test-leader-outage-load   # leader outage with writes before and after failover
 task test-no-quorum            # CA-07
+task test-banco-lento CELL=2   # CA-19: banco de uma célula pausado, sem eleição
 task test-invalid-requests     # CA-10 and CA-13
 ```
 

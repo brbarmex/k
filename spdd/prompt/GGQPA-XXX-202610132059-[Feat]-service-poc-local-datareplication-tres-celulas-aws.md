@@ -370,7 +370,7 @@ DataReplicationApp/
 
 ## Operations
 
-> Ordem obrigatória: O-01 → O-28 (O-14 a O-21 são a observabilidade, feitas depois da POC base; O-22 a O-26 são o apply paralelo e o checkpoint sem trava, ADR-058 e ADR-059; O-27 e O-28 são o laço do Raft sem espera, a admissão e as métricas novas, ADR-060), com uma exceção de dependência: as portas de O-07a e os erros novos do usecase (`ErrNotLeader`, `ErrGateNotReady`, `ErrReadTimeout`, em `read.go`) entram **antes** de O-03, porque o `etcdraft` os usa. Cada passo termina com `go build ./...` e `go test -race ./...` verdes (no container de teste) antes do seguinte. Comentários e mensagens de log em português.
+> Ordem obrigatória: O-01 → O-29 (O-14 a O-21 são a observabilidade, feitas depois da POC base; O-22 a O-26 são o apply paralelo e o checkpoint sem trava, ADR-058 e ADR-059; O-27 e O-28 são o laço do Raft sem espera, a admissão e as métricas novas, ADR-060; O-29 é um LocalStack por célula), com uma exceção de dependência: as portas de O-07a e os erros novos do usecase (`ErrNotLeader`, `ErrGateNotReady`, `ErrReadTimeout`, em `read.go`) entram **antes** de O-03, porque o `etcdraft` os usa. Cada passo termina com `go build ./...` e `go test -race ./...` verdes (no container de teste) antes do seguinte. Comentários e mensagens de log em português.
 
 ### O-01 Criar a base - `DataReplicationApp/`
 1. Responsabilidade: copiar o esboço e atualizar dependências.
@@ -788,7 +788,7 @@ DataReplicationApp/
 7. `cmd/benchstore`: mede o `PutItem` condicional direto no LocalStack (flags `-endpoint`, `-region`, `-tables`, `-workers`, `-duration`); imprime vazão e p50, p95 e p99. Copiado na imagem como `/usr/local/bin/benchstore`.
 8. `bootstrap`: `applierQueue = 64`; `newStore` cria o `dynamodb`; ponto de retomada por `ResumeFrom(log.LastIndex(), progresso)`; `Raft.Applied = retomada − 1`; `ElectionTicks` da configuração; `CommitPump` com `From`; `WriteService` com `Metrics` e `MaxApplyLag`; `StatusReporter` com `Pump`, `ApplyInbox`, `ApplyLagMax` e `ElectionTicks`; log "célula iniciada" com os valores novos.
 9. `/status`: `apply.atraso`, `apply.atrasoMax`, `apply.fila`, `commitNaoEntregue`, `electionTicks`.
-10. `docker-compose.yml`: `ELECTION_TICKS: "30"`, `APPLY_LAG_MAX: "${APPLY_LAG_MAX:-}"`; LocalStack com `DYNAMODB_HEAP_SIZE: "${DYNAMODB_HEAP_SIZE:-1G}"`.
+10. `docker-compose.yml`: `ELECTION_TICKS: "30"`, `APPLY_LAG_MAX: "${APPLY_LAG_MAX:-}"`; LocalStack com `DYNAMODB_HEAP_SIZE` maior que o padrão (na O-29, 512m por instância).
 11. Testes (`-race`): 3.000 propostas de 64 clientes com os consumidores parados, sem troca de líder e com `CommitIndex() ≥ 3000`, e depois leitura contígua de tudo; proposta numa follower com causa `nao_lider`; `restartApplied`; gate acompanhando o commit com o applier parado; pump começando em `From`; `ResumeFrom`; sinal sem commit novo inofensivo; canal de eventos fechado devolve erro; admissão recusando e aceitando; configuração; `/status` com os campos novos.
 
 ### O-28 Update Metrics, Handler, Dashboard e Taskfile - métricas de causa e de entrada (ADR-060)
@@ -799,6 +799,12 @@ DataReplicationApp/
 5. Taskfile: `bench-localstack` (`WORKERS`, `DURATION`), `diag` (`WINDOW`; tabela por célula consultando o Prometheus) e `start` aceitando `APPLY_LAG_MAX`. As esperas por líder nova sobem para cerca de 20 s (eleição de 3 a 6 s).
 6. `README.md` e `HOW_TO_RUN.md`: séries novas, decisão "laço do Raft nunca espera o apply", seção de teste de carga (limpar volumes, `fio`, `bench-localstack`, `APPLY_LAG_MAX` baixo, `diag`), risco 3 fechado.
 7. Pronto quando: CA-17 e CA-18 da spec.
+
+### O-29 Update Compose e Taskfile - um LocalStack por célula (Bruno, 14/10: 1a 2a 3a)
+1. `docker-compose.yml`: trocar o serviço `localstack` por `localstack-1`, `localstack-2` e `localstack-3` (bloco `x-localstack` com `localstack/localstack:4.14.0`, `SERVICES=dynamodb`, `DYNAMODB_HEAP_SIZE: "${DYNAMODB_HEAP_SIZE:-512m}"` e o healthcheck), portas `4566`, `4567` e `4568` no host. Tirar `DYNAMODB_ENDPOINT` do bloco comum; cada `cell-N` ganha `DYNAMODB_ENDPOINT: "http://localstack-N:4566"` e `depends_on` só do `localstack-N` saudável. Código não muda: o endpoint já é por célula.
+2. `taskfile.yaml`: sem a variável `LOCALSTACK`; `criar-tabelas`, `inspecionar` e o `e2e` usam `http://localhost:$((4565+N))` para a célula N; `bench-localstack` roda um `benchstore` por instância, ao mesmo tempo (`-endpoint http://localstack-N:4566 -tables cadastro_cliente_cell_N`), com a saída prefixada por `[localstack-N]`.
+3. Nova `test-slow-db` (alias `test-banco-lento`, vars `CELL` e `PAUSE`, padrão 30 s): acha a líder, guarda o termo das três células, `docker compose pause localstack-CELL` (com `trap` para despausar), escreve pela líder a cada 0,5 s durante a pausa contando sucessos e falhas, imprime `apply.atraso` e `commitNaoEntregue` da célula pausada, falha se algum termo mudou, despausa e espera `aplicado >= gate` na célula (até 60 s).
+4. Pronto quando: CA-19 da spec; `docker compose config` sem erro.
 
 ## Norms
 
@@ -851,7 +857,7 @@ DataReplicationApp/
    - `/metrics` não expõe dado de cliente (nenhuma `pk`, item ou mensagem de erro em rótulo).
    - Imagem roda como uid 10001, não root.
 4. **Restrições de integração**:
-   - LocalStack fixado em `localstack/localstack:4.14.0` (SG-14).
+   - LocalStack fixado em `localstack/localstack:4.14.0` (SG-14), uma instância por célula (O-29).
    - AWS CLI chamado com `AWS_MAX_ATTEMPTS=1` em toda tarefa que fala com o DR (T-05).
    - `PEERS`, `LEARNERS` e `POC_SEM_AZURE` idênticos nas três células (bloco `x-` do compose).
    - Compatibilidade com o AWS CLI v2: respostas e erros no formato JSON 1.0 do DynamoDB.

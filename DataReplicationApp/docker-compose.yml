@@ -1,4 +1,4 @@
-# POC local do DataReplication (S.4): LocalStack (só DynamoDB), três células AWS e a
+# POC local do DataReplication (S.4): um LocalStack (só DynamoDB) por célula, três células AWS e a
 # observabilidade (O-18): Prometheus coletando as células e Grafana com o dashboard importado.
 
 # Variáveis iguais nas três células: a ConfState de partida tem de ser a mesma (RT-03).
@@ -7,7 +7,6 @@ x-dr-env: &dr-env
   LEARNERS: ""
   POC_SEM_AZURE: "true" # SÓ DA POC (G-08, SG-12)
   TABLES: "cadastro_cliente_cell_{cell}"
-  DYNAMODB_ENDPOINT: "http://localstack:4566"
   AWS_REGION: "sa-east-1"
   AWS_ACCESS_KEY_ID: "test"
   AWS_SECRET_ACCESS_KEY: "test"
@@ -28,26 +27,38 @@ x-dr-env: &dr-env
 x-cell: &cell
   image: datareplication-poc:local
   pull_policy: never # a imagem é construída pela cell-1 (C-02)
-  depends_on:
-    localstack:
-      condition: service_healthy
   restart: on-failure
 
+# Um LocalStack por célula, como em produção (um DynamoDB por célula, ADR-022 e ADR-054):
+# cada célula tem o seu escritor do DynamoDB Local, e pausar um deles simula o banco lento
+# de uma só célula (task test-slow-db, C35).
+x-localstack: &localstack
+  image: localstack/localstack:4.14.0 # versão fixa (SG-14)
+  environment:
+    SERVICES: dynamodb
+    # O DynamoDB Local roda em Java; 512m por instância (padrão do LocalStack: 256m).
+    DYNAMODB_HEAP_SIZE: "${DYNAMODB_HEAP_SIZE:-512m}"
+  healthcheck:
+    test: ["CMD", "curl", "-fs", "http://localhost:4566/_localstack/health"]
+    interval: 2s
+    timeout: 2s
+    retries: 30
+
 services:
-  localstack:
-    image: localstack/localstack:4.14.0 # versão fixa (SG-14)
-    environment:
-      SERVICES: dynamodb
-      # ADR-060: o DynamoDB Local roda em Java; o heap padrão (256m) é pequeno para
-      # centenas de milhares de itens e pode virar coleta de lixo contínua.
-      DYNAMODB_HEAP_SIZE: "${DYNAMODB_HEAP_SIZE:-1G}"
+  localstack-1:
+    <<: *localstack
     ports:
       - "4566:4566"
-    healthcheck:
-      test: ["CMD", "curl", "-fs", "http://localhost:4566/_localstack/health"]
-      interval: 2s
-      timeout: 2s
-      retries: 30
+
+  localstack-2:
+    <<: *localstack
+    ports:
+      - "4567:4566"
+
+  localstack-3:
+    <<: *localstack
+    ports:
+      - "4568:4566"
 
   cell-1:
     <<: *cell
@@ -56,6 +67,9 @@ services:
       <<: *dr-env
       CELL_ID: "1"
       NODE_ID: "1"
+      DYNAMODB_ENDPOINT: "http://localstack-1:4566"
+    depends_on:
+      localstack-1: { condition: service_healthy }
     ports:
       - "8001:8000"
       - "9091:9090"
@@ -69,6 +83,9 @@ services:
       <<: *dr-env
       CELL_ID: "2"
       NODE_ID: "2"
+      DYNAMODB_ENDPOINT: "http://localstack-2:4566"
+    depends_on:
+      localstack-2: { condition: service_healthy }
     ports:
       - "8002:8000"
       - "9092:9090"
@@ -82,6 +99,9 @@ services:
       <<: *dr-env
       CELL_ID: "3"
       NODE_ID: "3"
+      DYNAMODB_ENDPOINT: "http://localstack-3:4566"
+    depends_on:
+      localstack-3: { condition: service_healthy }
     ports:
       - "8003:8000"
       - "9093:9090"
