@@ -20,6 +20,7 @@ RUN --mount=type=cache,target=/go/pkg/mod go mod download
 COPY api ./api
 COPY cmd ./cmd
 COPY internal ./internal
+COPY observability ./observability
 RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build \
     CGO_ENABLED=1 go test -race -count=1 ./...
 

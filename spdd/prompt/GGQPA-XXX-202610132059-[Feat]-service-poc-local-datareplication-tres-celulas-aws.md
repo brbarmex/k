@@ -6,8 +6,15 @@
 - **Completar o esboço** `doc/05_implementacao/codigo_exemplo` numa pasta própria `DataReplicationApp/`, preservando a arquitetura e os testes existentes, e acrescentar o que falta: Raft real (`etcdraft`), transporte gRPC entre células, `StateStore` do DynamoDB, parser do JSON do DynamoDB, leitura forte, propagação do gate, administração e a ligação de tudo no `bootstrap`.
 - **Manter o produto pronto para a Azure sem exercitá-la**: o gate implementa as regras completas (G-01 a G-09) e aceita learners pela configuração; a POC roda com `LEARNERS` vazia no modo sem Azure (G-08), que é explicitamente só da POC.
 - **Entregar um ambiente operável por tarefas**: imagem única, `docker-compose.yml` com LocalStack fixado e seis volumes, `taskfile.yaml` com as tarefas da S.5 e um roteiro `e2e` que verifica CA-03 a CA-05.
-- **Limites**: um shard; só `PutItem`, `GetItem` e `Scan` da tabela base; sem Azure, dedupe, mTLS, modo degradado ativo, compactação/snapshot do Raft, truncamento do log de replicação, TTL, GSI, métricas. `DeleteItem` e `BatchWriteItem` ficam para a fase 2 e são recusados.
-- **Pronto quando**: partindo de volumes vazios, os critérios CA-01 a CA-14 passam e `go test -race ./...` passa no container de teste.
+- **Tornar o comportamento do cluster visível em tempo real**: cada célula expõe métricas Prometheus; o compose sobe Prometheus e Grafana, e o Grafana já abre com o dashboard "DataReplication" importado por provisioning, mostrando a célula líder, o quórum, as trocas de liderança, os ACKs, a replicação, o heartbeat do Raft, a durabilidade, as leituras fortes e a saúde de cada célula. Os cenários de falha do HOW_TO_RUN passam a ser observáveis no dashboard.
+- **Limites**: um shard; só `PutItem`, `GetItem` e `Scan` da tabela base; sem Azure, dedupe, mTLS, modo degradado ativo, compactação/snapshot do Raft, truncamento do log de replicação, TTL, GSI, alertas do Prometheus. `DeleteItem` e `BatchWriteItem` ficam para a fase 2 e são recusados.
+- **Pronto quando**: partindo de volumes vazios, os critérios CA-01 a CA-14 passam, `go test -race ./...` passa no container de teste e os critérios de observabilidade abaixo passam.
+- **Critérios de observabilidade**:
+  - **OB-01**: com `task subir`, `GET http://localhost:909N/metrics` responde 200 nas três células com as séries `dr_*` listadas na O-15.
+  - **OB-02**: o Prometheus em `http://localhost:9095` mostra os três alvos `cell-1`, `cell-2`, `cell-3` como `up`, coletados a cada 1 s.
+  - **OB-03**: o Grafana em `http://localhost:3000` abre sem login, com o datasource Prometheus configurado e o dashboard "DataReplication" (uid `datareplication`) já importado e definido como página inicial, sem nenhum passo manual.
+  - **OB-04**: com `task carga` rodando, o dashboard mostra a líder atual, quórum OK, taxa de ACKs `ok` maior que zero, `commit`, `gate` e `aplicado` subindo juntos nas três células e mensagens de heartbeat sendo trocadas.
+  - **OB-05**: ao parar a líder (CA-09), `dr_leader_changes_total` sobe, `dr_raft_term` aumenta e o painel "Líder atual" muda em até 5 s; ao parar duas células (CA-07), o painel "Quórum" mostra "SEM QUÓRUM" e os ACKs `no_leader` aparecem; ao religar, tudo volta ao normal.
 
 ## Entities
 
@@ -147,6 +154,47 @@ class CellStatus {
     +ReplogStatus Replog
     +string ErroApply
     +map Match
+    +QuorumStatus Quorum
+}
+
+class QuorumStatus {
+    +int Ativos
+    +int Votantes
+    +bool Ok
+}
+
+class Metrics {
+    <<interface>>
+    +LeaderChanged(lead uint64)
+    +RaftMessageSent(tipo string)
+    +RaftMessageReceived(tipo string)
+    +HeartbeatSeen()
+    +WALFsync(d Duration)
+    +PeerSendDropped(par uint64)
+    +Forwarded()
+    +WriteDone(resultado string, d Duration)
+    +ReadDone(op string, resultado string)
+    +ReadBarrier(d Duration)
+}
+
+class Recorder {
+    -Registry registry
+    -counters e histogramas
+    +Handler() http.Handler
+}
+
+class StateCollector {
+    -StatusSource source
+    +Describe(ch)
+    +Collect(ch)
+}
+
+class Dashboard {
+    +string uid = datareplication
+    +string titulo = DataReplication
+    +Row[] linhas
+    +Panel[] paineis
+    +string datasourceUid = prometheus-dr
 }
 
 Entry "1" *-- "0..*" Op : carrega
@@ -159,12 +207,20 @@ Gate --> GateState : retrato
 CellStatus ..> GateState : agrega
 CellStatus ..> RaftInfo : agrega
 CellStatus ..> ApplyHealth : agrega
+CellStatus *-- QuorumStatus : só na líder
+Recorder ..|> Metrics : implementa
+Recorder *-- StateCollector : registra
+StateCollector ..> CellStatus : lê na coleta
+Dashboard ..> Recorder : consulta as séries dr_* via Prometheus
 ```
 
 Notas de modelagem (conservadoras):
 - `Entry`, `Op`, `WriteRequest`, `WriteResult`, `Lease`, `DegradedPolicy` e os tipos de `sendrule.go`/`retention.go` ficam como estão; só entram `KindNoop` e o campo `ProposalID` em `Entry`.
 - `Op.Key` é a chave serializada de forma **canônica**: o JSON do DynamoDB só com os atributos da chave, na ordem partição → ordenação (ex.: `{"pk":{"S":"cli-1"}}`). `Op.Item` é o item completo em JSON do DynamoDB, **sem** `_dr_v`.
 - O valor zero de `Gate` continua com o comportamento atual (líder, Azure exigida), para não quebrar os testes do esboço.
+- `RaftInfo` ganha `QuorumActive int` (votantes ativos recentemente, contando a própria líder; 0 na follower) e `Voters int`. `CellStatus` ganha `quorum` (só na líder), derivado desses dois campos.
+- `port.Metrics` registra **eventos** (contadores e histogramas). O **estado** (líder, termo, commit, gate, aplicado, quórum, replog, saúde) não é empurrado por ninguém: o `StateCollector` lê o mesmo `CellStatus` do `/status` na hora da coleta. `port.NopMetrics` é a implementação vazia usada nos testes e quando nada é injetado.
+- O `Dashboard` é um arquivo JSON do Grafana versionado no repositório; não é entidade de código, mas é contrato: só pode consultar séries que a O-15 define.
 
 ## Approach
 
@@ -217,6 +273,18 @@ Notas de modelagem (conservadoras):
    - Testes de integração com o LocalStack só rodam com `DR_IT_DYNAMODB_ENDPOINT` definida; sem ela, `t.Skip`, para o `go test -race ./...` do CA-14 passar sem LocalStack.
    - CA-07 é verificado depois que a líder isolada perde a liderança pelo `CheckQuorum` (esperar ≥ 3 s depois de parar as duas células): a escrita então recebe `NO_LEADER` sem propor nada. Uma escrita que recebeu `PENDING` é "resultado desconhecido" e **pode** aparecer depois que o quórum volta; isso é documentado, não é defeito.
 
+9. **Observabilidade (métricas, Prometheus e Grafana)**:
+   - **Exposição**: cada célula serve `GET /metrics` na porta de administração que já existe (`:9090`, host `909N`), no formato de texto do Prometheus. Nenhuma porta nova na célula.
+   - **Biblioteca**: `github.com/prometheus/client_golang` (padrão de fato em Go), justificada no README conforme a N-01. Só o adaptador `adapter/out/prommetrics` a importa.
+   - **Eventos por porta, estado por coleta**: casos de uso e adaptadores registram eventos pela porta `port.Metrics` (contadores e histogramas, operações atômicas e sem espera). O estado é lido na hora da coleta por um `prometheus.Collector` próprio a partir do `StatusReporter`, o mesmo do `/status`. Assim ninguém mantém gauges sincronizados à mão e o `/metrics` nunca diverge do `/status`.
+   - **Rótulo da célula**: todas as séries levam o rótulo constante `celula` (via registro embrulhado), para o dashboard agrupar por célula sem depender do rótulo `instance`.
+   - **Não interferir no Raft**: o laço do Ready só faz incrementos atômicos (sem mutex compartilhado, sem canal, sem rede). A leitura de estado roda na goroutine do scrape. Uma falha do Prometheus ou do Grafana nunca afeta escrita, leitura ou eleição.
+   - **Quórum**: na líder, `QuorumActive` = votantes com `RecentActive` no progresso do Raft (incluindo ela); `dr_quorum_ok` = 1 quando `QuorumActive` ≥ maioria. Na follower o quórum não é exportado; o dashboard usa o máximo entre as células, então sem líder o painel mostra "SEM QUÓRUM".
+   - **Heartbeat**: o Raft troca `MsgHeartbeat` e `MsgHeartbeatResp` a cada tick (100 ms). As contagens por tipo de mensagem e o instante do último heartbeat visto mostram o "pulso" de cada célula; ele para quando a célula cai.
+   - **Prometheus e Grafana no compose**: duas containers novas com imagens de versão fixa. O Prometheus coleta `cell-1:9090`, `cell-2:9090`, `cell-3:9090` a cada 1 s e fica em `localhost:9095`. O Grafana fica em `localhost:3000`, com acesso anônimo de administrador (só na POC) e **provisioning** por arquivos montados: datasource Prometheus com uid fixo `prometheus-dr` e um provedor de dashboards que carrega o JSON do repositório na partida. Nada é configurado à mão.
+   - **Dashboard como código**: o JSON fica em `observability/grafana/dashboards/datareplication.json`, versionado. Um teste Go confere que toda métrica citada no dashboard existe no registro do `prommetrics`, para o dashboard e o código não divergirem.
+   - **Geração de tráfego**: `task carga` escreve em laço alternando as três células (para aparecerem encaminhamentos) e não para em erro, para os cenários de falha ficarem visíveis no dashboard enquanto acontecem.
+
 ## Structure
 
 ### Inheritance Relationships
@@ -228,7 +296,8 @@ Notas de modelagem (conservadoras):
 6. `port.AppliedWaiter`: `usecase.Applier` implementa (já existe).
 7. `peerv1.PeerServer` interface (contrato gRPC); `peergrpc.Server` implementa.
 8. `usecase.Degrader`: `usecase.DegradeService` implementa (já existe; na POC com `reject`).
-9. Erros: `dynamohttp.APIError` (já existe) para erros de borda; erros sentinela do usecase (`ErrPending`, `ErrNoLeader`, `ErrBackpressure`, `ErrLeaseExpired` existentes; `ErrNotLeader`, `ErrGateNotReady`, `ErrReadTimeout` novos); erros sentinela de porta `port.ErrStoreTransient` e `port.ErrStorePermanent` (embrulhados com `%w`).
+9. `port.Metrics` interface define os eventos observáveis; `prommetrics.Recorder` implementa com o Prometheus e `port.NopMetrics` implementa vazio. `prommetrics.StateCollector` implementa `prometheus.Collector`.
+10. Erros: `dynamohttp.APIError` (já existe) para erros de borda; erros sentinela do usecase (`ErrPending`, `ErrNoLeader`, `ErrBackpressure`, `ErrLeaseExpired` existentes; `ErrNotLeader`, `ErrGateNotReady`, `ErrReadTimeout` novos); erros sentinela de porta `port.ErrStoreTransient` e `port.ErrStorePermanent` (embrulhados com `%w`).
 
 ### Dependencies
 1. `dynamohttp.Server` chama `port.Writer` e `port.Reader`, e usa `dynamohttp.Parser`, que depende de `domain.TableMap` e `port.Catalog`.
@@ -242,16 +311,19 @@ Notas de modelagem (conservadoras):
 9. `peergrpc.Server` chama `port.RaftInbound`, `port.Writer` e duas interfaces próprias do pacote: `LeaderBarrier` (implementada por `usecase.ReadService`) e `GateReceiver` (implementada por `usecase.GateSync`).
 10. `etcdraft.Node` chama `etcdraft.Sender` (implementado por `peerclient.Client`) para enviar mensagens serializadas.
 11. `adminhttp.Server` chama `usecase.StatusReporter`.
-12. `bootstrap` liga tudo com `fx`: `New(extra...)` monta o núcleo, `Runtime()` os adaptadores reais e `NewProduction()` os dois; `cmd/datareplication/main.go` chama `NewProduction()` e registra no log o erro de partida (o `fx.NopLogger` esconderia a mensagem da RT-10).
+12. Métricas: `etcdraft.Node`, `peerclient.Client`, `dynamohttp.Server` e `usecase.ReadService` recebem um `port.Metrics` (campo opcional; nulo vira `port.NopMetrics`). `prommetrics.StateCollector` lê `usecase.StatusReporter`. `adminhttp.Server` recebe o `http.Handler` de `/metrics` pronto, sem importar o Prometheus.
+13. Prometheus coleta o `/metrics` das três células; Grafana lê o Prometheus pelo datasource `prometheus-dr` e carrega o dashboard do diretório de provisioning.
+14. `bootstrap` liga tudo com `fx`: `New(extra...)` monta o núcleo, `Runtime()` os adaptadores reais e `NewProduction()` os dois; `cmd/datareplication/main.go` chama `NewProduction()` e registra no log o erro de partida (o `fx.NopLogger` esconderia a mensagem da RT-10).
 
 ### Layered Architecture
 1. Camada de entrada (`adapter/in`): `dynamohttp` (API DynamoDB, parser e validação de borda), `peergrpc` (servidor entre células), `adminhttp` (saúde e estado). Só traduz protocolo.
 2. Camada de casos de uso (`usecase`): escrita, leitura forte, apply, bombeamento de commits, sincronização do gate, checkpoint, modo degradado, retrato de estado.
 3. Camada de domínio (`domain`): entrada, gate, lease, mapa de tabelas, esquema de chave, regras de retenção e de envio antes do fsync. Só biblioteca padrão.
 4. Camada de portas (`port`): contratos entre casos de uso e adaptadores.
-5. Camada de saída (`adapter/out`): `etcdraft` (Raft + WAL), `peerclient` (gRPC), `replog` (log de replicação), `dynamodb` (banco da célula).
+5. Camada de saída (`adapter/out`): `etcdraft` (Raft + WAL), `peerclient` (gRPC), `replog` (log de replicação), `dynamodb` (banco da célula), `prommetrics` (métricas Prometheus).
 6. Tratamento de erros: erros sentinela no usecase e nas portas; o mapeamento para HTTP fica **num único lugar** (`dynamohttp.Server.writeError`), e o mapeamento para o fio do `Forward`/`ReadBarrier` num único par de funções em `api/peerv1` (`CodeOf(err)` / `ErrOf(code)`, que importam os sentinelas do usecase).
 7. Plataforma (`platform/config`, `platform/logx`) e montagem (`bootstrap`).
+8. Observabilidade fora do processo (`observability/`): configuração do Prometheus, provisioning do Grafana e o JSON do dashboard, todos montados pelo compose como somente leitura.
 
 Árvore de `DataReplicationApp/`:
 
@@ -261,22 +333,29 @@ DataReplicationApp/
 ├── docker-compose.yml
 ├── taskfile.yaml
 ├── README.md
+├── HOW_TO_RUN.md
+├── observability/
+│   ├── prometheus/prometheus.yml
+│   └── grafana/
+│       ├── provisioning/datasources/prometheus.yml
+│       ├── provisioning/dashboards/datareplication.yml
+│       └── dashboards/datareplication.json
 ├── go.mod / go.sum
 ├── cmd/datareplication/main.go
 ├── api/peerv1/{peer.go, codec.go, codes.go}
 └── internal/
     ├── domain/{entry.go, gate.go, lease.go, tablemap.go, keyschema.go, retention.go, sendrule.go}
-    ├── port/ports.go
+    ├── port/{ports.go, metrics.go}
     ├── usecase/{write.go, read.go, apply.go, replicate.go, checkpoint.go, degrade.go, gatesync.go, status.go}
     ├── adapter/in/{dynamohttp/{handler.go, parser.go, attr.go}, peergrpc/server.go, adminhttp/server.go}
-    ├── adapter/out/{etcdraft/{node.go, storage.go, codec.go}, peerclient/client.go, replog/, raftstore/ (copiado, não ligado), dynamodb/{store.go, convert.go, catalog.go}}
+    ├── adapter/out/{etcdraft/{node.go, storage.go, codec.go}, peerclient/client.go, replog/, raftstore/ (copiado, não ligado), dynamodb/{store.go, convert.go, catalog.go}, prommetrics/{recorder.go, collector.go}}
     ├── platform/{config/config.go, logx/logx.go}
     └── bootstrap/app.go
 ```
 
 ## Operations
 
-> Ordem obrigatória: O-01 → O-13, com uma exceção de dependência: as portas de O-07a e os erros novos do usecase (`ErrNotLeader`, `ErrGateNotReady`, `ErrReadTimeout`, em `read.go`) entram **antes** de O-03, porque o `etcdraft` os usa. Cada passo termina com `go build ./...` e `go test -race ./...` verdes (no container de teste) antes do seguinte. Comentários e mensagens de log em português.
+> Ordem obrigatória: O-01 → O-21 (O-14 a O-21 são a observabilidade, feitas depois da POC base), com uma exceção de dependência: as portas de O-07a e os erros novos do usecase (`ErrNotLeader`, `ErrGateNotReady`, `ErrReadTimeout`, em `read.go`) entram **antes** de O-03, porque o `etcdraft` os usa. Cada passo termina com `go build ./...` e `go test -race ./...` verdes (no container de teste) antes do seguinte. Comentários e mensagens de log em português.
 
 ### O-01 Criar a base - `DataReplicationApp/`
 1. Responsabilidade: copiar o esboço e atualizar dependências.
@@ -464,7 +543,7 @@ DataReplicationApp/
 4. Testes: casos válidos e cada erro novo; testes existentes continuam.
 
 ### O-09b Update Bootstrap - `bootstrap/app.go` e `cmd/datareplication/main.go`
-1. Provedores: `config.Load`; logger com `celula` e `no`; `domain.TableMap`; `*domain.Gate` com `SetAzureOff(len(Learners)==0)` (log de aviso "POC sem Azure: gate = commit do Raft; nunca usar em produção"); `*replog.Log` (`replog.Open(ReplogDir, 64<<20)`) como `port.ReplicationLog` e `port.ApplyProgress`; `*dynamodb.Store` (`StateStore`, `Scanner`); `*dynamodb.Catalog`; `*peerclient.Client`; `*etcdraft.Node` como `ConsensusEngine`, `RaftCompactor`, `RaftInbound`, `RaftStatus`; canal `chan []domain.Entry` (buffer 4096) entre `CommitPump` e `Applier`; `*usecase.Applier` como `AppliedWaiter`; `WriteService`, `ReadService`, `GateSync`, `CommitPump`, `Checkpointer` (`Interval = ReplogSyncInterval`, `Retention = nil`), `StatusReporter`, `DegradeService` (existente); `Parser`, `dynamohttp.Server`, `peergrpc.Server`, `adminhttp.Server`.
+1. Provedores: `config.Load`; logger com `celula` e `no`; `domain.TableMap`; `*domain.Gate` com `SetAzureOff(len(Learners)==0)` (log de aviso "POC sem Azure: gate = commit do Raft; nunca usar em produção"); `*replog.Log` (`replog.Open(ReplogDir, 64<<20)`) como `port.ReplicationLog` e `port.ApplyProgress`; `*dynamodb.Store` (`StateStore`, `Scanner`, `Catalog`); `*peerclient.Client`; `*etcdraft.Node` como `ConsensusEngine`, `RaftCompactor`, `RaftInbound`, `RaftStatus`; canal `chan []domain.Entry` (buffer 4096) entre `CommitPump` e `Applier`; `*usecase.Applier` como `AppliedWaiter`; `WriteService`, `ReadService`, `GateSync`, `CommitPump`, `Checkpointer` (`Interval = ReplogSyncInterval`, `Retention = nil`), `StatusReporter`, `DegradeService` (existente); `Parser`, `dynamohttp.Server`, `peergrpc.Server`, `adminhttp.Server`.
 2. `fx.StartTimeout(5m)` (cabe o `TABLE_WAIT`). Ordem de `OnStart`: admin HTTP (para `/livez`) → `Store.LoadCatalog` com `TableWait` (erro → falha a partida) → servidor gRPC → `etcdraft.Run`, `CommitPump.Run`, `Applier.Run`, `Checkpointer.Run`, `GateSync.Run` em goroutines com um contexto cancelado no `OnStop` → API DynamoDB. Erro não-`context.Canceled` de qualquer laço → `log.Fatal()`.
 3. `OnStop`: API → gRPC → cancelar laços e **esperar** que parem → `replog.Close` → fechar o WAL e o cliente gRPC.
 4. `main.go`: `bootstrap.NewProduction()`; `app.Err()` e `app.Start` com erro → `log.Fatal` com a causa (CA-12 precisa da mensagem); espera o sinal e para com prazo de 30 s.
@@ -506,9 +585,139 @@ DataReplicationApp/
 3. Roteiros manuais de CA-04, CA-07 (parar duas células, **esperar 3 s**, escrever → `NO_LEADER`, `/status` com `commit` e `gate` parados; religar; nova escrita OK; nota de que um `PENDING` pode aparecer depois), CA-08, CA-09, CA-10, CA-12, CA-13.
 4. Decisões da POC: modo sem Azure (G-08) e `POC_SEM_AZURE`; `raftstore` não ligado; codec JSON no gRPC; versões de `grpc`/`etcd` escolhidas; riscos 1 a 8 da especificação.
 
+### O-14 Create Port - `port/metrics.go` e quórum no `RaftInfo`
+1. Interface `Metrics` com os métodos (todos sem retorno, sem bloquear e seguros para uso concorrente):
+   - `LeaderChanged(lead uint64)`: a célula viu uma líder diferente da anterior (inclusive "sem líder", 0).
+   - `RaftMessageSent(tipo string)` e `RaftMessageReceived(tipo string)`: `tipo` em `app`, `app_resp`, `vote`, `vote_resp`, `prevote`, `prevote_resp`, `heartbeat`, `heartbeat_resp`, `snap`, `outro`.
+   - `HeartbeatSeen()`: chegou `MsgHeartbeat` ou `MsgHeartbeatResp`.
+   - `WALFsync(d time.Duration)`: duração do `wal.Save` de um `Ready` com entradas ou HardState.
+   - `PeerSendDropped(par uint64)`: mensagem do Raft descartada por fila cheia.
+   - `Forwarded()`: escrita encaminhada pela follower à líder.
+   - `WriteDone(resultado string, d time.Duration)`: `resultado` em `ok`, `no_leader`, `pending`, `throttling`, `lease_expired`, `recusada` (400 de validação), `erro` (500).
+   - `ReadDone(op string, resultado string)`: `op` em `get`, `scan`; `resultado` em `ok`, `no_leader`, `gate_not_ready`, `read_timeout`, `recusada`, `erro`.
+   - `ReadBarrier(d time.Duration)`: duração da barreira de leitura (ReadIndex local ou `ReadBarrier` na líder) mais a espera do apply.
+2. `NopMetrics` (struct vazia que implementa `Metrics` sem fazer nada) e a função `MetricsOrNop(m Metrics) Metrics`.
+3. `RaftInfo` ganha `QuorumActive int` e `Voters int`. `etcdraft.Node.Status()` preenche: `Voters` = número de votantes da configuração; na líder, `QuorumActive` = votantes cujo progresso tem `RecentActive` (a própria líder conta como ativa); na follower, 0.
+4. `usecase.CellStatus` ganha `Quorum *QuorumStatus` (`json:"quorum,omitempty"`, só na líder) com `Ativos`, `Votantes` e `Ok` (`Ativos >= Votantes/2+1`).
+5. Testes: `NopMetrics` satisfaz a interface; `StatusReporter` preenche `quorum` só na líder e calcula `Ok`; teste do `etcdraft` com 3 nós confere `QuorumActive == 3` na líder com todos de pé e `Voters == 3`.
+
+### O-15 Implement Adapter - `adapter/out/prommetrics`
+1. Responsabilidade: único pacote que importa `github.com/prometheus/client_golang`; implementa `port.Metrics` e a coleta do estado.
+2. `NewRecorder(celula string, source StatusSource) *Recorder`:
+   - Cria um `prometheus.Registry` próprio, embrulhado com o rótulo constante `celula`.
+   - Registra os coletores padrão de processo e de Go (`go_*`, `process_*`).
+   - `StatusSource` é uma interface do próprio pacote com `Status() usecase.CellStatus` e `Ready() (bool, string)` (implementada por `usecase.StatusReporter`).
+   - `RegisterState(source StatusSource)`: registra o `StateCollector` depois. Existe porque o `StatusReporter` depende do nó Raft, que recebe o `Recorder`: o bootstrap cria o `Recorder` com fonte nula e liga a fonte no `runAdmin`.
+3. Séries de **eventos** (atualizadas pelos métodos de `port.Metrics`):
+   - `dr_leader_changes_total` (contador).
+   - `dr_raft_messages_sent_total{tipo}` e `dr_raft_messages_received_total{tipo}` (contadores).
+   - `dr_raft_last_heartbeat_timestamp_seconds` (gauge com o instante Unix do último heartbeat visto).
+   - `dr_wal_fsync_duration_seconds` (histograma; buckets de 0,5 ms a 1 s).
+   - `dr_peer_send_dropped_total{par}` (contador).
+   - `dr_forwards_total` (contador).
+   - `dr_writes_total{resultado}` (contador) e `dr_write_duration_seconds` (histograma; buckets de 1 ms a 10 s; só para `resultado="ok"`).
+   - `dr_reads_total{op,resultado}` (contador) e `dr_read_barrier_duration_seconds` (histograma; buckets de 0,5 ms a 5 s).
+   - Todos os rótulos de `tipo`, `resultado` e `op` são pré-inicializados com zero, para as séries existirem desde a partida.
+4. Séries de **estado** (`StateCollector`, lidas a cada coleta a partir de `source.Status()` e `source.Ready()`):
+   - `dr_is_leader` (1 na líder, 0 na follower), `dr_leader_id` (id da líder conhecida, 0 sem líder), `dr_raft_term`.
+   - `dr_commit_index`, `dr_gate_index`, `dr_gate_ready` (0/1), `dr_applied_index`.
+   - `dr_replog_last_index`, `dr_replog_durable_index`.
+   - `dr_quorum_active`, `dr_quorum_voters`, `dr_quorum_ok` (0/1), só na líder.
+   - `dr_peer_match_index{par}` e `dr_peer_lag{par}` (`commit - match`), só na líder.
+   - `dr_applier_stopped` (0/1), `dr_ready` (0/1), `dr_azure_off` (0/1).
+5. `Handler() http.Handler`: `promhttp.HandlerFor` do registro próprio.
+6. Testes: cada método de `port.Metrics` muda a série certa (`testutil.ToFloat64`); o `StateCollector` com um `StatusSource` falso exporta líder, follower e quórum como descrito; `Gather` do registro contém todas as séries listadas acima; **teste de contrato com o dashboard**: lê `observability/grafana/dashboards/datareplication.json`, extrai todos os nomes `dr_*` das consultas e falha se algum não existir no registro.
+
+### O-16 Instrument - `etcdraft`, `peerclient`, `dynamohttp`, `usecase/read.go`
+1. Cada componente ganha um campo ou parâmetro `Metrics port.Metrics`; nulo vira `port.NopMetrics` (os testes existentes não mudam).
+2. `etcdraft.Node`:
+   - No `handleReady`, quando o `Lead` do `SoftState` muda: `LeaderChanged(novo)` junto com o log de mudança de líder que já existe.
+   - Em `sendAll`, para cada mensagem enviada: `RaftMessageSent(tipo)`; quando o `Sender` recusa, só o `ReportUnreachable` que já existe (a contagem do descarte é do `peerclient`).
+   - Em `Step`, para cada mensagem recebida: `RaftMessageReceived(tipo)`; `MsgHeartbeat`/`MsgHeartbeatResp` também chamam `HeartbeatSeen()`.
+   - Medir o `wal.Save` só quando há entradas ou HardState e chamar `WALFsync(d)` depois dele, sem mudar a ordem da RT-04.
+   - O nome do `tipo` vem de uma função de tradução única, ao lado de `kindOf`.
+3. `peerclient.Client`: `Send` que devolve `false` chama `PeerSendDropped(to)`; `Forward` chama `Forwarded()` junto com o log que já existe.
+4. `dynamohttp.Server`: mede cada requisição; `PutItem` chama `WriteDone(resultado, d)`; `GetItem`/`Scan` chamam `ReadDone(op, resultado)`. O resultado vem de uma função única que traduz o erro (mesma classificação do `writeError`; erro de parse → `recusada`). Erros de parse de uma operação desconhecida não contam.
+5. `usecase.ReadService`: mede `barrier` + `WaitApplied` e chama `ReadBarrier(d)` quando a barreira termina sem erro.
+6. Testes: um `Metrics` falso que registra as chamadas confere, em cada componente, o evento certo (mudança de líder no teste de 3 nós do `etcdraft`; `PeerSendDropped` com fila cheia; `WriteDone("recusada")` para um `_dr_v`, `WriteDone("ok")` e `WriteDone("no_leader")` no handler; `ReadBarrier` no `ReadService`).
+
+### O-17 Update Admin e Bootstrap - `/metrics`
+1. `adminhttp.New(addr, reporter, metrics http.Handler)`: registra `GET /metrics` com o handler recebido; `nil` não registra a rota. O pacote continua sem importar o Prometheus.
+2. `bootstrap.Runtime()`: provê `*prommetrics.Recorder` (com `cfg.CellID` e o `StatusReporter`) como `port.Metrics`; injeta o `port.Metrics` em `etcdraft.Open`, `peerclient.New`, `dynamohttp.New` (pelo núcleo, com `port.NopMetrics` quando o `Runtime` não está presente) e `ReadService`; passa `Recorder.Handler()` ao `adminhttp`.
+3. Testes: `adminhttp` responde `/metrics` quando recebe um handler e 404 quando não; o grafo de produção continua válido com `fx.ValidateApp`; teste de `/metrics` de ponta a ponta com o `Recorder` real e um `StatusSource` falso contendo `dr_is_leader`.
+
+### O-18 Create Dashboard e importar no Grafana pelo compose - `observability/` e `docker-compose.yml`
+1. Responsabilidade: criar o dashboard do Grafana como arquivo versionado e fazê-lo aparecer **sozinho** no Grafana quando o compose sobe, junto com o Prometheus que alimenta os painéis.
+2. `observability/prometheus/prometheus.yml`: `scrape_interval` e `evaluation_interval` de 1 s; um job `datareplication` com `metrics_path: /metrics` e os alvos `cell-1:9090`, `cell-2:9090`, `cell-3:9090`.
+3. `observability/grafana/provisioning/datasources/prometheus.yml`: um datasource do tipo Prometheus, nome `Prometheus`, `uid: prometheus-dr`, URL `http://prometheus:9090`, padrão (`isDefault: true`), `jsonData.timeInterval: 1s`, não editável.
+4. `observability/grafana/provisioning/dashboards/datareplication.yml`: um provedor de arquivos chamado `DataReplication`, pasta `DataReplication`, apontando para `/var/lib/grafana/dashboards`, `updateIntervalSeconds: 10`, `allowUiUpdates: true`.
+5. `observability/grafana/dashboards/datareplication.json` (modelo de dashboard do Grafana 12, `schemaVersion` atual):
+   - `uid: datareplication`, título `DataReplication`, `refresh: 1s` (com `5s` e `10s` disponíveis), janela padrão dos últimos 15 minutos, fuso do navegador, todos os painéis com o datasource `prometheus-dr`.
+   - Variável `celula` (consulta `label_values(dr_raft_term, celula)`, múltipla, "Todas" por padrão) usada nos painéis por célula.
+   - Linha **Cluster**:
+     - "Líder atual" (stat): `max(dr_leader_id)`; mapeamento de valor `0` → "SEM LÍDER" em vermelho; demais valores → `cell-N`.
+     - "Termo" (stat): `max(dr_raft_term)`.
+     - "Quórum" (stat): `max(dr_quorum_ok)`; `1` → "OK" em verde, `0` ou sem dado → "SEM QUÓRUM" em vermelho.
+     - "Votantes ativos" (gauge): `max(dr_quorum_active)` de 0 a 3, limiar vermelho abaixo de 2.
+     - "Células prontas" (stat): `sum(dr_ready)` de 3.
+     - "Papel por célula" (state timeline): `dr_is_leader` por `celula`; `1` → "líder" (azul), `0` → "follower" (cinza); a ausência de dado aparece como célula fora do ar.
+   - Linha **Liderança**:
+     - "Trocas de liderança" (time series, barras): `sum by (celula) (increase(dr_leader_changes_total[1m]))`.
+     - "Termo ao longo do tempo" (time series, degraus): `max(dr_raft_term)`.
+     - Anotação do dashboard "Troca de líder" quando `changes(max(dr_leader_id)[10s:1s]) > 0`.
+   - Linha **Escritas (ACKs)**:
+     - "ACKs por resultado" (time series empilhada): `sum by (resultado) (rate(dr_writes_total[30s]))`, cores fixas (`ok` verde, `no_leader` vermelho, `pending` laranja, `throttling` amarelo, `recusada` cinza, `erro` roxo).
+     - "Latência do ACK" (time series): p50 e p99 de `histogram_quantile` sobre `sum by (le) (rate(dr_write_duration_seconds_bucket[1m]))`.
+     - "Encaminhamentos por célula" (time series): `sum by (celula) (rate(dr_forwards_total[30s]))`.
+     - "Total de ACKs ok" (stat): `sum(increase(dr_writes_total{resultado="ok"}[$__range]))`.
+   - Linha **Replicação**:
+     - "Commit, gate e aplicado" (time series): `dr_commit_index`, `dr_gate_index`, `dr_applied_index` por `celula`.
+     - "Atraso de apply por célula" (time series): `dr_commit_index - dr_applied_index`.
+     - "Atraso por par na líder" (bar gauge): `max by (par) (dr_peer_lag)`.
+     - "Log de replicação" (time series): `dr_replog_last_index` e `dr_replog_durable_index` por `celula`.
+   - Linha **Raft e heartbeat**:
+     - "Heartbeats por célula" (time series): `sum by (celula) (rate(dr_raft_messages_received_total{tipo=~"heartbeat|heartbeat_resp"}[10s]))`.
+     - "Segundos desde o último heartbeat" (stat por célula): `time() - dr_raft_last_heartbeat_timestamp_seconds`; verde abaixo de 1 s, amarelo até 3 s, vermelho acima.
+     - "Mensagens do Raft por tipo" (time series): `sum by (tipo) (rate(dr_raft_messages_sent_total[30s]))`.
+     - "Fsync do WAL" (time series): p50 e p99 de `dr_wal_fsync_duration_seconds`.
+     - "Mensagens descartadas" (time series): `sum by (celula, par) (rate(dr_peer_send_dropped_total[1m]))`.
+   - Linha **Leituras fortes**:
+     - "Leituras por resultado" (time series): `sum by (op, resultado) (rate(dr_reads_total[30s]))`.
+     - "Barreira de leitura" (time series): p50 e p99 de `dr_read_barrier_duration_seconds`.
+   - Linha **Saúde**:
+     - "Applier" (state timeline): `dr_applier_stopped` por `celula`; `0` → "aplicando" (verde), `1` → "PARADO" (vermelho).
+     - "Pronta (/readyz)" (state timeline): `dr_ready` por `celula`.
+     - "Gate pronto" (state timeline): `dr_gate_ready` por `celula`.
+6. `docker-compose.yml`, dois serviços novos:
+   - `prometheus`: imagem fixa `prom/prometheus:v3.5.0`; monta `./observability/prometheus/prometheus.yml` em `/etc/prometheus/prometheus.yml` somente leitura; argumentos `--config.file=/etc/prometheus/prometheus.yml`, `--storage.tsdb.retention.time=1d`, `--web.enable-lifecycle`; porta `9095:9090`; `depends_on` das três células (`service_started`); healthcheck em `/-/ready`.
+   - `grafana`: imagem fixa `grafana/grafana:12.1.0`; monta `./observability/grafana/provisioning` em `/etc/grafana/provisioning` e `./observability/grafana/dashboards` em `/var/lib/grafana/dashboards`, ambos somente leitura; variáveis `GF_AUTH_ANONYMOUS_ENABLED=true`, `GF_AUTH_ANONYMOUS_ORG_ROLE=Admin`, `GF_AUTH_DISABLE_LOGIN_FORM=true`, `GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH=/var/lib/grafana/dashboards/datareplication.json`, `GF_USERS_DEFAULT_THEME=dark`; porta `3000:3000`; `depends_on: prometheus` saudável; healthcheck em `/api/health`.
+   - Nenhum volume nomeado novo: os dados do Prometheus e do Grafana são descartáveis.
+7. Pronto quando: `docker compose config` sem erro; depois de `task subir`, `GET http://localhost:3000/api/dashboards/uid/datareplication` responde 200, `GET http://localhost:3000/api/datasources/uid/prometheus-dr/health` responde `OK` e `GET http://localhost:9095/api/v1/targets` mostra os três alvos `up` (OB-02, OB-03). Validação estrutural do JSON: o teste de contrato da O-15 passa e o JSON abre sem erro no Grafana (sem painéis "Datasource not found" nem consultas com erro).
+
+### O-19 Update Taskfile - `dashboard` e `carga`
+1. `subir`: depois de esperar as três células, espera `curl -fs http://localhost:3000/api/health` e `curl -fs http://localhost:9095/-/ready` (até 60 s cada) e imprime as URLs do Grafana e do Prometheus.
+2. `dashboard`: imprime a URL `http://localhost:3000/d/datareplication` e tenta abri-la no navegador (`open` no macOS, `xdg-open` no Linux; sem nenhum dos dois, só imprime).
+3. `carga`: escreve em laço até Ctrl+C, alternando as células 1, 2 e 3; variáveis `INTERVALO` (padrão `0.2` s) e `QTD` (padrão `0` = sem fim); cada escrita usa o item fixo da seção E com `pk` `cli-<nanossegundos>`; imprime uma linha curta por escrita (`cell-N ok indice=X` ou `cell-N 503 NO_LEADER`); **não para em erro**, para os cenários de falha aparecerem no dashboard; com `QTD` > 0, termina imprimindo o total de `ok` e de falhas. Usa `AWS_MAX_ATTEMPTS=1` como as outras tarefas.
+4. Pronto quando: `task carga QTD=20` termina com 20 `ok` com o cluster de pé, e `task dashboard` imprime a URL.
+
+### O-20 Update Docs - `README.md` e `HOW_TO_RUN.md`
+1. `README.md`: seção "Observabilidade" com a arquitetura (métricas no `/metrics` da administração, Prometheus, Grafana com provisioning), a tabela de portas atualizada (9095 e 3000), a justificativa da biblioteca `prometheus/client_golang` e a lista de séries `dr_*` com uma linha de descrição cada.
+2. `HOW_TO_RUN.md`:
+   - Nova seção "Dashboard" depois de "Usar": `task subir`, `task dashboard`, `task carga` em outro terminal; o que cada linha do dashboard mostra e o que esperar com o cluster saudável.
+   - Em cada cenário da seção "Cenários de falha", um item "No dashboard" dizendo o que muda (por exemplo, na CA-09: "Líder atual" muda, "Trocas de liderança" ganha uma barra, "Termo" sobe um degrau; na CA-07: "Quórum" fica "SEM QUÓRUM", "ACKs por resultado" passa a mostrar `no_leader`, "Heartbeats" das células paradas zeram).
+   - Linhas novas em "Problemas comuns": dashboard vazio (Prometheus sem alvos `up`), painel "No data" sem `task carga`.
+
+### O-21 Verify - observabilidade de ponta a ponta no Docker
+1. `go test -race ./...` (inclui o teste de contrato do dashboard) e `task testar` verdes.
+2. `task limpar`, `task subir`: OB-01, OB-02 e OB-03 conferidos pelos endpoints da O-18.
+3. `task carga` em segundo plano; depois de 10 s, consultas na API do Prometheus confirmam OB-04: `max(dr_quorum_ok) == 1`, `sum(rate(dr_writes_total{resultado="ok"}[30s])) > 0`, `dr_applied_index` das três células igual ou a poucos índices do `dr_commit_index` da líder, `rate(dr_raft_messages_received_total{tipo="heartbeat"}[10s]) > 0` nas followers.
+4. Parar a líder: em até 5 s `max(dr_leader_id)` muda e `sum(dr_leader_changes_total)` sobe (OB-05). Religar.
+5. Parar duas células: `max(dr_quorum_ok)` cai para 0 (ou fica sem dado), `dr_writes_total{resultado="no_leader"}` cresce; religar e conferir a volta (OB-05).
+6. `task limpar` no fim.
+
 ## Norms
 
-1. **Arquitetura e dependências**: `adapter → usecase → domain` e `adapter → port`; `domain` só com biblioteca padrão; só `etcdraft` importa `go.etcd.io/raft/v3` e o `wal`; só `bootstrap` e `cmd` importam `fx`; bibliotecas limitadas à N-01 (mais `smithy-go`, `zap` e `aws-sdk-go-v2/credentials`, exigidas pelas outras, justificadas no README).
+1. **Arquitetura e dependências**: `adapter → usecase → domain` e `adapter → port`; `domain` só com biblioteca padrão; só `etcdraft` importa `go.etcd.io/raft/v3` e o `wal`; só `bootstrap` e `cmd` importam `fx`; bibliotecas limitadas à N-01 (mais `smithy-go`, `zap`, `protobuf` e `aws-sdk-go-v2/credentials`, exigidas pelas outras, e `prometheus/client_golang` para as métricas, todas justificadas no README); só `adapter/out/prommetrics` importa o Prometheus.
 2. **Injeção de dependências**: structs com campos exportados preenchidos pelo `bootstrap` (padrão do esboço); provedores `fx` com `fx.Annotate(..., fx.As(new(port.X)))` para expor portas; nada de estado global.
 3. **Tratamento de erros**:
    - Erros de negócio são sentinelas no `usecase` (`ErrPending`, `ErrNoLeader`, `ErrNotLeader`, `ErrBackpressure`, `ErrLeaseExpired`, `ErrGateNotReady`, `ErrReadTimeout`) e nas portas (`ErrStoreTransient`, `ErrStorePermanent`); contexto acrescentado com `fmt.Errorf("...: %w", err)` e conferido com `errors.Is`/`errors.As`.
@@ -522,6 +731,12 @@ DataReplicationApp/
 7. **Testes**: `go test -race -count=1 ./...`; testes de tabela no domínio; fakes à mão no próprio pacote de teste (padrão `fakes_test.go`); integração com LocalStack só com `DR_IT_DYNAMODB_ENDPOINT`; todo estrutura compartilhada com teste `-race` (N-08).
 8. **Documentação**: comentário de pacote em cada pacote novo; comentários citam a regra (G-xx, RT-xx, AP-xx, SG-xx, ADR-xxx) que o código cumpre; comentários e textos em português.
 9. **fasthttp**: nada que aponte para o buffer da requisição sobrevive ao handler (N-06).
+10. **Métricas**:
+   - Nomes com prefixo `dr_`, em snake_case, unidade base no nome (`_seconds`, `_index`), contadores com sufixo `_total`.
+   - Rótulos em português e de baixa cardinalidade: `celula`, `par`, `tipo`, `resultado`, `op`. Nunca `pk`, nome de tabela física, mensagem de erro ou qualquer valor vindo do cliente.
+   - Evento por `port.Metrics`; estado por coleta (`StateCollector`). Nenhum componente mantém gauge de estado à mão.
+   - Toda série tem `Help` em português explicando o que mede.
+   - Dashboard e configurações do Prometheus e do Grafana são arquivos versionados em `observability/`; nada é criado pela interface do Grafana. Mudou métrica → mudou o dashboard no mesmo commit (o teste de contrato garante).
 
 ## Safeguards
 
@@ -536,16 +751,24 @@ DataReplicationApp/
    - Nova líder em até 5 s após parar a líder (CA-09), com `ElectionTick` 10 × 100 ms.
    - Item nas três tabelas físicas em até 2 s após o ACK (CA-03).
    - Laço do Ready nunca bloqueia em rede (filas por par que descartam, SG-10); o envio de `GateUpdate` nunca bloqueia e nunca perde o valor mais recente.
+   - **Métrica nunca bloqueia nem atrasa o laço do Ready do Raft**: dentro do `Run`, `handleReady`, `sendAll` e `Step` só há incrementos atômicos e medições de tempo locais; proibido mutex compartilhado com o scrape, canal, chamada de rede, alocação por mensagem além do incremento e qualquer chamada a `node.Status()` vinda de código de métrica dentro do laço.
+   - A coleta (`/metrics`) roda na goroutine do servidor de administração e deve responder em menos de 100 ms com o cluster saudável; uma coleta lenta ou o Prometheus fora do ar nunca afeta escrita, leitura, eleição ou o `/readyz`.
+   - Dashboard atualiza a cada 1 s (scrape de 1 s): uma troca de líder aparece no painel "Líder atual" em até 5 s (OB-05).
 3. **Restrições de segurança**:
    - Só credenciais de teste (`test`/`test`) em arquivos; nenhuma credencial real (SG-13).
    - Sem TLS entre células e sem mTLS na API: aceitável **só** na POC.
    - Nada de `git push` sem pedido do Bruno.
+   - Grafana com acesso anônimo de administrador e sem formulário de login, e Prometheus sem autenticação: aceitável **só** na POC local; as portas 3000 e 9095 são publicadas apenas no host local.
+   - `/metrics` não expõe dado de cliente (nenhuma `pk`, item ou mensagem de erro em rótulo).
    - Imagem roda como uid 10001, não root.
 4. **Restrições de integração**:
    - LocalStack fixado em `localstack/localstack:4.14.0` (SG-14).
    - AWS CLI chamado com `AWS_MAX_ATTEMPTS=1` em toda tarefa que fala com o DR (T-05).
    - `PEERS`, `LEARNERS` e `POC_SEM_AZURE` idênticos nas três células (bloco `x-` do compose).
    - Compatibilidade com o AWS CLI v2: respostas e erros no formato JSON 1.0 do DynamoDB.
+   - Imagens de observabilidade com versão fixa: `prom/prometheus:v3.5.0` e `grafana/grafana:12.1.0`.
+   - O Grafana sobe já configurado só por provisioning (datasource uid `prometheus-dr`, dashboard uid `datareplication`); nenhum passo manual na interface é necessário.
+   - O dashboard só consulta séries definidas na O-15 (teste de contrato).
 5. **Regras de negócio**:
    - Gate monotônico; progresso de learner só no termo atual; troca de termo descarta o progresso (SG-04).
    - Modo sem Azure só com `LEARNERS` vazia **e** `POC_SEM_AZURE=true`; aviso na partida; `/status` com `azure: "off"`; comentário "nunca em produção" no código (SG-12).
@@ -570,12 +793,13 @@ DataReplicationApp/
    - Testes do esboço continuam passando; só mudam onde a interface mudou (`StateStore.Get`, `Reader`, `Applier` com erro permanente, grafo do bootstrap).
 8. **Restrições de dados**:
    - Tabelas `cadastro_cliente_cell_{1,2,3}` com `pk` String HASH, sem ordenação, sem índices, `PAY_PER_REQUEST`.
-   - Item do cadastro: `pk` = `cli-<nanossegundos>` gerado pelo Task, `nome=Maria`, `sobrenome=Silva`, `email=maria.silva@exemplo.com`, `contato=+55 11 91234-5678`.
+   - Item do cadastro: `pk` = `cli-<nanossegundos da partida + número da escrita>` gerado pelo Task (base `now.UnixNano` capturada uma vez no início da tarefa, somada ao contador da escrita; ex.: `cli-1791934579927602214`), `nome=Maria`, `sobrenome=Silva`, `email=maria.silva@exemplo.com`, `contato=+55 11 91234-5678`.
    - `_dr_v` (N) = índice da entrada; atributo reservado, recusado na entrada.
    - Item ≤ 400 KB; chave presente com o tipo do `KeySchema`.
    - Índices contíguos no log de replicação (entradas vazias viram `Noop`); a primeira entrada útil tem índice ≥ 2.
 9. **Restrições de API**:
    - API DynamoDB em `:8000` (host `800N`), `X-Amz-Target: DynamoDB_20120810.<Operação>`, `Content-Type: application/x-amz-json-1.0`.
    - 200 do `PutItem` com `x-dr-index`.
-   - Admin em `:9090` (host `909N`): `/livez`, `/readyz`, `/status` com as chaves da S.7.
+   - Admin em `:9090` (host `909N`): `/livez`, `/readyz`, `/status` com as chaves da S.7 (mais `quorum` na líder) e `/metrics` no formato de texto do Prometheus.
+   - Prometheus em `localhost:9095`; Grafana em `localhost:3000`, dashboard em `/d/datareplication`.
    - gRPC em `:7000`, não publicado no host; serviço `datareplication.peer.v1.Peer` com exatamente `Step`, `Forward`, `ReadBarrier`, `GateUpdate`.

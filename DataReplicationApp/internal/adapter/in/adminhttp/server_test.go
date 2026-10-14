@@ -26,7 +26,7 @@ func get(h http.Handler, path string) *httptest.ResponseRecorder {
 }
 
 func TestAdmin(t *testing.T) {
-	h := New(":0", fakeReporter{ready: false, why: "sem líder conhecida"}).Handler()
+	h := New(":0", fakeReporter{ready: false, why: "sem líder conhecida"}, nil).Handler()
 	if rec := get(h, "/livez"); rec.Code != 200 {
 		t.Fatalf("livez %d", rec.Code)
 	}
@@ -38,7 +38,14 @@ func TestAdmin(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &st); err != nil || st["azure"] != "off" || st["papel"] != "lider" || st["gate"] != float64(7) {
 		t.Fatalf("status %s %v", rec.Body.String(), err)
 	}
-	if rec := get(New(":0", fakeReporter{ready: true}).Handler(), "/readyz"); rec.Code != 200 {
+	if rec := get(New(":0", fakeReporter{ready: true}, nil).Handler(), "/readyz"); rec.Code != 200 {
 		t.Fatalf("readyz pronto %d", rec.Code)
+	}
+	if rec := get(h, "/metrics"); rec.Code != 404 {
+		t.Fatalf("sem handler, /metrics devia ser 404: %d", rec.Code)
+	}
+	m := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte("dr_is_leader 1\n")) })
+	if rec := get(New(":0", fakeReporter{}, m).Handler(), "/metrics"); rec.Code != 200 || rec.Body.String() != "dr_is_leader 1\n" {
+		t.Fatalf("/metrics %d %q", rec.Code, rec.Body.String())
 	}
 }

@@ -22,6 +22,14 @@ type CellStatus struct {
 	Replog     ReplogStatus      `json:"replog"`
 	ErroApply  string            `json:"erroApply,omitempty"`
 	Match      map[string]uint64 `json:"match,omitempty"`
+	Quorum     *QuorumStatus     `json:"quorum,omitempty"` // só na líder
+}
+
+// QuorumStatus é o quórum visto pela líder: votantes ativos recentemente (contando ela).
+type QuorumStatus struct {
+	Ativos   int  `json:"ativos"`
+	Votantes int  `json:"votantes"`
+	Ok       bool `json:"ok"`
 }
 
 // ReplogStatus é o estado do log de replicação.
@@ -59,6 +67,7 @@ func (r *StatusReporter) Status() CellStatus {
 		for id, m := range ri.Match {
 			st.Match[strconv.FormatUint(id, 10)] = uint64(m)
 		}
+		st.Quorum = &QuorumStatus{Ativos: ri.QuorumActive, Votantes: ri.Voters, Ok: ri.QuorumActive >= ri.Voters/2+1}
 	}
 	if h := r.Applier.Health(); h.Stopped {
 		st.ErroApply = "parado em (" + strconv.FormatUint(uint64(h.Index), 10) + ", " +

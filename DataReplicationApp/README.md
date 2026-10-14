@@ -17,41 +17,102 @@ Não é preciso Go no host: o build e os testes rodam em container.
 ## Como rodar
 
 ```bash
-task subir          # compose + tabelas + espera as três células ficarem prontas
-task escrever       # escreve um cliente na célula 1 e imprime pk e índice
-task buscar         # scan via DR em cada célula (sem _dr_v)
-task ler PK=cli-... # get-item via DR em cada célula
-task inspecionar    # scan direto no LocalStack (com _dr_v)
-task e2e            # tudo acima, falhando com mensagem clara se algo não bate
-task limpar         # derruba e apaga os volumes
+task start                    # starts Compose, creates tables, waits for all cells
+task write                    # writes through cell 1 and prints the PK and index
+task scan                     # scans each cell through the DR API (without _dr_v)
+task read PK=cli-...          # gets an item through every cell
+task inspect                  # scans LocalStack directly (including _dr_v)
+task e2e                      # verifies writes, reads, and replication end to end
+task load                     # continuous load for metrics and dashboard
+task load COUNT=20            # writes 20 items, then exits
+task load INTERVAL=0.5        # waits 500 ms between writes
+task dashboard                # opens Grafana
+task clean                    # stops Compose and removes the named volumes
+task test-follower-forwarding # checks follower forwarding (CA-04)
+task test-follower-restart    # checks follower recovery (CA-08)
+task test-follower-outage     # 10-second follower outage, 10 writes, and recovery
+task test-leader-failover     # checks leader failover (CA-09)
+task test-leader-outage-load  # writes across a 15-second leader outage
+task test-no-quorum           # checks writes without quorum (CA-07)
+task test-invalid-requests    # checks invalid/unsupported operations (CA-10/13)
 ```
 
-| Tarefa | O que faz | O que observar |
+| Task | What it does | What to check |
 |---|---|---|
-| `subir` | `docker compose up -d --build`, `criar-tabelas`, espera o `/readyz` das três | três "cell-N pronta" em até 60 s |
-| `criar-tabelas` | cria `cadastro_cliente_cell_{1,2,3}` se não existirem | rodar de novo não dá erro (CA-02) |
-| `escrever [CELL=N]` | `put-item` no DR da célula N, na tabela da célula N | `pk=cli-… indice=N` |
-| `buscar` | `scan --consistent-read` no DR de cada célula | o mesmo item nas três, sem `_dr_v` |
-| `ler PK=…` | `get-item` no DR de cada célula | o mesmo item nas três, sem `_dr_v` |
-| `inspecionar` | `scan` direto no LocalStack | o mesmo `_dr_v` nas três tabelas (pode levar até 2 s, AP-09) |
-| `status` | `/status` das três células | uma líder, mesmo `lider` e `termo`, `azure: "off"` |
-| `wal [CELL=N]` | lista os dois volumes da célula | `.wal` em `/var/lib/dr/raft/wal`; `.seg` e `progress` em `/var/lib/dr/replog` |
-| `logs` | `docker compose logs -f` | mudança de líder, encaminhamento, gate parado |
-| `parar` / `limpar` | `down` / `down -v` | `limpar` apaga os seis volumes |
-| `testar` | `docker build --target test .` (`go test -race ./...`) | CA-14 |
-| `e2e` | `subir`, escrever, buscar, ler, inspecionar | `e2e: OK` |
+| `start` | `docker compose up -d --build`, `create-tables`, waits for all `/readyz` endpoints | all cells ready within 60 seconds |
+| `create-tables` | creates `cadastro_cliente_cell_{1,2,3}` if missing | safe to run repeatedly (CA-02) |
+| `write [CELL=N]` | sends `put-item` through cell N | `pk=cli-… index=N` |
+| `scan` | runs `scan --consistent-read` through each cell | same item from all cells, without `_dr_v` |
+| `read PK=…` | runs `get-item` through each cell | same item from all cells, without `_dr_v` |
+| `inspect` | scans LocalStack directly | same `_dr_v` in all three tables (may take up to 2 s, AP-09) |
+| `status` | requests `/status` from all cells | one leader, same `lider` and `termo`, `azure: "off"` |
+| `wal [CELL=N]` | lists both cell volumes | `.wal` in `/var/lib/dr/raft/wal`; `.seg` and `progress` in `/var/lib/dr/replog` |
+| `logs` | runs `docker compose logs -f` | leader changes, forwarding, stalled gate |
+| `stop` / `clean` | runs `down` / `down -v` | `clean` removes all six volumes |
+| `test` | runs `docker build --target test .` (`go test -race ./...`) | CA-14 |
+| `e2e` | starts the stack, writes, scans, reads, and inspects | `e2e: PASS` |
 
-Portas no host: API da célula N em `800N`, administração em `909N`, LocalStack em `4566`. O gRPC entre células (7000) não é publicado.
+Portas no host: API da célula N em `800N`, administração em `909N`, LocalStack em `4566`, Prometheus em `9095` e Grafana em `3000`. O gRPC entre células (7000) não é publicado.
+
+## Observabilidade
+
+`task start` starts Prometheus and Grafana along with the three cells. Prometheus scrapes `/metrics` from each cell every second; Grafana automatically provisions the datasource and **DataReplication** dashboard. Run `task dashboard` or open [http://localhost:3000/d/datareplication](http://localhost:3000/d/datareplication).
+
+To populate rate and latency panels, run `task load` in another terminal. It writes continuously, alternating across the three cells. Use `task load COUNT=20` to limit the run to 20 attempts or `task load INTERVAL=0.5` to set the delay between writes. Keys use `cli-<startup nanoseconds + write number>` to avoid collisions within one run.
+
+O dashboard reúne:
+
+- **Cluster e liderança:** líder conhecida, termo, votantes ativos, quórum, células prontas e papel de cada célula.
+- **Escritas e leituras:** ACKs por resultado, latência, encaminhamentos e barreiras de leitura forte.
+- **Replicação e Raft:** índices de commit, gate e apply, atraso entre células, mensagens/heartbeats, fsync do WAL e saúde do log.
+
+State panels are useful even without load; run `task load` to see write activity.
+
+O adaptador `prometheus/client_golang` fica isolado em `internal/adapter/out/prommetrics`: ele fornece o registro, os tipos de métricas e o handler HTTP compatíveis com o Prometheus, sem acoplar o domínio ou os casos de uso à biblioteca. As métricas de evento são contadas/medidas quando ocorrem; as de estado são coletadas do mesmo retrato usado pelo `/status`. Todas incluem o rótulo `celula`; as séries marcadas com rótulos adicionais permitem detalhar por tipo, resultado, operação ou par.
+
+| Série | Tipo / rótulos adicionais | Significado |
+|---|---|---|
+| `dr_leader_changes_total` | contador | Mudanças de líder observadas pela célula, inclusive para sem líder. |
+| `dr_raft_messages_sent_total` | contador, `tipo` | Mensagens Raft enviadas, por tipo. |
+| `dr_raft_messages_received_total` | contador, `tipo` | Mensagens Raft recebidas, por tipo. |
+| `dr_raft_last_heartbeat_timestamp_seconds` | gauge | Instante Unix do último heartbeat ou resposta recebido. |
+| `dr_wal_fsync_duration_seconds` | histograma | Duração da gravação/fsync do WAL. |
+| `dr_peer_send_dropped_total` | contador, `par` | Mensagens Raft descartadas por fila cheia, por destino. |
+| `dr_forwards_total` | contador | Escritas encaminhadas da follower para a líder. |
+| `dr_writes_total` | contador, `resultado` | Escritas recebidas, classificadas por resultado. |
+| `dr_write_duration_seconds` | histograma | Latência das escritas confirmadas, da chegada até a resposta. |
+| `dr_reads_total` | contador, `op`, `resultado` | Leituras fortes, por operação e resultado. |
+| `dr_read_barrier_duration_seconds` | histograma | Duração da barreira de leitura forte e espera do apply local. |
+| `dr_is_leader` | gauge | `1` se a célula é líder; `0` se follower. |
+| `dr_leader_id` | gauge | ID da líder conhecida; `0` quando não há líder conhecida. |
+| `dr_raft_term` | gauge | Termo Raft atual observado pela célula. |
+| `dr_commit_index` | gauge | Último índice commitado pelo Raft. |
+| `dr_gate_index` | gauge | Índice liberado pelo gate para ACK e apply. |
+| `dr_gate_ready` | gauge | `1` se o gate está pronto para leitura forte. |
+| `dr_applied_index` | gauge | Último índice aplicado no banco local. |
+| `dr_replog_last_index` | gauge | Último índice gravado no log de replicação. |
+| `dr_replog_durable_index` | gauge | Último índice durável (fsync) no log de replicação. |
+| `dr_quorum_active` | gauge | Votantes ativos recentes, incluindo a líder; só na líder. |
+| `dr_quorum_voters` | gauge | Número de votantes configurados; só na líder. |
+| `dr_quorum_ok` | gauge | `1` se a líder vê a maioria ativa; só na líder. |
+| `dr_peer_match_index` | gauge, `par` | Último índice confirmado por cada par; só na líder. |
+| `dr_peer_lag` | gauge, `par` | Quantas entradas cada par está atrás do commit da líder; só na líder. |
+| `dr_applier_stopped` | gauge | `1` se o applier parou numa entrada que não conseguiu aplicar. |
+| `dr_ready` | gauge | `1` se a célula responde `/readyz` como pronta. |
+| `dr_azure_off` | gauge | `1` no modo sem Azure desta POC. |
 
 ## Roteiros manuais
 
-- **CA-04, escrita numa follower.** Veja a líder em `task status` e rode `task escrever CELL=<outra>`. O resultado é igual ao da CA-03, e o log da follower registra `escrita encaminhada à líder`.
-- **CA-07, sem quórum.** Com a líder na célula 1: `docker compose stop cell-2 cell-3`, **espere 3 s** (o `CheckQuorum` derruba a liderança isolada), depois `task escrever CELL=1`. A resposta é 503 com `x-dr-code: NO_LEADER`, o `/status` da célula 1 mostra `commit` e `gate` parados, e nenhuma tabela recebe o item. `docker compose start cell-2 cell-3` e uma nova escrita funciona.
+- **CA-04, follower forwarding.** Run `task test-follower-forwarding`; it detects the current leader, writes through a follower, and confirms success.
+- **Follower outage and recovery.** Run `task test-follower-outage`; it reports status before, during, and after a 10-second follower outage while 10 writes go to the leader, then confirms that the restarted follower catches up.
+- **CA-07, loss of quorum.** Run `task test-no-quorum`; it stops both followers, confirms the write is rejected, then restores them.
   Uma escrita que recebe `PENDING` (enviada antes de a liderança cair) é "resultado desconhecido": a entrada pode ser commitada e aplicada depois que o quórum volta. Isso é esperado, não é defeito.
 - **CA-08, reinício de follower.** `docker compose restart cell-N` depois de algumas escritas. A célula volta ao `/readyz`, alcança o `aplicado` da líder e o `_dr_v` dos itens não muda (replay idempotente).
-- **CA-09, queda da líder.** `docker compose stop cell-<líder>`. Em até 5 s outra célula vira líder e `task escrever CELL=<restante>` funciona. Ao religar, a antiga líder alcança as escritas que perdeu.
+- **CA-09, leader failover.** Run `task test-leader-failover`; it stops the current leader, writes through the replacement, restores the old leader, and waits for it to catch up.
+- **Leader outage with writes.** Run `task test-leader-outage-load`; it writes through the current leader for five seconds, stops it for at least 15 seconds, sends ten writes through the replacement leader over ten seconds, then verifies the old leader has caught up.
+- **CA-10/13, rejected requests.** Run `task test-invalid-requests`; invalid and unsupported operations must be rejected without advancing the Raft commit index.
 - **CA-10, recusas na borda.** `put-item` com `_dr_v`, sem `pk`, com `pk` numérica, ou na `cell-2` com a tabela `cadastro_cliente_cell_1`: 400 (`ValidationException` ou `ResourceNotFoundException`) e o `commit` não muda.
-- **CA-12, membros diferentes.** Mude `PEERS` ou `LEARNERS` no compose e suba sem limpar: a célula não sobe e o log diz `PEERS/LEARNERS diferem do que está gravado no WAL …; rode task limpar`.
+- **CA-12, mismatched membership.** Change `PEERS` or `LEARNERS` in Compose and restart without cleaning; the cell must reject the configuration mismatch. Restore the original Compose file afterward.
 - **CA-13, fase 2.** `delete-item` ou `batch-write-item`: 400 `ValidationException` "operação não suportada nesta fase (fase 2)".
 
 ## Decisões da POC
@@ -60,7 +121,7 @@ Portas no host: API da célula N em `800N`, administração em `909N`, LocalStac
 - **Laço do Ready síncrono.** O `etcdraft` segue a RT-04 literalmente (só o `MsgApp` da líder sai antes do `wal.Save`; o resto depois do fsync). O escritor `internal/adapter/out/raftstore` do esboço foi copiado sem mudanças e não é ligado.
 - **gRPC sem `.proto`.** `api/peerv1` declara o serviço à mão com um codec JSON (N-03).
 - **Applier estacionado.** Erro permanente do banco para o applier daquela célula sem pular o item e sem derrubar o processo; o `/readyz` cai e o `/status` mostra `erroApply`. Erro transitório é repetido com backoff de 100 ms a 5 s.
-- **`x-dr-index`.** O AWS CLI não imprime cabeçalhos de resposta; `task escrever` lê o índice da saída de `--debug`.
+- **`x-dr-index`.** AWS CLI does not print response headers; `task write` reads the index from `--debug` output.
 - **Testes de integração.** O teste do `StateStore` contra o LocalStack só roda com `DR_IT_DYNAMODB_ENDPOINT` definida (ex.: `http://localhost:4566`).
 
 ## Bibliotecas

@@ -75,8 +75,13 @@ func TestLeaderReadWaitsMinOfReadIndexAndGate(t *testing.T) {
 	g.SetRaftCommit(8)
 	ap := &recApplied{applied: 8}
 	s, st := newRead(true, 10, g, ap, &fakeBarrierClient{})
+	m := &recMetrics{}
+	s.Metrics = m
 	if _, err := s.Get(context.Background(), "t_{cell}", []byte("k")); err != nil {
 		t.Fatal(err)
+	}
+	if m.n("barrier") != 1 {
+		t.Fatalf("barreiras registradas = %d, quer 1", m.n("barrier"))
 	}
 	if ap.asked != 8 || st.calls != 1 {
 		t.Fatalf("pediu apply até %d (quer 8), leituras %d", ap.asked, st.calls)

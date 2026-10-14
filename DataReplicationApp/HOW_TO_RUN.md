@@ -32,43 +32,76 @@ Nenhuma credencial real é usada: o taskfile já define `test`/`test` e a regiã
 Todos os comandos rodam dentro desta pasta (`DataReplicationApp/`).
 
 ```bash
-task limpar   # começa de volumes vazios
-task subir    # build da imagem, compose, tabelas e espera o /readyz das três células
-task status   # uma célula "lider", as três com o mesmo lider e termo, e "azure":"off"
+task clean   # starts from empty Docker volumes
+task start   # builds the image, starts Compose, creates tables, waits for all cells
+task status  # one leader, same leader and term on all cells, "azure":"off"
 ```
 
-O `subir` leva cerca de 30 s com a imagem já construída. O primeiro build demora mais.
+`task start` takes about 30 seconds with the image already built. The first build takes longer.
 
 | Serviço | Porta no host |
 |---|---|
 | API (DynamoDB) da célula N | `800N` (8001, 8002, 8003) |
 | Administração da célula N (`/livez`, `/readyz`, `/status`) | `909N` (9091, 9092, 9093) |
 | LocalStack | `4566` |
+| Prometheus | `9095` |
+| Grafana | `3000` |
 
 ## 3. Usar
 
 ```bash
-task escrever               # escreve na célula 1; imprime pk=cli-... indice=N
-task escrever CELL=2        # escreve na célula 2 (se não for a líder, é encaminhada)
-task buscar                 # scan via DR em cada célula, sem _dr_v
-task ler PK=cli-...         # get-item via DR em cada célula, sem _dr_v
-task inspecionar            # scan direto no LocalStack, com _dr_v
-task wal CELL=1             # arquivos do WAL do Raft e do log de replicação
-task logs                   # logs de todas as containers
+task write                  # writes through cell 1; prints pk and index
+task write CELL=2           # writes through cell 2 (forwarded if it is a follower)
+task scan                   # scans each cell through the DR API, without _dr_v
+task read PK=cli-...        # gets an item through each cell, without _dr_v
+task inspect                # scans LocalStack directly, including _dr_v
+task wal CELL=1             # lists the Raft WAL and replication log files
+task logs                   # follows all container logs
+task load                   # continuous load for dashboard activity
+task load COUNT=20          # runs 20 writes, then exits
+task load INTERVAL=0.5      # waits 500 ms between writes
+task dashboard              # opens the Grafana dashboard
 ```
 
-Logo depois do `escrever`, o `inspecionar` pode mostrar o item em só uma ou duas tabelas: só a líder aplica antes de responder, e as followers aplicam logo em seguida (até 2 s). O `buscar` e o `ler` sempre mostram o item, porque passam pela barreira de leitura forte.
+Immediately after `task write`, `task inspect` may show the item in only one or two tables: only the leader applies it before responding, and followers apply it shortly after (up to 2 s). `task scan` and `task read` use the strong-read barrier.
 
-## 4. Teste automático
+## 4. Dashboard e observabilidade
+
+`task start` starts Prometheus and Grafana along with the cells. The **DataReplication** dashboard is provisioned automatically:
+
+- Grafana: [http://localhost:3000/d/datareplication](http://localhost:3000/d/datareplication), or `task dashboard`.
+- Prometheus: [http://localhost:9095](http://localhost:9095). Under **Status → Targets**, `cell-1`, `cell-2`, and `cell-3` should be `UP`.
+- Each cell's metrics: `http://localhost:909N/metrics`.
+
+To view write and read rates, run `task load` in another terminal. It alternates writes across all three cells until Ctrl+C. Use `task load COUNT=20` for a finite run or `task load INTERVAL=0.5` to change the interval. Each key is `cli-<startup nanoseconds + write number>`, unique within that run. Rate panels may show zero or no data when the cluster is idle; state panels remain available.
+
+### O que observar nos cenários de falha
+
+- **Normal operation:** `Current Leader` shows one cell, `Quorum` is `OK`, `Ready Cells` is 3, and `Role per Cell` shows one leader and two followers. With `task load` running, successful ACKs appear and `commit`, `gate`, and `applied` advance on all cells.
+- **Leader failure (CA-09):** during election, `Current Leader` may show `NO LEADER` and the stopped cell is no longer ready. After failover, `Leader Changes` increases, `Term` advances, and the new leader appears in `Role per Cell`. Quorum returns to `OK`; writes resume. The old leader rejoins as a follower and catches up.
+- **Quorum loss (CA-07):** stop two cells and wait for `CheckQuorum`. The `Quorum` panel shows `NO QUORUM`, active voters drops below 2, and the remaining cell no longer reports a leader. A write attempt is counted as `no_leader` (or `pending` if it was already in flight); indexes stop advancing. Restart the cells and wait for election, quorum, and readiness before checking for successful ACKs.
+
+To exercise these signals, run `task test-leader-failover` or `task test-no-quorum` with the dashboard open. Run `task load` in a separate terminal for live traffic and stop it with Ctrl+C afterward. `PENDING` means the result is unknown, not definitively rejected.
+
+## 5. Teste automático
 
 ```bash
-task e2e      # subir, escrever, buscar, ler e inspecionar; termina com "e2e: OK"
-task testar   # go test -race ./... dentro do container de teste
+task e2e   # starts the stack and verifies writes, reads, and replication
+task test  # runs go test -race in the test container
+
+# Scenario checks
+task test-follower-forwarding  # CA-04
+task test-follower-restart     # CA-08
+task test-follower-outage      # 10-second outage, 10 writes, recovery
+task test-leader-failover      # CA-09
+task test-leader-outage-load   # leader outage with writes before and after failover
+task test-no-quorum            # CA-07
+task test-invalid-requests     # CA-10 and CA-13
 ```
 
-## 5. Cenários de falha
+## 6. Failure scenarios
 
-Primeiro veja qual célula é a líder com `task status`. Nos exemplos abaixo a líder é a `cell-1`; troque os números se a sua for outra.
+The automated scenario tasks detect the current leader and restore stopped cells automatically. For manual tests, first check the leader with `task status`.
 
 Os comandos `aws` diretos usam as credenciais de teste. Exporte-as uma vez no terminal:
 
@@ -76,93 +109,94 @@ Os comandos `aws` diretos usam as credenciais de teste. Exporte-as uma vez no te
 export AWS_ACCESS_KEY_ID=test AWS_SECRET_ACCESS_KEY=test AWS_DEFAULT_REGION=sa-east-1 AWS_MAX_ATTEMPTS=1
 ```
 
-### Escrita numa follower (CA-04)
+### Write through a follower (CA-04)
 
-**O que testa:** uma follower não grava sozinha. Ela encaminha a escrita inteira à líder, num único salto, e devolve ao cliente o mesmo resultado que a líder devolveria.
+**What it tests:** a follower does not write locally. It forwards the request to the leader in one hop and returns the leader's result.
 
 ```bash
-task escrever CELL=2
-docker compose logs cell-2 | grep encaminhada
+task test-follower-forwarding
 ```
 
 **Resultado esperado:**
-- O `escrever` sai com 0 e imprime `pk=cli-… indice=N`, como numa escrita feita direto na líder.
-- O log da `cell-2` tem a linha `escrita encaminhada à líder` com `"lider":"1"`.
-- `task buscar` mostra a nova `pk` nas três células, e `task inspecionar` mostra o mesmo `_dr_v` = N nas três tabelas.
+- The task prints `PASS` after a write through a follower succeeds.
+- Verify the item with `task scan` and `task inspect`.
 
-### Reinício de follower (CA-08)
+### Restart a follower (CA-08)
 
-**O que testa:** uma follower que cai e volta recupera do próprio disco (WAL do Raft e progresso do applier) e alcança a líder. O replay é idempotente: reaplicar não muda a versão dos itens.
+**What it tests:** a restarted follower recovers from its Raft WAL and applier progress, then catches up with the leader. Replay is idempotent.
 
 ```bash
-task escrever
-docker compose restart cell-2
+task test-follower-restart
 task status
-task inspecionar
+task inspect
 ```
 
 **Resultado esperado:**
-- A `cell-2` volta ao `/readyz` em poucos segundos.
-- No `task status`, a `cell-2` mostra os mesmos `commit`, `gate` e `aplicado` da líder.
-- No `task inspecionar`, o `_dr_v` de cada item na `cadastro_cliente_cell_2` é o mesmo de antes do reinício e igual ao das outras tabelas.
-- Uma escrita feita enquanto a follower estava fora também aparece na tabela dela depois que ela volta.
+- The restarted follower returns to `/readyz` and catches up to the leader's `commit` and `applied` indexes.
+- Use `task inspect` to compare `_dr_v` values across the cell tables.
 
-### Queda da líder (CA-09)
+### Follower outage with writes (10 seconds)
 
-**O que testa:** sem a líder, as duas células restantes ainda formam quórum (2 de 3), elegem uma nova líder e continuam aceitando escritas. A antiga líder, ao voltar, entra como follower e recebe o que perdeu.
+**What it tests:** a follower remains stopped for 10 seconds while the leader accepts 10 new writes, then rejoins and catches up.
 
 ```bash
-docker compose stop cell-1
-task status
-task escrever CELL=2
-docker compose start cell-1
+task test-follower-outage
+```
+
+The task prints `/status` for all cells before stopping the follower, halfway through the outage, at the end of the outage, and after restart and catch-up. During the outage, the stopped cell is shown as `unavailable`; the leader's `commit` and `aplicado` indexes should advance as the 10 writes succeed. After restart, the follower must return to `/readyz` and its `commit` and `aplicado` indexes must be at least the leader's.
+
+### Leader failover (CA-09)
+
+**What it tests:** after the leader stops, the other two cells retain quorum, elect a new leader, and continue accepting writes. The old leader rejoins as a follower.
+
+```bash
+task test-leader-failover
 task status
 ```
 
 **Resultado esperado:**
-- Em até 5 s (nos testes, cerca de 1,6 s) outra célula aparece como `"papel":"lider"`, com `termo` maior que antes. A `cell-1` aparece como fora do ar.
-- O `escrever` funciona e imprime um índice maior que os anteriores. O salto de um índice a mais é normal: é a entrada vazia que a nova líder grava ao assumir.
-- Depois do `start`, a `cell-1` volta como `follower`, com os mesmos `commit`, `gate` e `aplicado` das outras, e a escrita feita durante a queda aparece na tabela dela.
+- Within 5 seconds, another cell becomes leader and the Raft term increases.
+- The task writes through the new leader, restores the old leader, and leaves it running.
+- Check `task status` to confirm the old leader has rejoined.
 
-### Sem quórum (CA-07)
+### Leader outage while writing
 
-**O que testa:** sem 2 de 3 células, nada é confirmado nem aplicado. É a garantia central: o cliente nunca recebe 200 para uma escrita que não está durável na maioria.
+**What it tests:** writes continue across a leader failure: five writes go through the current leader over five seconds, that leader is stopped for at least 15 seconds, and ten writes are sent through the elected leader over ten seconds.
 
 ```bash
-docker compose stop cell-2 cell-3
-sleep 3
+task test-leader-outage-load
 task status
-task escrever CELL=1
+```
+
+The task prints `/status` before the outage, after failover, before restoring the old leader, and after recovery. The old leader stays stopped while the new leader handles writes. At the end, the old leader must return as a follower and catch up to the new leader's `commit` and `aplicado` indexes. In total, the scenario spans at least 20 seconds: five seconds of pre-outage writes plus a 15-second leader outage.
+
+### Quorum loss (CA-07)
+
+**What it tests:** without two of three cells, writes are not confirmed or applied. The client must not receive success without a durable majority.
+
+```bash
+task test-no-quorum
 task status
-task inspecionar
-docker compose start cell-2 cell-3
-task escrever CELL=1
 ```
 
 **Resultado esperado:**
-- Depois dos 3 s, a `cell-1` aparece como `follower` com `"lider":0`: sem contato com a maioria, ela abre mão da liderança (`CheckQuorum`).
-- O `escrever` falha em cerca de 1 a 2 s com `ServiceUnavailable … NO_LEADER: no leader known, retry` (HTTP 503) e sai com código diferente de zero.
-- O `commit` e o `gate` da `cell-1` ficam com o mesmo valor de antes da tentativa.
-- No `task inspecionar`, nenhuma das três tabelas tem o item; a contagem de itens não muda.
-- Depois do `start`, as três células voltam ao `/readyz`, uma nova líder é eleita e o `escrever` volta a responder com `pk` e índice.
+- After 3 seconds, the isolated leader reports no known leader (`CheckQuorum`).
+- The write is rejected with `NO_LEADER` and the task restores both followers.
+- Check `task status` to confirm the cluster elects a leader and recovers.
 
-Se a escrita for enviada **antes** de a liderança cair (sem o `sleep 3`), a resposta pode ser 503 `PENDING`, ou seja, resultado desconhecido. A entrada pode ter entrado no log da líder isolada e ser commitada e aplicada quando o quórum voltar. Isso é esperado: `PENDING` não significa "falhou".
+If a write is sent **before** leadership is lost (without waiting 3 seconds), the response may be 503 `PENDING`, meaning its outcome is unknown. `PENDING` does not mean the write definitively failed.
 
-### Recusas na borda (CA-10 e CA-13)
+### Invalid and unsupported requests (CA-10 and CA-13)
 
-**O que testa:** tudo o que o DynamoDB recusaria é recusado **antes** de chegar ao Raft. Uma requisição inválida nunca vira entrada no log.
+**What it tests:** requests rejected by DynamoDB are rejected **before** reaching Raft. Invalid requests must not become log entries.
 
 ```bash
-aws dynamodb put-item --endpoint-url http://localhost:8002 --table-name cadastro_cliente_cell_2 --item '{"pk":{"S":"x"},"_dr_v":{"N":"1"}}'
-aws dynamodb put-item --endpoint-url http://localhost:8002 --table-name cadastro_cliente_cell_2 --item '{"nome":{"S":"x"}}'
-aws dynamodb put-item --endpoint-url http://localhost:8002 --table-name cadastro_cliente_cell_2 --item '{"pk":{"N":"1"}}'
-aws dynamodb put-item --endpoint-url http://localhost:8002 --table-name cadastro_cliente_cell_1 --item '{"pk":{"S":"x"}}'
-aws dynamodb delete-item --endpoint-url http://localhost:8002 --table-name cadastro_cliente_cell_2 --key '{"pk":{"S":"x"}}'
+task test-invalid-requests
 ```
 
-**Resultado esperado:** cada comando falha com HTTP 400 e esta mensagem:
+**Expected result:** all five requests are rejected with HTTP 400; the Raft commit index is unchanged.
 
-| Comando | Erro esperado |
+| Request | Expected error |
 |---|---|
 | Item com `_dr_v` | `ValidationException`: `o atributo _dr_v é reservado` |
 | Item sem `pk` | `ValidationException`: `One or more parameter values were invalid: Missing the key pk in the item` |
@@ -170,35 +204,33 @@ aws dynamodb delete-item --endpoint-url http://localhost:8002 --table-name cadas
 | Tabela da `cell-1` enviada à `cell-2` | `ResourceNotFoundException`: `Requested resource not found` |
 | `delete-item` (também `batch-write-item`) | `ValidationException`: `operação não suportada nesta fase (fase 2)` |
 
-O `commit` da `cell-2` no `task status` é o mesmo antes e depois dos cinco comandos.
+### Mismatched membership configuration (CA-12)
 
-### Membros diferentes (CA-12)
+**What it tests:** cluster membership is persisted in the WAL. A cell must not start with a different membership configuration.
 
-**O que testa:** a lista de membros do cluster fica gravada no WAL na primeira partida. Uma célula nunca sobe com uma configuração diferente da gravada, porque isso poderia criar dois clusters incompatíveis.
+This scenario intentionally edits the cluster configuration and is not automated. In `docker-compose.yml`, change `PEERS` in `x-dr-env` (for example, append `,4=cell-4:7000`) and run `docker compose up -d`. Do not run it alongside other scenario tests.
 
-Mude `PEERS` no bloco `x-dr-env` do `docker-compose.yml` (por exemplo, acrescente `,4=cell-4:7000`) e rode `docker compose up -d`.
+**Expected result:**
+- Cells using old volumes exit at startup and `/readyz` does not respond.
+- `task logs` reports that `PEERS/LEARNERS` differ from the values persisted in the WAL.
+- Restore the original Compose configuration and run `docker compose up -d` to recover.
 
-**Resultado esperado:**
-- As células com volumes antigos saem com código 1 logo na partida. Por causa do `restart: on-failure`, o Docker tenta subir de novo e falha do mesmo jeito: `docker compose ps -a` mostra `Restarting` ou `Exited (1)`, e o `/readyz` nunca responde.
-- O log (`task logs`) mostra: `PEERS/LEARNERS diferem do que está gravado no WAL (gravado: votantes [1 2 3], learners []; configuração: votantes [1 2 3 4], learners []); rode task limpar`.
-- Desfazendo a mudança e rodando `docker compose up -d` de novo, as células voltam normalmente com os dados que tinham.
-
-## 6. Parar e limpar
+## 7. Stop and clean
 
 ```bash
-task parar    # docker compose down, mantém os volumes do DR
-task limpar   # docker compose down -v, apaga os volumes
+task stop   # docker compose down; keep DR volumes
+task clean  # docker compose down -v; remove named volumes
 ```
 
-**Atenção:** o LocalStack guarda os dados só em memória. Depois de `task parar` e `task subir`, os volumes do DR voltam com o log e o progresso do applier, mas as tabelas voltam vazias e o applier não reaplica o que já estava aplicado. O `/status` mostra tudo aplicado e a busca não devolve nada. Para recomeçar com dados coerentes, use `task limpar` antes de `task subir`.
+**Warning:** LocalStack stores data only in memory. After `task stop` and `task start`, DR volumes return with the log and applier progress, but the tables are empty and the applier does not replay already-applied data. The status may show everything applied while reads return nothing. Use `task clean` before `task start` to begin with coherent data.
 
-## 7. Problemas comuns
+## 8. Troubleshooting
 
-| Sintoma | Causa | O que fazer |
+| Symptom | Cause | Action |
 |---|---|---|
-| `docker-credential-desktop: executable file not found` | Binários do Docker Desktop fora do PATH | Veja a seção 1 |
-| `subir` falha com "não ficou pronta em 60 s" | LocalStack lento para subir ou tabela ausente | `task logs`; procure "tabela conferida" e "TABLE_WAIT" |
-| Célula sai com "PEERS/LEARNERS diferem do que está gravado no WAL" | Configuração mudou com volumes antigos | `task limpar` |
-| `escrever` responde `NO_LEADER` | Eleição em andamento ou sem quórum | Espere 1 a 2 s e confira `task status` |
-| `/readyz` responde "applier parado" | Item recusado pelo banco depois do commit (entrada venenosa) | Veja `erroApply` no `task status`; a saída é humana (ADR-038) |
-| Tabelas vazias depois de `parar` e `subir` | LocalStack sem persistência | Seção 6: `task limpar` e `task subir` |
+| `docker-credential-desktop: executable file not found` | Docker Desktop binaries are not on `PATH` | See section 1 |
+| `start` fails with "not ready within 60 s" | LocalStack is slow or a table is missing | Run `task logs`; look for table readiness and `TABLE_WAIT` |
+| Cell exits with "PEERS/LEARNERS differ from WAL" | Configuration changed while old volumes remain | Restore the configuration; only then use `task clean` if resetting data is intended |
+| `write` returns `NO_LEADER` | Election in progress or quorum unavailable | Wait 1-2 seconds and check `task status` |
+| `/readyz` reports a stopped applier | Database rejected an item after commit (poison entry) | Check `erroApply` in `task status`; recovery requires operator action (ADR-038) |
+| Tables are empty after `stop` and `start` | LocalStack is not persistent | Use `task clean` then `task start` to reset coherently |

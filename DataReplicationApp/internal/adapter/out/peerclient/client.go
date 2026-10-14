@@ -35,6 +35,10 @@ type Client struct {
 	ctx            context.Context
 	cancel         context.CancelFunc
 	wg             sync.WaitGroup
+
+	// Metrics recebe os descartes e os encaminhamentos (O-16). Definir antes do uso;
+	// nulo = sem métricas.
+	Metrics port.Metrics
 }
 
 var (
@@ -89,6 +93,7 @@ func (c *Client) Send(to uint64, msg []byte) bool {
 	case p.raftQ <- msg:
 		return true
 	default:
+		port.MetricsOrNop(c.Metrics).PeerSendDropped(to)
 		return false
 	}
 }
@@ -128,6 +133,7 @@ func (c *Client) Forward(ctx context.Context, leader string, r port.WriteRequest
 		return port.WriteResult{}, usecase.ErrNoLeader
 	}
 	c.log.Info().Str("lider", leader).Msg("escrita encaminhada à líder")
+	port.MetricsOrNop(c.Metrics).Forwarded()
 	ctx, cancel := context.WithTimeout(ctx, c.forwardTimeout)
 	defer cancel()
 	resp, err := p.rpc.Forward(ctx, &peerv1.ForwardRequest{Ops: r.Ops, ClientID: r.ClientID, Deadline: r.Deadline})

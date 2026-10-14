@@ -22,8 +22,9 @@ type Server struct {
 	srv *http.Server
 }
 
-// New monta as rotas no endereço addr.
-func New(addr string, r Reporter) *Server {
+// New monta as rotas no endereço addr. metrics é o handler de /metrics (O-17); nulo não
+// registra a rota. O pacote não importa o Prometheus.
+func New(addr string, r Reporter, metrics http.Handler) *Server {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /livez", func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte("ok"))
@@ -39,6 +40,9 @@ func New(addr string, r Reporter) *Server {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(r.Status())
 	})
+	if metrics != nil {
+		mux.Handle("GET /metrics", metrics)
+	}
 	return &Server{srv: &http.Server{Addr: addr, Handler: mux, ReadHeaderTimeout: 5 * time.Second}}
 }
 

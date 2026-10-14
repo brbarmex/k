@@ -22,6 +22,7 @@ type Deadline time.Duration
 type Options struct {
 	Deadline    Deadline      // REQUEST_DEADLINE (7,5 s)
 	IdleTimeout time.Duration // IDLE_TIMEOUT: maior que o idle dos SDKs (Java 60 s, Go 90 s)
+	Metrics     port.Metrics  // ACKs e leituras (O-16); nulo = sem métricas
 }
 
 // writeMargin é a folga entre o fim do prazo da requisição e o fim da escrita da
@@ -38,10 +39,11 @@ type Server struct {
 	writer   port.Writer
 	reader   port.Reader
 	parse    ParseFunc
+	metrics  port.Metrics
 }
 
 func New(w port.Writer, r port.Reader, parse ParseFunc, o Options) *Server {
-	s := &Server{writer: w, reader: r, parse: parse, deadline: time.Duration(o.Deadline)}
+	s := &Server{writer: w, reader: r, parse: parse, deadline: time.Duration(o.Deadline), metrics: port.MetricsOrNop(o.Metrics)}
 	s.srv = &fasthttp.Server{
 		Handler:               s.handle,
 		ReadTimeout:           5 * time.Second,
@@ -76,6 +78,7 @@ func ValidateIndex(indexName string, isGlobal bool) error {
 }
 
 func (s *Server) handle(c *fasthttp.RequestCtx) {
+	start := time.Now()
 	target := string(c.Request.Header.Peek("X-Amz-Target")) // ex.: DynamoDB_20120810.PutItem
 	// ATENÇÃO: o body pertence ao fasthttp e é reutilizado depois do handler.
 	// O parser copia tudo o que guarda antes de retornar (N-06).
@@ -85,21 +88,25 @@ func (s *Server) handle(c *fasthttp.RequestCtx) {
 		if !errors.As(err, &ae) { // erro de borda sem tipo: sempre 400
 			err = &APIError{Status: 400, Type: "ValidationException", Message: err.Error()}
 		}
+		s.record(target, err, start)
 		writeError(c, err)
 		return
 	}
+	defer func() { s.record(target, err, start) }()
 	ctx, cancel := context.WithTimeout(context.Background(), s.deadline)
 	defer cancel()
 	switch req.Op {
 	case OpGetItem:
-		item, err := s.reader.Get(ctx, req.Table, req.Key)
+		var item []byte
+		item, err = s.reader.Get(ctx, req.Table, req.Key)
 		if err != nil {
 			writeError(c, err)
 			return
 		}
 		writeJSON(c, getResponse{Item: item})
 	case OpScan:
-		page, err := s.reader.Scan(ctx, req.Table, req.Limit, req.StartKey)
+		var page port.ScanPage
+		page, err = s.reader.Scan(ctx, req.Table, req.Limit, req.StartKey)
 		if err != nil {
 			writeError(c, err)
 			return
@@ -110,7 +117,8 @@ func (s *Server) handle(c *fasthttp.RequestCtx) {
 		}
 		writeJSON(c, scanResponse{Items: items, Count: len(items), ScannedCount: page.Scanned, LastEvaluatedKey: page.LastKey})
 	default:
-		res, err := s.writer.Write(ctx, req.Write)
+		var res port.WriteResult
+		res, err = s.writer.Write(ctx, req.Write)
 		if err != nil {
 			writeError(c, err)
 			return
@@ -143,6 +151,46 @@ func writeJSON(c *fasthttp.RequestCtx, v any) {
 	}
 	c.SetContentType("application/x-amz-json-1.0")
 	c.SetBody(b)
+}
+
+// record conta o resultado da requisição pelo alvo (O-16). Operação desconhecida não conta.
+func (s *Server) record(target string, err error, start time.Time) {
+	switch target {
+	case targetPrefix + OpPutItem:
+		s.metrics.WriteDone(resultOf(err), time.Since(start))
+	case targetPrefix + OpGetItem:
+		s.metrics.ReadDone("get", resultOf(err))
+	case targetPrefix + OpScan:
+		s.metrics.ReadDone("scan", resultOf(err))
+	}
+}
+
+// resultOf é o rótulo `resultado` das métricas, na mesma classificação do writeError.
+func resultOf(err error) string {
+	var ae *APIError
+	switch {
+	case err == nil:
+		return "ok"
+	case errors.As(err, &ae):
+		if ae.Type == "ThrottlingException" {
+			return "throttling"
+		}
+		return "recusada"
+	case errors.Is(err, usecase.ErrLeaseExpired):
+		return "lease_expired"
+	case errors.Is(err, usecase.ErrNoLeader):
+		return "no_leader"
+	case errors.Is(err, usecase.ErrBackpressure):
+		return "throttling"
+	case errors.Is(err, usecase.ErrGateNotReady):
+		return "gate_not_ready"
+	case errors.Is(err, usecase.ErrReadTimeout):
+		return "read_timeout"
+	case errors.Is(err, usecase.ErrPending), errors.Is(err, context.DeadlineExceeded):
+		return "pending"
+	default:
+		return "erro"
+	}
 }
 
 // writeError é o ÚNICO mapeamento de erro para HTTP.

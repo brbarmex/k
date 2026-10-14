@@ -106,12 +106,17 @@ func TestRoundTrip(t *testing.T) {
 		t.Fatalf("Step entregou %d mensagens", raft.count())
 	}
 
+	m := &recMetrics{}
+	c.Metrics = m
 	ops := []domain.Op{{Table: "t_{cell}", Kind: domain.OpPut, Key: []byte(`{"pk":{"S":"a"}}`), Item: []byte(`{"pk":{"S":"a"}}`)}}
 	res, err := c.Forward(context.Background(), "2", port.WriteRequest{Ops: ops})
 	if err != nil || res.Index != 42 || !w.got.Forwarded || string(w.got.Ops[0].Key) != `{"pk":{"S":"a"}}` {
 		t.Fatalf("Forward = %+v %v; recebido %+v", res, err, w.got)
 	}
 
+	if m.n("forwarded") != 1 {
+		t.Fatalf("encaminhamentos registrados = %d, quer 1", m.n("forwarded"))
+	}
 	ri, gate, err := c.Barrier(context.Background(), "2")
 	if err != nil || ri != 7 || gate != 5 {
 		t.Fatalf("Barrier = %d %d %v", ri, gate, err)
@@ -149,8 +154,12 @@ func TestForwardPreservesErrorClass(t *testing.T) {
 
 // Fila cheia descarta e devolve false (SG-10).
 func TestSendDropsWhenQueueIsFull(t *testing.T) {
-	c := &Client{peers: map[uint64]*peer{2: {id: 2, raftQ: make(chan []byte, 1)}}}
+	m := &recMetrics{}
+	c := &Client{peers: map[uint64]*peer{2: {id: 2, raftQ: make(chan []byte, 1)}}, Metrics: m}
 	if !c.Send(2, []byte("a")) || c.Send(2, []byte("b")) {
 		t.Fatal("a segunda mensagem devia ser descartada")
+	}
+	if m.n("dropped") != 1 {
+		t.Fatalf("descartes registrados = %d, quer 1", m.n("dropped"))
 	}
 }

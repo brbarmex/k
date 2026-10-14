@@ -158,3 +158,31 @@ func TestReadResponsesAndIndexHeader(t *testing.T) {
 		}
 	}
 }
+
+// O-16: cada requisição conta o resultado certo.
+func TestHandlerRecordsMetrics(t *testing.T) {
+	p := newParser(t, "1")
+	m := &recMetrics{}
+	o := Options{Deadline: Deadline(time.Second), IdleTimeout: 120 * time.Second, Metrics: m}
+	put := `{"TableName":"cadastro_cliente_cell_1","Item":{"pk":{"S":"a"}}}`
+	call(New(fakeWriter{res: port.WriteResult{Index: 1}}, fakeReader{}, p.Parse, o), "PutItem", put)
+	call(New(fakeWriter{err: usecase.ErrNoLeader}, fakeReader{}, p.Parse, o), "PutItem", put)
+	call(New(panicWriter{t}, fakeReader{}, p.Parse, o), "PutItem", `{"TableName":"cadastro_cliente_cell_1","Item":{"pk":{"S":"a"},"_dr_v":{"N":"1"}}}`)
+	call(New(fakeWriter{}, fakeReader{item: []byte(`{}`)}, p.Parse, o), "GetItem", `{"TableName":"cadastro_cliente_cell_1","Key":{"pk":{"S":"a"}}}`)
+	call(New(fakeWriter{}, fakeReader{err: usecase.ErrReadTimeout}, p.Parse, o), "Scan", `{"TableName":"cadastro_cliente_cell_1"}`)
+	call(New(fakeWriter{}, fakeReader{}, p.Parse, o), "UpdateItem", `{}`) // fora do escopo: não conta
+	for k, want := range map[string]int{"write:ok": 1, "write:no_leader": 1, "write:recusada": 1, "read:get:ok": 1, "read:scan:read_timeout": 1} {
+		if got := m.n(k); got != want {
+			t.Errorf("%s = %d, quer %d", k, got, want)
+		}
+	}
+	m.mu.Lock()
+	total := 0
+	for _, v := range m.calls {
+		total += v
+	}
+	m.mu.Unlock()
+	if total != 5 {
+		t.Errorf("total de eventos = %d, quer 5 (UpdateItem não conta)", total)
+	}
+}

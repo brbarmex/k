@@ -137,7 +137,7 @@ type RaftStatus interface {
 	Status() RaftInfo
 }
 
-// RaftInfo é o estado do nó Raft local. Match só é preenchido na líder.
+// RaftInfo é o estado do nó Raft local. Match e QuorumActive só são preenchidos na líder.
 type RaftInfo struct {
 	NodeID  uint64
 	Lead    uint64
@@ -145,6 +145,10 @@ type RaftInfo struct {
 	Commit  domain.Index
 	Running bool
 	Match   map[uint64]domain.Index
+	// QuorumActive: votantes ativos recentemente, contando a própria líder; 0 na follower.
+	QuorumActive int
+	// Voters: número de votantes da configuração.
+	Voters int
 }
 
 type VersionedOp struct {

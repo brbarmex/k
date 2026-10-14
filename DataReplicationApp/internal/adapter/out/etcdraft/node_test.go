@@ -48,6 +48,7 @@ type cluster struct {
 	cancel map[uint64]context.CancelFunc
 	done   map[uint64]chan error
 	got    map[uint64]*collector
+	m      map[uint64]*recMetrics
 }
 
 // collector consome Committed() como o CommitPump faria.
@@ -71,6 +72,7 @@ func newCluster(t *testing.T, ctx context.Context) *cluster {
 		cancel: map[uint64]context.CancelFunc{},
 		done:   map[uint64]chan error{},
 		got:    map[uint64]*collector{},
+		m:      map[uint64]*recMetrics{},
 	}
 	for id := uint64(1); id <= 3; id++ {
 		c.dirs[id] = filepath.Join(base, "n"+string(rune('0'+id)), "wal")
@@ -81,7 +83,10 @@ func newCluster(t *testing.T, ctx context.Context) *cluster {
 
 func (c *cluster) start(ctx context.Context, id uint64, voters []uint64) {
 	c.t.Helper()
-	n, err := Open(Config{ID: id, Voters: voters, Dir: c.dirs[id], TickInterval: 10 * time.Millisecond},
+	if c.m[id] == nil {
+		c.m[id] = &recMetrics{}
+	}
+	n, err := Open(Config{ID: id, Voters: voters, Dir: c.dirs[id], TickInterval: 10 * time.Millisecond, Metrics: c.m[id]},
 		memSender{net: c.net, from: id}, zerolog.Nop())
 	if err != nil {
 		c.t.Fatalf("Open(%d): %v", id, err)
@@ -175,6 +180,20 @@ func TestClusterElectsCommitsAndRestarts(t *testing.T) {
 	}()
 
 	l := c.leader(5 * time.Second)
+	// O-16: eleição, heartbeats e fsync aparecem nas métricas.
+	lm := c.m[l.cfg.ID]
+	waitFor(t, 3*time.Second, func() bool {
+		return lm.n("leader") >= 1 && lm.n("sent:heartbeat") > 0 && lm.n("recv:heartbeat_resp") > 0 && lm.n("fsync") > 0
+	}, "métricas do Raft não registradas na líder")
+	for id, m := range c.m {
+		if id != l.cfg.ID {
+			waitFor(t, 3*time.Second, func() bool { return m.n("recv:heartbeat") > 0 && m.n("heartbeat") > 0 },
+				"a follower devia registrar heartbeats recebidos")
+		}
+	}
+	// O-14: com os três de pé a líder vê os três votantes ativos.
+	waitFor(t, 3*time.Second, func() bool { st := l.Status(); return st.QuorumActive == 3 && st.Voters == 3 },
+		"a líder devia ver os três votantes ativos")
 	pctx, pc := context.WithTimeout(ctx, 3*time.Second)
 	defer pc()
 	idx, err := l.Propose(pctx, put("a"))

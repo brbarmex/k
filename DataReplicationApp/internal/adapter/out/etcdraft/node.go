@@ -36,6 +36,7 @@ type Config struct {
 	Learners     []uint64 // vazio na POC (G-08)
 	Dir          string   // diretório do WAL; um subdiretório do volume (C-04)
 	TickInterval time.Duration
+	Metrics      port.Metrics // eventos do Raft (O-16); nulo = sem métricas
 }
 
 // Node é o motor de consenso real. Implementa port.ConsensusEngine, port.RaftCompactor,
@@ -47,6 +48,7 @@ type Node struct {
 	wal      *wal.WAL
 	send     Sender
 	log      zerolog.Logger
+	metrics  port.Metrics
 	learners map[uint64]bool
 
 	committed chan port.CommitBatch
@@ -82,7 +84,7 @@ func Open(cfg Config, send Sender, log zerolog.Logger) (*Node, error) {
 		return nil, err
 	}
 	n := &Node{
-		cfg: cfg, storage: ms, wal: w, send: send, log: log,
+		cfg: cfg, storage: ms, wal: w, send: send, log: log, metrics: port.MetricsOrNop(cfg.Metrics),
 		learners:  make(map[uint64]bool, len(cfg.Learners)),
 		committed: make(chan port.CommitBatch, 1024),
 		events:    make(chan port.LearnerProgress, 1024),
@@ -145,6 +147,7 @@ func (n *Node) handleReady(ctx context.Context, rd raft.Ready) error {
 	if rd.SoftState != nil {
 		if old := n.lead.Swap(rd.SoftState.Lead); old != rd.SoftState.Lead {
 			n.log.Info().Uint64("lider", rd.SoftState.Lead).Uint64("termo", n.term.Load()).Msg("mudança de líder")
+			n.metrics.LeaderChanged(rd.SoftState.Lead)
 		}
 	}
 	if !raft.IsEmptySnap(rd.Snapshot) {
@@ -152,9 +155,14 @@ func (n *Node) handleReady(ctx context.Context, rd raft.Ready) error {
 	}
 	isLeader := n.lead.Load() == n.cfg.ID
 	before, after := domain.SplitBeforeSync(isLeader, rd.Messages, kindOf)
-	n.sendAll(before)                                            // (1) só o MsgApp da líder sai antes do fsync
+	n.sendAll(before) // (1) só o MsgApp da líder sai antes do fsync
+	persist := len(rd.Entries) > 0 || !raft.IsEmptyHardState(rd.HardState)
+	t0 := time.Now()
 	if err := n.wal.Save(rd.HardState, rd.Entries); err != nil { // (2) group commit com fdatasync
 		return fmt.Errorf("etcdraft: wal.Save: %w", err) // fatal, nunca repetir (RT-05)
+	}
+	if persist {
+		n.metrics.WALFsync(time.Since(t0)) // só incremento atômico: não atrasa o laço
 	}
 	if err := n.storage.Append(rd.Entries); err != nil { // (3)
 		return fmt.Errorf("etcdraft: MemoryStorage.Append: %w", err)
@@ -207,6 +215,7 @@ func (n *Node) sendAll(msgs []*raftpb.Message) {
 			n.log.Error().Err(err).Msg("mensagem do Raft não serializável")
 			continue
 		}
+		n.metrics.RaftMessageSent(typeName(m))
 		if !n.send.Send(m.GetTo(), data) {
 			n.node.ReportUnreachable(m.GetTo())
 		}
@@ -297,6 +306,10 @@ func (n *Node) Step(ctx context.Context, msgs [][]byte) error {
 		if err := proto.Unmarshal(data, m); err != nil {
 			return fmt.Errorf("etcdraft: mensagem ilegível: %w", err)
 		}
+		n.metrics.RaftMessageReceived(typeName(m))
+		if t := m.GetType(); t == raftpb.MsgHeartbeat || t == raftpb.MsgHeartbeatResp {
+			n.metrics.HeartbeatSeen()
+		}
 		if m.GetType() == raftpb.MsgAppResp && !m.GetReject() && n.learners[m.GetFrom()] {
 			ev := port.LearnerProgress{
 				Term: domain.Term(m.GetTerm()), Index: domain.Index(m.GetIndex()),
@@ -354,7 +367,13 @@ func (n *Node) Status() port.RaftInfo {
 		NodeID: n.cfg.ID, Lead: st.Lead, Term: domain.Term(st.HardState.GetTerm()),
 		Commit: domain.Index(st.HardState.GetCommit()), Running: n.running.Load(),
 	}
+	info.Voters = len(n.cfg.Voters)
 	if len(st.Progress) > 0 {
+		for _, id := range n.cfg.Voters { // a líder conta a si mesma como ativa
+			if pr, ok := st.Progress[id]; ok && (pr.RecentActive || id == n.cfg.ID) {
+				info.QuorumActive++
+			}
+		}
 		info.Match = make(map[uint64]domain.Index, len(st.Progress))
 		ids := make([]uint64, 0, len(st.Progress))
 		for id := range st.Progress {

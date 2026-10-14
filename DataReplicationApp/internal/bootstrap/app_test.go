@@ -2,6 +2,8 @@ package bootstrap
 
 import (
 	"context"
+	"net/http/httptest"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -9,7 +11,9 @@ import (
 	"github.com/rs/zerolog"
 	"go.uber.org/fx"
 
+	"example.com/datareplication/internal/adapter/in/adminhttp"
 	"example.com/datareplication/internal/adapter/in/dynamohttp"
+	"example.com/datareplication/internal/adapter/out/prommetrics"
 	"example.com/datareplication/internal/domain"
 	"example.com/datareplication/internal/platform/config"
 	"example.com/datareplication/internal/port"
@@ -182,9 +186,7 @@ func TestProductionGraphIsValid(t *testing.T) {
 		func() domain.Clock { return time.Now },
 		fx.Annotate(newDegradeService, fx.As(new(usecase.Degrader))),
 		fx.Annotate(newWriteService, fx.As(new(port.Writer))),
-		func(c config.Config) dynamohttp.Options {
-			return dynamohttp.Options{Deadline: dynamohttp.Deadline(c.RequestDeadline)}
-		},
+		newHTTPOptions,
 		dynamohttp.New,
 	), fx.Invoke(runHTTP)); err != nil {
 		t.Fatalf("grafo de produção inválido: %v", err)
@@ -207,3 +209,22 @@ func TestEmptyLearnersNeedsPOCFlag(t *testing.T) {
 		t.Fatal("sem learners o gate devia estar no modo sem Azure")
 	}
 }
+
+// O-17: o /metrics de produção expõe o estado lido do StatusReporter.
+func TestMetricsEndpointEndToEnd(t *testing.T) {
+	rec := prommetrics.NewRecorder("1", nil)
+	rec.RegisterState(fakeStatusSource{})
+	h := adminhttp.New(":0", fakeStatusSource{}, rec.Handler()).Handler()
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, httptest.NewRequest("GET", "/metrics", nil))
+	if w.Code != 200 || !strings.Contains(w.Body.String(), `dr_is_leader{celula="1"} 1`) {
+		t.Fatalf("/metrics %d:\n%s", w.Code, w.Body.String())
+	}
+}
+
+type fakeStatusSource struct{}
+
+func (fakeStatusSource) Status() usecase.CellStatus {
+	return usecase.CellStatus{Celula: "1", No: 1, Papel: "lider", Lider: 1}
+}
+func (fakeStatusSource) Ready() (bool, string) { return true, "" }

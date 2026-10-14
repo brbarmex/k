@@ -34,6 +34,7 @@ type ReadService struct {
 	Store      port.StateStore
 	Scanner    port.Scanner
 	WaitLeader time.Duration // WAIT_LEADER; 0 = não espera
+	Metrics    port.Metrics  // duração da barreira (O-16); nulo = sem métricas
 }
 
 var _ port.Reader = (*ReadService)(nil)
@@ -72,6 +73,7 @@ func (s *ReadService) barrier(ctx context.Context) (domain.Index, error) {
 }
 
 func (s *ReadService) waitBarrier(ctx context.Context) error {
+	start := time.Now()
 	b, err := s.barrier(ctx)
 	if err != nil {
 		return err
@@ -79,6 +81,7 @@ func (s *ReadService) waitBarrier(ctx context.Context) error {
 	if err := s.Applied.WaitApplied(ctx, b); err != nil {
 		return ErrReadTimeout
 	}
+	port.MetricsOrNop(s.Metrics).ReadBarrier(time.Since(start))
 	return nil
 }
 

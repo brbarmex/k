@@ -52,6 +52,33 @@ func kindOf(m *raftpb.Message) domain.MsgKind {
 	}
 }
 
+// typeName é o rótulo `tipo` das métricas de mensagens do Raft (O-16), na mesma
+// classificação de kindOf.
+func typeName(m *raftpb.Message) string {
+	switch kindOf(m) {
+	case domain.MsgApp:
+		return "app"
+	case domain.MsgAppResp:
+		return "app_resp"
+	case domain.MsgVote:
+		return "vote"
+	case domain.MsgVoteResp:
+		return "vote_resp"
+	case domain.MsgPreVote:
+		return "prevote"
+	case domain.MsgPreVoteResp:
+		return "prevote_resp"
+	case domain.MsgHeartbeat:
+		return "heartbeat"
+	case domain.MsgHeartbeatResp:
+		return "heartbeat_resp"
+	case domain.MsgSnap:
+		return "snap"
+	default:
+		return "outro"
+	}
+}
+
 // raftLogger adapta o zerolog à interface de log do Raft.
 type raftLogger struct{ l zerolog.Logger }
 

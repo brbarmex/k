@@ -19,6 +19,7 @@ import (
 	"example.com/datareplication/internal/adapter/out/dynamodb"
 	"example.com/datareplication/internal/adapter/out/etcdraft"
 	"example.com/datareplication/internal/adapter/out/peerclient"
+	"example.com/datareplication/internal/adapter/out/prommetrics"
 	"example.com/datareplication/internal/adapter/out/replog"
 	"example.com/datareplication/internal/domain"
 	"example.com/datareplication/internal/platform/config"
@@ -50,9 +51,7 @@ func New(extra ...fx.Option) *fx.App {
 			func() domain.Clock { return time.Now }, // monotônico; os testes injetam outro
 			fx.Annotate(newDegradeService, fx.As(new(usecase.Degrader))),
 			fx.Annotate(newWriteService, fx.As(new(port.Writer))),
-			func(c config.Config) dynamohttp.Options {
-				return dynamohttp.Options{Deadline: dynamohttp.Deadline(c.RequestDeadline), IdleTimeout: c.IdleTimeout}
-			},
+			newHTTPOptions,
 			dynamohttp.New,
 		),
 		fx.Options(extra...),
@@ -62,6 +61,18 @@ func New(extra ...fx.Option) *fx.App {
 
 // NewProduction é o processo completo.
 func NewProduction() *fx.App { return New(fx.NopLogger, Runtime()) }
+
+// httpOptionsIn: as métricas são opcionais no núcleo; o Runtime as provê (O-17).
+type httpOptionsIn struct {
+	fx.In
+	Cfg     config.Config
+	Metrics port.Metrics `optional:"true"`
+}
+
+func newHTTPOptions(in httpOptionsIn) dynamohttp.Options {
+	return dynamohttp.Options{Deadline: dynamohttp.Deadline(in.Cfg.RequestDeadline), IdleTimeout: in.Cfg.IdleTimeout,
+		Metrics: port.MetricsOrNop(in.Metrics)}
+}
 
 func newLogger(cfg config.Config) zerolog.Logger {
 	return logx.New().With().Str("celula", cfg.CellID).Uint64("no", cfg.NodeID).Logger()
@@ -118,6 +129,8 @@ func runHTTP(lc fx.Lifecycle, s *dynamohttp.Server, cfg config.Config, log zerol
 func Runtime() fx.Option {
 	return fx.Options(
 		fx.Provide(
+			func(cfg config.Config) *prommetrics.Recorder { return prommetrics.NewRecorder(cfg.CellID, nil) },
+			func(r *prommetrics.Recorder) port.Metrics { return r },
 			func(cfg config.Config) (domain.TableMap, error) { return domain.NewTableMap(cfg.CellID, cfg.Tables) },
 			newReplog,
 			func(l *replog.Log) port.ReplicationLog { return l },
@@ -163,7 +176,7 @@ func newStore(cfg config.Config, tm domain.TableMap) (*dynamodb.Store, error) {
 	return dynamodb.New(context.Background(), cfg.DynamoEndpoint, cfg.AWSRegion, tm)
 }
 
-func newPeerClient(lc fx.Lifecycle, cfg config.Config, log zerolog.Logger) (*peerclient.Client, error) {
+func newPeerClient(lc fx.Lifecycle, cfg config.Config, log zerolog.Logger, m port.Metrics) (*peerclient.Client, error) {
 	members := make(map[uint64]string, len(cfg.Peers)+len(cfg.Learners))
 	for id, a := range cfg.Peers {
 		members[id] = a
@@ -175,17 +188,18 @@ func newPeerClient(lc fx.Lifecycle, cfg config.Config, log zerolog.Logger) (*pee
 	if err != nil {
 		return nil, err
 	}
+	c.Metrics = m
 	lc.Append(fx.StopHook(c.Close))
 	return c, nil
 }
 
-func newRaft(lc fx.Lifecycle, cfg config.Config, send *peerclient.Client, log zerolog.Logger) (*etcdraft.Node, error) {
+func newRaft(lc fx.Lifecycle, cfg config.Config, send *peerclient.Client, log zerolog.Logger, m port.Metrics) (*etcdraft.Node, error) {
 	if err := os.MkdirAll(filepath.Dir(cfg.RaftDir), 0o755); err != nil {
 		return nil, err
 	}
 	n, err := etcdraft.Open(etcdraft.Config{
 		ID: cfg.NodeID, Voters: config.IDs(cfg.Peers), Learners: config.IDs(cfg.Learners),
-		Dir: cfg.RaftDir, TickInterval: 100 * time.Millisecond,
+		Dir: cfg.RaftDir, TickInterval: 100 * time.Millisecond, Metrics: m,
 	}, send, log)
 	if err != nil {
 		return nil, err
@@ -199,8 +213,8 @@ func newApplier(g *domain.Gate, st port.StateStore, p port.ApplyProgress, in cha
 		Backoff: usecase.Backoff{Min: 100 * time.Millisecond, Max: 5 * time.Second}, Log: log}
 }
 
-func newReadService(cfg config.Config, c port.ConsensusEngine, g *domain.Gate, a port.AppliedWaiter, b port.BarrierClient, st port.StateStore, sc port.Scanner) *usecase.ReadService {
-	return &usecase.ReadService{Consensus: c, Gate: g, Applied: a, Barrier: b, Store: st, Scanner: sc, WaitLeader: cfg.WaitLeader}
+func newReadService(cfg config.Config, c port.ConsensusEngine, g *domain.Gate, a port.AppliedWaiter, b port.BarrierClient, st port.StateStore, sc port.Scanner, m port.Metrics) *usecase.ReadService {
+	return &usecase.ReadService{Consensus: c, Gate: g, Applied: a, Barrier: b, Store: st, Scanner: sc, WaitLeader: cfg.WaitLeader, Metrics: m}
 }
 
 func newGateSync(cfg config.Config, c port.ConsensusEngine, g *domain.Gate, p port.GatePublisher, log zerolog.Logger) *usecase.GateSync {
@@ -213,8 +227,9 @@ func newStatus(cfg config.Config, r port.RaftStatus, g *domain.Gate, a *usecase.
 
 // runAdmin abre a administração primeiro: o /livez responde enquanto as tabelas são
 // conferidas.
-func runAdmin(lc fx.Lifecycle, cfg config.Config, st *usecase.StatusReporter, log zerolog.Logger) {
-	s := adminhttp.New(cfg.AdminAddr, st)
+func runAdmin(lc fx.Lifecycle, cfg config.Config, st *usecase.StatusReporter, rec *prommetrics.Recorder, log zerolog.Logger) {
+	rec.RegisterState(st) // a fonte do estado só existe depois do nó Raft (ver RegisterState)
+	s := adminhttp.New(cfg.AdminAddr, st, rec.Handler())
 	lc.Append(fx.Hook{
 		OnStart: func(context.Context) error {
 			go func() {

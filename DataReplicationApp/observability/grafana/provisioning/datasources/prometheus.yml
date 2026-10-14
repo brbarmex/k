@@ -1,0 +1,13 @@
+# Datasource do Grafana (O-18), carregado na partida. O dashboard referencia o uid fixo.
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    uid: prometheus-dr
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+    editable: false
+    jsonData:
+      timeInterval: 1s

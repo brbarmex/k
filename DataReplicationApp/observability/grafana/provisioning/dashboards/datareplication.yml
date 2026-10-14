@@ -1,0 +1,12 @@
+# Provedor de dashboards (O-18): importa os JSON de /var/lib/grafana/dashboards na partida.
+apiVersion: 1
+
+providers:
+  - name: DataReplication
+    folder: DataReplication
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 10
+    allowUiUpdates: true
+    options:
+      path: /var/lib/grafana/dashboards

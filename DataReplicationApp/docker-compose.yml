@@ -1,4 +1,5 @@
-# POC local do DataReplication (S.4): LocalStack (só DynamoDB) e três células AWS.
+# POC local do DataReplication (S.4): LocalStack (só DynamoDB), três células AWS e a
+# observabilidade (O-18): Prometheus coletando as células e Grafana com o dashboard importado.
 
 # Variáveis iguais nas três células: a ConfState de partida tem de ser a mesma (RT-03).
 x-dr-env: &dr-env
@@ -77,6 +78,48 @@ services:
     volumes:
       - cell-3-raft:/var/lib/dr/raft
       - cell-3-replog:/var/lib/dr/replog
+
+  prometheus:
+    image: prom/prometheus:v3.5.0 # versão fixa
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.retention.time=1d
+      - --web.enable-lifecycle
+    volumes:
+      - ./observability/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - "9095:9090"
+    depends_on:
+      cell-1: { condition: service_started }
+      cell-2: { condition: service_started }
+      cell-3: { condition: service_started }
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:9090/-/ready"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+
+  grafana:
+    image: grafana/grafana:12.1.0 # versão fixa
+    environment:
+      # SÓ DA POC: acesso anônimo de administrador, sem formulário de login.
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Admin
+      GF_AUTH_DISABLE_LOGIN_FORM: "true"
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /var/lib/grafana/dashboards/datareplication.json
+      GF_USERS_DEFAULT_THEME: dark
+    volumes:
+      - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    ports:
+      - "3000:3000"
+    depends_on:
+      prometheus: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000/api/health"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
 
 volumes:
   cell-1-raft: { driver: local }
