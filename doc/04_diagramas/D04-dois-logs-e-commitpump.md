@@ -19,12 +19,12 @@ flowchart TD
     AZ -->|"por evento, só termo atual"| GATE["Gate"]
     PUMP -->|"índice de commit"| GATE
     PUMP -->|"entradas pela memória"| APPL["Applier"]
-    PUMP -->|"sem fsync, fora do caminho do ACK"| REP[("log de replicação segmentado<br/>vida longa, volume próprio")]
+    PUMP -->|"fila limitada, goroutine própria, sem fsync, uma escrita por lote (ADR-059)"| REP[("log de replicação segmentado<br/>vida longa, volume próprio")]
     GATE -->|"libera ACK"| W
     GATE -->|"libera o apply até o gate"| APPL
-    APPL -->|"escrita condicional por versão"| DB[("Banco da célula")]
-    APPL -->|"progresso por item: índice e ordem, sem fsync"| REP
-    CK["Checkpointer: fsync a cada REPLOG_SYNC_INTERVAL"] --> REP
+    APPL -->|"escrita condicional por versão, paralelo por chave (ADR-058)"| DB[("Banco da célula")]
+    APPL -->|"marca d'água: índice e ordem, sem fsync"| REP
+    CK["Checkpointer: fsync a cada REPLOG_SYNC_INTERVAL,<br/>fora da trava do Append (ADR-059)"] --> REP
     CK -.->|"compacta até RaftCompactLimit"| RLOG
     REP -.->|"DurableIndex do checkpoint: até onde o log do Raft pode ser truncado"| RLOG
 ```

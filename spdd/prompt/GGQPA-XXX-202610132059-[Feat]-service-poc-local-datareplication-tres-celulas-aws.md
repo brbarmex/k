@@ -7,6 +7,7 @@
 - **Manter o produto pronto para a Azure sem exercitá-la**: o gate implementa as regras completas (G-01 a G-09) e aceita learners pela configuração; a POC roda com `LEARNERS` vazia no modo sem Azure (G-08), que é explicitamente só da POC.
 - **Entregar um ambiente operável por tarefas**: imagem única, `docker-compose.yml` com LocalStack fixado e seis volumes, `taskfile.yaml` com as tarefas da S.5 e um roteiro `e2e` que verifica CA-03 a CA-05.
 - **Tornar o comportamento do cluster visível em tempo real**: cada célula expõe métricas Prometheus; o compose sobe Prometheus e Grafana, e o Grafana já abre com o dashboard "DataReplication" importado por provisioning, mostrando a célula líder, o quórum, as trocas de liderança, os ACKs, a replicação, o heartbeat do Raft, a durabilidade, as leituras fortes e a saúde de cada célula. Os cenários de falha do HOW_TO_RUN passam a ser observáveis no dashboard.
+- **Aplicar no banco sem virar gargalo e sem travar o ACK no checkpoint** (ADR-058, ADR-059): o applier grava itens de chaves diferentes em paralelo (`APPLY_WORKERS`, padrão 16), mantendo a ordem do log por chave e o `aplicado` como marca d'água contígua; o fsync do checkpoint do log de replicação roda fora da trava do `Append`, e o `Append` roda fora da goroutine que avança o gate.
 - **Limites**: um shard; só `PutItem`, `GetItem` e `Scan` da tabela base; sem Azure, dedupe, mTLS, modo degradado ativo, compactação/snapshot do Raft, truncamento do log de replicação, TTL, GSI, alertas do Prometheus. `DeleteItem` e `BatchWriteItem` ficam para a fase 2 e são recusados.
 - **Pronto quando**: partindo de volumes vazios, os critérios CA-01 a CA-14 passam, `go test -race ./...` passa no container de teste e os critérios de observabilidade abaixo passam.
 - **Critérios de observabilidade**:
@@ -131,6 +132,11 @@ class ApplyHealth {
     +string Err
 }
 
+class ApplyStatus {
+    +int Workers
+    +int EmVoo
+}
+
 class RaftInfo {
     +uint64 NodeID
     +uint64 Lead
@@ -150,6 +156,7 @@ class CellStatus {
     +Index Gate
     +bool GatePronto
     +Index Aplicado
+    +ApplyStatus Apply
     +string Azure
     +ReplogStatus Replog
     +string ErroApply
@@ -175,6 +182,8 @@ class Metrics {
     +WriteDone(resultado string, d Duration)
     +ReadDone(op string, resultado string)
     +ReadBarrier(d Duration)
+    +ApplyItem(d Duration)
+    +ReplogSync(d Duration)
 }
 
 class Recorder {
@@ -207,6 +216,7 @@ Gate --> GateState : retrato
 CellStatus ..> GateState : agrega
 CellStatus ..> RaftInfo : agrega
 CellStatus ..> ApplyHealth : agrega
+CellStatus *-- ApplyStatus : workers e itens em voo
 CellStatus *-- QuorumStatus : só na líder
 Recorder ..|> Metrics : implementa
 Recorder *-- StateCollector : registra
@@ -220,6 +230,7 @@ Notas de modelagem (conservadoras):
 - O valor zero de `Gate` continua com o comportamento atual (líder, Azure exigida), para não quebrar os testes do esboço.
 - `RaftInfo` ganha `QuorumActive int` (votantes ativos recentemente, contando a própria líder; 0 na follower) e `Voters int`. `CellStatus` ganha `quorum` (só na líder), derivado desses dois campos.
 - `port.Metrics` registra **eventos** (contadores e histogramas). O **estado** (líder, termo, commit, gate, aplicado, quórum, replog, saúde) não é empurrado por ninguém: o `StateCollector` lê o mesmo `CellStatus` do `/status` na hora da coleta. `port.NopMetrics` é a implementação vazia usada nos testes e quando nada é injetado.
+- `Applier.Applied()` é a **marca d'água** (ADR-058): o maior índice que, com todos os anteriores, está no banco da célula. Itens de índices maiores podem já estar gravados. O progresso salvo (`SaveProgress(índice, ordem)`) é a marca d'água, com `ordem` = número de itens da entrada. `ApplyStatus` mostra os workers efetivos e os itens despachados e não concluídos.
 - O `Dashboard` é um arquivo JSON do Grafana versionado no repositório; não é entidade de código, mas é contrato: só pode consultar séries que a O-15 define.
 
 ## Approach
@@ -246,11 +257,14 @@ Notas de modelagem (conservadoras):
    - Eventos de learner: `MsgAppResp` sem rejeição vindo de um id da lista de learners vira `LearnerProgress` num canal bloqueante (G-04). Na POC o canal nunca recebe nada.
 
 4. **Apply (AP-01 a AP-10)**:
-   - `CommitPump` sem mudanças de comportamento.
+   - `CommitPump` com três goroutines (ADR-059): progresso dos learners, commits (gate e entrega ao `Applier`) e `Append` do log de replicação, ligadas por uma fila limitada de lotes (1024). O `Append` lento nunca atrasa o gate nem o `Applier`; com a fila cheia, a goroutine de commits espera (contrapressão).
+   - `Applier` paralelo por chave (ADR-058): um despachante lê as entradas em ordem, espera `gate >= índice` e entrega cada item ao worker `hash(tabela, chave) mod APPLY_WORKERS`; cada worker grava um item por vez, na ordem em que recebeu. A mesma chave fica sempre no mesmo worker (ordem do log por chave, exigida pelo DELETE da fase 2). O `aplicado` é a marca d'água contígua e só ela libera o ACK da líder e a leitura forte. O `BatchWriteItem` do DynamoDB não serve para juntar itens: não aceita condição, e a checagem do `_dr_v` se perderia.
    - `Applier` passa a classificar o erro do banco: transitório → repetir com backoff exponencial de 100 ms a 5 s, sem limite, com log a cada tentativa; permanente → **estacionar** (o Applier fica parado na entrada sem pular, `Health()` mostra índice, ordem e erro, `/readyz` cai, o processo continua de pé) até o contexto acabar.
    - `StateStore` do DynamoDB faz `PutItem` condicional por `_dr_v`; `ConditionalCheckFailedException` é sucesso ("já aplicado").
    - Tabela física = lógica com `{cell}` trocado pelo `CELL_ID` local (`TableMap.Physical`).
-   - `Checkpointer` igual ao esboço, com um `RaftCompactor` que não faz nada e registra em log.
+   - `Checkpointer` igual ao esboço, com um `RaftCompactor` que não faz nada e registra em log, e medindo a duração de cada `Sync`.
+   - Log de replicação (ADR-059): o `Sync` só lê sob a trava qual arquivo sincronizar e até que índice ele vai, faz o fsync fora dela e publica o `DurableIndex` depois; a rotação faz fsync do segmento que sai e o entrega ao `Sync`, que o fecha. O `Append` grava cada lote com uma escrita só.
+   - Pool HTTP do SDK do DynamoDB com `max(2 × APPLY_WORKERS, 32)` conexões ociosas por host (o padrão do SDK é 10).
 
 5. **Leitura forte (A.6)**:
    - `ReadService` (usecase): na líder, conferir `Gate.Ready()` (senão `ErrGateNotReady`), `ReadIndex`, ler o gate **depois**; na follower, `BarrierClient.Barrier` na líder (ReadIndex e gate na mesma resposta). Esperar `Applier.WaitApplied(min(readIndex, gate))`, ler a tabela local com leitura consistente e tirar `_dr_v`.
@@ -304,9 +318,9 @@ Notas de modelagem (conservadoras):
 2. `usecase.WriteService` depende de `port.ConsensusEngine`, `port.Forwarder`, `*domain.Gate`, `port.AppliedWaiter`, `usecase.Degrader` (sem mudanças).
 3. `usecase.ReadService` depende de `port.ConsensusEngine`, `*domain.Gate`, `port.AppliedWaiter`, `port.BarrierClient`, `port.StateStore`, `port.Scanner`.
 4. `usecase.GateSync` depende de `port.ConsensusEngine`, `*domain.Gate`, `port.GatePublisher`.
-5. `usecase.CommitPump` depende de `port.ConsensusEngine`, `port.ReplicationLog`, `*domain.Gate`, `*domain.Lease`, canal para o `Applier`.
-6. `usecase.Applier` depende de `*domain.Gate`, `port.StateStore`, `port.ApplyProgress`, canal do `CommitPump`.
-7. `usecase.Checkpointer` depende de `port.ReplicationLog` e `port.RaftCompactor`.
+5. `usecase.CommitPump` depende de `port.ConsensusEngine`, `port.ReplicationLog`, `*domain.Gate`, `*domain.Lease`, canal para o `Applier` e o tamanho da fila do `Append` (`LogQueue`).
+6. `usecase.Applier` depende de `*domain.Gate`, `port.StateStore`, `port.ApplyProgress`, canal do `CommitPump`, `Workers` (de `APPLY_WORKERS`) e `port.Metrics` (opcional).
+7. `usecase.Checkpointer` depende de `port.ReplicationLog`, `port.RaftCompactor` e `port.Metrics` (opcional).
 8. `usecase.StatusReporter` depende de `port.RaftStatus`, `*domain.Gate`, `*usecase.Applier`, `port.ReplicationLog`, `port.Catalog`.
 9. `peergrpc.Server` chama `port.RaftInbound`, `port.Writer` e duas interfaces próprias do pacote: `LeaderBarrier` (implementada por `usecase.ReadService`) e `GateReceiver` (implementada por `usecase.GateSync`).
 10. `etcdraft.Node` chama `etcdraft.Sender` (implementado por `peerclient.Client`) para enviar mensagens serializadas.
@@ -355,7 +369,7 @@ DataReplicationApp/
 
 ## Operations
 
-> Ordem obrigatória: O-01 → O-21 (O-14 a O-21 são a observabilidade, feitas depois da POC base), com uma exceção de dependência: as portas de O-07a e os erros novos do usecase (`ErrNotLeader`, `ErrGateNotReady`, `ErrReadTimeout`, em `read.go`) entram **antes** de O-03, porque o `etcdraft` os usa. Cada passo termina com `go build ./...` e `go test -race ./...` verdes (no container de teste) antes do seguinte. Comentários e mensagens de log em português.
+> Ordem obrigatória: O-01 → O-26 (O-14 a O-21 são a observabilidade, feitas depois da POC base; O-22 a O-26 são o apply paralelo e o checkpoint sem trava, ADR-058 e ADR-059), com uma exceção de dependência: as portas de O-07a e os erros novos do usecase (`ErrNotLeader`, `ErrGateNotReady`, `ErrReadTimeout`, em `read.go`) entram **antes** de O-03, porque o `etcdraft` os usa. Cada passo termina com `go build ./...` e `go test -race ./...` verdes (no container de teste) antes do seguinte. Comentários e mensagens de log em português.
 
 ### O-01 Criar a base - `DataReplicationApp/`
 1. Responsabilidade: copiar o esboço e atualizar dependências.
@@ -528,7 +542,7 @@ DataReplicationApp/
 
 ### O-07e Create Service - `usecase/status.go`
 1. `StatusReporter{CellID string; NodeID uint64; Raft port.RaftStatus; Gate *domain.Gate; Applier *Applier; Log port.ReplicationLog; Catalog port.Catalog; AzureOff bool}`.
-2. `Status() CellStatus`: preenche `celula`, `no`, `papel` (`lider`/`follower`), `lider`, `termo`, `commit`, `gate`, `gatePronto`, `aplicado`, `azure` (`off`/`on`), `replog{ultimo, duravel}`, `erroApply` (com índice e ordem), `match` (só líder).
+2. `Status() CellStatus`: preenche `celula`, `no`, `papel` (`lider`/`follower`), `lider`, `termo`, `commit`, `gate`, `gatePronto`, `aplicado` (marca d'água), `apply{workers, emVoo}` (O-24), `azure` (`off`/`on`), `replog{ultimo, duravel}`, `erroApply` (com índice e ordem), `match` (só líder).
 3. `Ready() (bool, string)`: catálogo pronto, Raft rodando, líder conhecida, applier não parado; devolve o motivo quando falso.
 
 ### O-08 Implement Adapter - `adapter/in/adminhttp`
@@ -537,7 +551,7 @@ DataReplicationApp/
 3. Teste com `httptest`.
 
 ### O-09a Update Config - `platform/config/config.go`
-1. Campos novos: `NodeID uint64`, `Peers map[uint64]string`, `Learners map[uint64]string`, `Tables []string`, `DynamoEndpoint`, `AWSRegion`, `PeerAddr` (`:7000`), `RaftDir` (`/var/lib/dr/raft/wal`), `ReplogDir` (`/var/lib/dr/replog`), `TableWait` (120 s), `GatePublishInterval` (100 ms), `ReplogSyncInterval` (1 s), `POCNoAzure bool` (`POC_SEM_AZURE`). Remover `WALDir`.
+1. Campos novos: `NodeID uint64`, `Peers map[uint64]string`, `Learners map[uint64]string`, `Tables []string`, `DynamoEndpoint`, `AWSRegion`, `PeerAddr` (`:7000`), `RaftDir` (`/var/lib/dr/raft/wal`), `ReplogDir` (`/var/lib/dr/replog`), `TableWait` (120 s), `GatePublishInterval` (100 ms), `ReplogSyncInterval` (1 s), `ApplyWorkers int` (`APPLY_WORKERS`, padrão 16, de 1 a 256; O-25), `POCNoAzure bool` (`POC_SEM_AZURE`). Remover `WALDir`.
 2. Regras (todas acumuladas em `errs`): `NODE_ID` inteiro > 0; `PEERS` no formato `id=host:porta` separado por vírgula, ids únicos, contém `NODE_ID`; `LEARNERS` vazia ou exatamente 3 ids, disjuntos de `PEERS`; `LEARNERS` vazia sem `POC_SEM_AZURE=true` → erro "LEARNERS vazia só é aceita na POC (POC_SEM_AZURE=true)" (SG-12); `TABLES` não vazia e cada nome com exatamente um `{cell}`; `AWS_REGION` obrigatória; manter todas as regras atuais (prazos SG-11, `DEGRADED_POLICY`, variáveis do modo eventual, `DEGRADE_AFTER` com padrão 2 s).
 3. `Load()`: `v := viper.New(); v.AutomaticEnv(); return LoadFrom(v.GetString)`. `IDs(map[uint64]string) []uint64` devolve os ids em ordem (votantes e learners para o `etcdraft`).
 4. Testes: casos válidos e cada erro novo; testes existentes continuam.
@@ -557,7 +571,7 @@ DataReplicationApp/
 4. Pronto quando: `docker build .` e `docker build --target test .` passam.
 
 ### O-11 Create Compose - `DataReplicationApp/docker-compose.yml`
-1. `x-dr-env`: `PEERS: 1=cell-1:7000,2=cell-2:7000,3=cell-3:7000`, `LEARNERS: ""`, `POC_SEM_AZURE: "true"`, `TABLES: cadastro_cliente_cell_{cell}`, `DYNAMODB_ENDPOINT: http://localstack:4566`, `AWS_REGION: sa-east-1`, `AWS_ACCESS_KEY_ID: test`, `AWS_SECRET_ACCESS_KEY: test`, `DEGRADED_POLICY: reject`, `TABLE_WAIT: 120s`, `GATE_PUBLISH_INTERVAL: 100ms`, `REPLOG_SYNC_INTERVAL: 1s`, `RAFT_DIR: /var/lib/dr/raft/wal`, `REPLOG_DIR: /var/lib/dr/replog`.
+1. `x-dr-env`: `PEERS: 1=cell-1:7000,2=cell-2:7000,3=cell-3:7000`, `LEARNERS: ""`, `POC_SEM_AZURE: "true"`, `TABLES: cadastro_cliente_cell_{cell}`, `DYNAMODB_ENDPOINT: http://localstack:4566`, `AWS_REGION: sa-east-1`, `AWS_ACCESS_KEY_ID: test`, `AWS_SECRET_ACCESS_KEY: test`, `DEGRADED_POLICY: reject`, `TABLE_WAIT: 120s`, `GATE_PUBLISH_INTERVAL: 100ms`, `REPLOG_SYNC_INTERVAL: 1s`, `APPLY_WORKERS: 16`, `RAFT_DIR: /var/lib/dr/raft/wal`, `REPLOG_DIR: /var/lib/dr/replog`.
 2. `localstack`: `image: localstack/localstack:4.14.0`, `SERVICES=dynamodb`, `4566:4566`, healthcheck `curl -fs http://localhost:4566/_localstack/health`.
 3. `cell-1` com `build: .` e `image: datareplication-poc:local`; `cell-2` e `cell-3` só com `image: datareplication-poc:local`; todas com `pull_policy: never` (a imagem é local); cada uma com `<<: *dr-env` mais `CELL_ID`/`NODE_ID`; portas `800N:8000` e `909N:9090`; volumes `cell-N-raft:/var/lib/dr/raft` e `cell-N-replog:/var/lib/dr/replog`; `depends_on: localstack: condition: service_healthy`; `restart: on-failure`.
 4. Seis volumes nomeados com `driver: local`; uma rede padrão.
@@ -596,6 +610,8 @@ DataReplicationApp/
    - `WriteDone(resultado string, d time.Duration)`: `resultado` em `ok`, `no_leader`, `pending`, `throttling`, `lease_expired`, `recusada` (400 de validação), `erro` (500).
    - `ReadDone(op string, resultado string)`: `op` em `get`, `scan`; `resultado` em `ok`, `no_leader`, `gate_not_ready`, `read_timeout`, `recusada`, `erro`.
    - `ReadBarrier(d time.Duration)`: duração da barreira de leitura (ReadIndex local ou `ReadBarrier` na líder) mais a espera do apply.
+   - `ApplyItem(d time.Duration)`: duração da gravação de um item no banco pelo applier, com as repetições (O-24).
+   - `ReplogSync(d time.Duration)`: duração do fsync do checkpoint do log de replicação (O-22).
 2. `NopMetrics` (struct vazia que implementa `Metrics` sem fazer nada) e a função `MetricsOrNop(m Metrics) Metrics`.
 3. `RaftInfo` ganha `QuorumActive int` e `Voters int`. `etcdraft.Node.Status()` preenche: `Voters` = número de votantes da configuração; na líder, `QuorumActive` = votantes cujo progresso tem `RecentActive` (a própria líder conta como ativa); na follower, 0.
 4. `usecase.CellStatus` ganha `Quorum *QuorumStatus` (`json:"quorum,omitempty"`, só na líder) com `Ativos`, `Votantes` e `Ok` (`Ativos >= Votantes/2+1`).
@@ -617,6 +633,7 @@ DataReplicationApp/
    - `dr_forwards_total` (contador).
    - `dr_writes_total{resultado}` (contador) e `dr_write_duration_seconds` (histograma; buckets de 1 ms a 10 s; só para `resultado="ok"`).
    - `dr_reads_total{op,resultado}` (contador) e `dr_read_barrier_duration_seconds` (histograma; buckets de 0,5 ms a 5 s).
+   - `dr_apply_item_duration_seconds` (histograma; buckets de 0,5 ms a 10 s) e `dr_replog_sync_duration_seconds` (histograma; buckets de 0,5 ms a 5 s).
    - Todos os rótulos de `tipo`, `resultado` e `op` são pré-inicializados com zero, para as séries existirem desde a partida.
 4. Séries de **estado** (`StateCollector`, lidas a cada coleta a partir de `source.Status()` e `source.Ready()`):
    - `dr_is_leader` (1 na líder, 0 na follower), `dr_leader_id` (id da líder conhecida, 0 sem líder), `dr_raft_term`.
@@ -625,8 +642,9 @@ DataReplicationApp/
    - `dr_quorum_active`, `dr_quorum_voters`, `dr_quorum_ok` (0/1), só na líder.
    - `dr_peer_match_index{par}` e `dr_peer_lag{par}` (`commit - match`), só na líder.
    - `dr_applier_stopped` (0/1), `dr_ready` (0/1), `dr_azure_off` (0/1).
+   - `dr_apply_workers` e `dr_apply_inflight` (de `CellStatus.Apply`).
 5. `Handler() http.Handler`: `promhttp.HandlerFor` do registro próprio.
-6. Testes: cada método de `port.Metrics` muda a série certa (`testutil.ToFloat64`); o `StateCollector` com um `StatusSource` falso exporta líder, follower e quórum como descrito; `Gather` do registro contém todas as séries listadas acima; **teste de contrato com o dashboard**: lê `observability/grafana/dashboards/datareplication.json`, extrai todos os nomes `dr_*` das consultas e falha se algum não existir no registro.
+6. Testes: cada método de `port.Metrics` muda a série certa (`testutil.ToFloat64`); o `StateCollector` com um `StatusSource` falso exporta líder, follower e quórum como descrito; `Gather` do registro contém todas as séries listadas acima; **teste de contrato com os dashboards**: lê cada `*.json` de `observability/grafana/dashboards/`, extrai todos os nomes `dr_*` das consultas e falha se algum não existir no registro.
 
 ### O-16 Instrument - `etcdraft`, `peerclient`, `dynamohttp`, `usecase/read.go`
 1. Cada componente ganha um campo ou parâmetro `Metrics port.Metrics`; nulo vira `port.NopMetrics` (os testes existentes não mudam).
@@ -715,6 +733,45 @@ DataReplicationApp/
 5. Parar duas células: `max(dr_quorum_ok)` cai para 0 (ou fica sem dado), `dr_writes_total{resultado="no_leader"}` cresce; religar e conferir a volta (OB-05).
 6. `task limpar` no fim.
 
+### O-22 Update Adapter - `adapter/out/replog` (checkpoint sem trava, ADR-059)
+1. Atributos novos de `Log`: `syncMu sync.Mutex` (um `Sync` por vez; ordem das travas: `syncMu` antes de `mu`, e quem segura `mu` nunca toma `syncMu`), `retired []*os.File` (segmentos que saíram na rotação, já com fsync, à espera de serem fechados pelo `Sync`) e `fsync func(*os.File) error` (padrão `(*os.File).Sync`; os testes trocam para simular disco lento).
+2. `Append(ctx, batch)`: só toma `mu`; monta os registros num buffer e grava **uma vez por lote**; quando o lote atravessa a rotação, grava o trecho montado antes de rotacionar. Mantém as regras atuais: entrada já existente é ignorada; buraco devolve `ErrGap` (depois de gravar o trecho anterior); erro de escrita é fatal para quem chama.
+3. Rotação: faz fsync do segmento que sai, move o arquivo para `retired` (não fecha), avança o `DurableIndex` até o fim desse segmento, abre o novo e faz fsync do diretório.
+4. `Sync(ctx)`: toma `syncMu`; sob `mu` lê o arquivo ativo e o último índice gravado; solta `mu`; faz o fsync desse arquivo **sem** `mu`; sob `mu` publica `DurableIndex = max(atual, índice lido)` e retira a lista `retired`; fecha os aposentados fora de `mu`. Erro de fsync é fatal (não se repete).
+5. `Close()`: toma `syncMu`, faz o mesmo `Sync`, fecha o ativo e o arquivo de progresso.
+6. `Read`: copia os segmentos **por valor** sob `mu` (o `Append` muda `last` e `size` do ativo).
+7. Testes (`-race`): com o fsync do `Sync` preso por um canal, um `Append` termina em menos de 2 s, `LastIndex` avança e `DurableIndex` não; liberado, o `Sync` devolve o índice lido no início e um segundo `Sync` cobre o resto; rotação com segmentos pequenos deixa os aposentados até o `Sync` seguinte, que os fecha, e reabrir lê todas as entradas; `Append` e `Sync` em paralelo, reabrir lê 400 entradas contíguas.
+
+### O-23 Update Service - `usecase/replicate.go` (Append fora da goroutine de commits, ADR-059)
+1. `CommitPump` ganha `LogQueue int` (padrão 1024 lotes) e passa a ter três goroutines: progresso (como hoje), commits e `runAppend`.
+2. Commits: `SetTerm`, `SetRaftCommit`, envio ao `Applier`, envio do lote ao canal da fila (os dois envios com `ctx.Done()`).
+3. `runAppend`: lê a fila em ordem e chama `Log.Append`; erro → cancela o pump com a causa (fatal, como hoje); contexto encerrado → termina sem erro (o que ficou na fila é refeito a partir do Raft na partida).
+4. Teste novo: com o `Append` preso no lote 1 e o gate no modo sem Azure, os lotes 2 e 3 chegam ao gate e ao `Applier`; liberado o `Append`, o log recebe os três lotes. Os testes atuais do pump continuam passando.
+
+### O-24 Update Service - `usecase/apply.go` (apply paralelo por chave, ADR-058)
+1. Atributos novos: `Workers int` (0 ou 1 = um item por vez), `Metrics port.Metrics` (opcional), lista ordenada de entradas despachadas e não concluídas (índice, número de itens, itens restantes), contador atômico de itens em voo, canal fechado quando o applier estaciona. Constante `workerQueue = 256` itens por worker.
+2. `Run`: carrega o progresso; cria `Workers` filas e uma goroutine por fila; roda o despachante; ao terminar, cancela e espera os workers. Erro de `SaveProgress` num worker encerra o `Run` com essa causa (fatal).
+3. Despachante: lê os lotes em ordem; ignora índices já despachados nesta execução; espera `Gate.WaitFor(índice)`; registra a entrada (sem itens a gravar, ela já conta como concluída); entrega cada item ao worker `keySlot(op, Workers)`; itens até o progresso salvo não são entregues. Estacionado, para de despachar até o contexto acabar.
+4. `keySlot(op, n)`: FNV-1a de 64 bits sobre a tabela lógica, um byte zero de separador e a chave canônica, módulo `n`; `n <= 1` → 0.
+5. Worker: para cada item, se o applier está estacionado e o item vem depois do item venenoso, descarta; senão grava com `applyItem` (backoff atual), mede `ApplyItem(d)`, marca o item concluído. Erro permanente → estaciona.
+6. Marca d'água: a cada entrada registrada ou item concluído, sob o mutex, retira do início da lista as entradas sem itens restantes; se retirou alguma, `applied` = índice da última retirada, acorda quem espera e grava `SaveProgress(índice, número de itens)` uma vez.
+7. Estacionar: guarda em `Health` a **menor** posição (índice, ordem) entre os itens venenosos; na primeira vez fecha o canal de estacionado e registra o log "applier parado: saída humana (ADR-038)". Itens anteriores à posição continuam sendo gravados, então a marca d'água chega logo antes do item venenoso.
+8. `WorkerCount()` (pelo menos 1) e `InFlight()` para o `/status`.
+9. Testes (`-race`): com 64 workers e 8 chaves, pelo menos duas gravações ficam no banco ao mesmo tempo; a marca d'água não passa da entrada 1 enquanto ela está no banco, mesmo com a entrada 2 (outra chave, outro worker) já gravada, e o progresso final é (3, 0) com a entrada 3 `Noop`; 300 entradas em 3 chaves com 16 workers são gravadas na ordem do log por chave; com 8 workers e item venenoso na entrada 4, a marca d'água para em 3, `Health` mostra (4, 1) e a entrada 6, da mesma chave, não é gravada; `keySlot` estável e espalhando 200 chaves em pelo menos 12 de 16 workers. Benchmark com banco simulado de 4 ms por item e 1, 4, 16 e 64 workers, reportando itens/s. Os testes atuais do applier continuam passando com `Workers` zero.
+
+### O-25 Update Config, Store, Status, Metrics e Bootstrap
+1. `config`: `APPLY_WORKERS` inteiro de 1 a `MaxApplyWorkers` (256), padrão 16; fora disso, erro citando a variável. Teste: padrão, valores válidos e inválidos.
+2. `dynamodb.New(ctx, endpoint, region, tm, applyWorkers)`: cliente HTTP do SDK (`awshttp.NewBuildableClient` com `WithTransportOptions`) com `MaxIdleConns` e `MaxIdleConnsPerHost` = `max(2 × applyWorkers, 32)`, passado em `config.WithHTTPClient`.
+3. `usecase.CellStatus` ganha `Apply ApplyStatus` (`json:"apply"`, com `workers` e `emVoo`). Teste: sem `Workers`, 1 worker; com 16, 16.
+4. `port.Metrics` ganha `ApplyItem` e `ReplogSync` (e `NopMetrics`); `prommetrics` registra os dois histogramas e os gauges `dr_apply_workers` e `dr_apply_inflight`; os fakes de métricas dos testes ganham os dois métodos; o teste de séries registradas inclui as quatro.
+5. `bootstrap`: `Applier` com `Workers = cfg.ApplyWorkers` e `Metrics`; `CommitPump` com `LogQueue = 1024`; `Checkpointer` com `Metrics`; log "célula iniciada" com `applyWorkers`.
+6. `docker-compose.yml`: `APPLY_WORKERS: "16"` no bloco `x-dr-env`. `README.md`: decisões "Apply paralelo por chave" e "Checkpoint do log de replicação sem trava", e as quatro séries novas na tabela.
+
+### O-26 Verify - apply paralelo e checkpoint sem trava
+1. `go test -race -count=1 ./...` verde; os testes novos de O-22 a O-24 repetidos com `-count=30` sem falha.
+2. `go test -run '^$' -bench Applier ./internal/usecase`: com 16 workers, pelo menos 10 vezes os itens/s de 1 worker.
+3. No Docker: `task carga` com `APPLY_WORKERS=1` e depois com `16`; com 16, `dr_apply_inflight` passa de 1 sob carga e `dr_applied_index` acompanha o `dr_commit_index`; `dr_replog_sync_duration_seconds` registra os checkpoints sem pico correspondente em `dr_write_duration_seconds`.
+
 ## Norms
 
 1. **Arquitetura e dependências**: `adapter → usecase → domain` e `adapter → port`; `domain` só com biblioteca padrão; só `etcdraft` importa `go.etcd.io/raft/v3` e o `wal`; só `bootstrap` e `cmd` importam `fx`; bibliotecas limitadas à N-01 (mais `smithy-go`, `zap`, `protobuf` e `aws-sdk-go-v2/credentials`, exigidas pelas outras, e `prometheus/client_golang` para as métricas, todas justificadas no README); só `adapter/out/prommetrics` importa o Prometheus.
@@ -742,7 +799,9 @@ DataReplicationApp/
 
 1. **Restrições funcionais**:
    - Nenhum ACK (200 do `PutItem`) antes de commit do Raft (2 de 3), `gate >= índice` e apply na célula da líder (SG-01).
-   - Em toda célula, `aplicado <= gate` sempre; a follower nunca aplica além de `min(commit local, gate recebido)` (SG-02, G-06).
+   - Em toda célula, `aplicado <= gate` sempre; a follower nunca aplica além de `min(commit local, gate recebido)` (SG-02, G-06). Com o apply paralelo, nenhum item é **despachado** antes de `gate >= índice` da sua entrada.
+   - O `aplicado` (marca d'água) só avança quando a entrada e todas as anteriores estão no banco; o ACK da líder e a leitura forte esperam a marca d'água, nunca um item isolado (ADR-058).
+   - A mesma chave (tabela e chave canônica) é gravada sempre pelo mesmo worker, na ordem do log (ADR-058).
    - Só `PutItem`, `GetItem` e `Scan` da tabela base são atendidos; `DeleteItem`/`BatchWriteItem` → 400 "não suportado nesta fase"; demais → 400 fora do escopo.
    - Toda leitura é forte: barreira por chamada, follower sempre pergunta à líder, nunca usa gate guardado.
    - Nenhuma resposta de leitura contém `_dr_v`.
@@ -750,6 +809,7 @@ DataReplicationApp/
    - `/readyz` das três células em até 60 s depois de `task subir` com a imagem já construída (CA-01).
    - Nova líder em até 5 s após parar a líder (CA-09), com `ElectionTick` 10 × 100 ms.
    - Item nas três tabelas físicas em até 2 s após o ACK (CA-03).
+   - O fsync do checkpoint do log de replicação nunca roda sob a trava do `Append`, e o `Append` nunca roda na goroutine que avança o gate (ADR-059).
    - Laço do Ready nunca bloqueia em rede (filas por par que descartam, SG-10); o envio de `GateUpdate` nunca bloqueia e nunca perde o valor mais recente.
    - **Métrica nunca bloqueia nem atrasa o laço do Ready do Raft**: dentro do `Run`, `handleReady`, `sendAll` e `Step` só há incrementos atômicos e medições de tempo locais; proibido mutex compartilhado com o scrape, canal, chamada de rede, alocação por mensagem além do incremento e qualquer chamada a `node.Status()` vinda de código de métrica dentro do laço.
    - A coleta (`/metrics`) roda na goroutine do servidor de administração e deve responder em menos de 100 ms com o cluster saudável; uma coleta lenta ou o Prometheus fora do ar nunca afeta escrita, leitura, eleição ou o `/readyz`.
@@ -780,7 +840,7 @@ DataReplicationApp/
    - Todo erro de API tem tipo DynamoDB e mensagem clara; 503 sempre com `x-dr-code` (`NO_LEADER`, `PENDING`, `LEASE_EXPIRED`, `GATE_NOT_READY`, `READ_TIMEOUT`).
    - Mensagens de erro não expõem caminhos de arquivo, endereços internos nem pilhas; o 500 é sempre "internal error".
    - Erro de `wal.Save` ou do log de replicação derruba o processo (SG-05); nunca se repete o fsync.
-   - Erro permanente do banco estaciona o applier daquela célula (processo de pé, `/readyz` 503, `/status` com `erroApply`); erro transitório é repetido sem limite com backoff de 100 ms a 5 s.
+   - Erro permanente do banco estaciona o applier daquela célula (processo de pé, `/readyz` 503, `/status` com `erroApply`); com workers em paralelo, a marca d'água para logo antes do item venenoso e nenhum item posterior é gravado depois da parada (salvo os que já estavam a caminho do banco); erro transitório é repetido sem limite com backoff de 100 ms a 5 s.
    - Snapshot recebido de um par é erro (RT-11).
 7. **Restrições técnicas**:
    - Go 1.27, módulo `example.com/datareplication`; build com `CGO_ENABLED=0 -trimpath`; testes com `-race` no estágio `test` (Debian).

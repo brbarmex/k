@@ -32,10 +32,10 @@ A premissa A1 foi retirada (Bruno, 12/10): a tabela abaixo é só um alvo de tra
 
 ### 7.1 Um único modo: escrita serial depois do gate ([ADR-057](../03_adr/ADR-057-um-unico-modo-strong-consistency.md))
 
-O `DataReplication` tem **um único modo, strong consistency**, na escrita, na replicação e no Raft. A líder replica, espera o gate (maioria AWS + maioria Azure, com fsync) e só então aplica no banco da célula, **em série**; o ACK sai depois do apply. Não existe apply paralelo, modo por tabela nem modo por instalação.
+O `DataReplication` tem **um único modo, strong consistency**, na escrita, na replicação e no Raft. A líder replica, espera o gate (maioria AWS + maioria Azure, com fsync) e só então aplica no banco da célula; o ACK sai depois do apply. Não existe apply antes do gate, modo por tabela nem modo por instalação. Dentro dessa regra, o applier grava **em paralelo por chave** (`APPLY_WORKERS`, padrão 16), com a mesma chave na ordem do log, e o `applied` é a **marca d'água contígua** ([ADR-058](../03_adr/ADR-058-apply-paralelo-por-chave-com-marca-dagua.md)). Com um item por vez, um `PutItem` de 4 a 8 ms limitaria o shard a 125 a 250 itens/s.
 
 **Consequências:**
-1. O ACK inclui `t_apply` em todos os casos; o SLO publicado como overhead + banco ([ADR-036](../03_adr/ADR-036-slo-de-50ms-exclui-a-escrita-no-banco.md)) já absorve isso.
+1. O ACK inclui `t_apply` (de um item, mais a espera da marca d'água) em todos os casos; o SLO publicado como overhead + banco ([ADR-036](../03_adr/ADR-036-slo-de-50ms-exclui-a-escrita-no-banco.md)) já absorve isso.
 2. `applied` nunca passa do gate. Isso sustenta a barreira `min(ReadIndex, gate)` da leitura (7.2, [ADR-049](../03_adr/ADR-049-barreira-da-leitura-forte-e-o-gate.md)) e a invariante I-DEL (05, 6.4.3).
 3. O applier aplica as operações da mesma chave na ordem do log (05, 6.4.1) e o `appliedIndex` só avança até o último índice **contíguo** aplicado. A degradação da Azure é tratada pelo lease (5.3.2), nunca por um apply antes do gate.
 

@@ -153,3 +153,25 @@ func TestClusterVars(t *testing.T) {
 		t.Fatalf("com learners: %v %+v", err, c.Learners)
 	}
 }
+
+// APPLY_WORKERS (ADR-058): padrão 16, de 1 a MaxApplyWorkers.
+func TestApplyWorkers(t *testing.T) {
+	c, err := LoadFrom(env(valid()))
+	if err != nil || c.ApplyWorkers != 16 {
+		t.Fatalf("padrão = %d, %v; quer 16", c.ApplyWorkers, err)
+	}
+	for v, want := range map[string]int{"1": 1, "64": 64, "256": 256} {
+		m := valid()
+		m["APPLY_WORKERS"] = v
+		if c, err := LoadFrom(env(m)); err != nil || c.ApplyWorkers != want {
+			t.Errorf("APPLY_WORKERS=%s → %d, %v", v, c.ApplyWorkers, err)
+		}
+	}
+	for _, v := range []string{"0", "-1", "257", "muitos"} {
+		m := valid()
+		m["APPLY_WORKERS"] = v
+		if _, err := LoadFrom(env(m)); err == nil || !strings.Contains(err.Error(), "APPLY_WORKERS") {
+			t.Errorf("APPLY_WORKERS=%s devia falhar, veio %v", v, err)
+		}
+	}
+}

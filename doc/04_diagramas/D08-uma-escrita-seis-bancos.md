@@ -2,7 +2,7 @@
 
 [Início](../00_COMECE_AQUI.md) · [Documento principal](../DataReplication_Versao_1.md) · [Índice de diagramas](INDEX.md)
 
-Cada célula tem o seu banco e o seu applier. O ACK depende do gate e do apply **só na célula da líder**, sempre serial e depois do gate; os outros cinco bancos são alcançados de forma assíncrona pelo log, na ordem. **Decisão mantida (ADR-054):** seis bancos compram **isolamento lógico** (corrupção ou throttling de um não atinge os outros), não seis domínios físicos de falha: o DynamoDB é regional e a durabilidade por AZ vem dos três logs Raft.
+Cada célula tem o seu banco e o seu applier. O ACK depende do gate e do apply **só na célula da líder**, sempre depois do gate e em paralelo por chave (ADR-058); os outros cinco bancos são alcançados de forma assíncrona pelo log, na ordem. **Decisão mantida (ADR-054):** seis bancos compram **isolamento lógico** (corrupção ou throttling de um não atinge os outros), não seis domínios físicos de falha: o DynamoDB é regional e a durabilidade por AZ vem dos três logs Raft.
 
 ## Fan-out da escrita
 

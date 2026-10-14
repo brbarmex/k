@@ -89,7 +89,7 @@ O adaptador `prometheus/client_golang` fica isolado em `internal/adapter/out/pro
 | `dr_commit_index` | gauge | Último índice commitado pelo Raft. |
 | `dr_gate_index` | gauge | Índice liberado pelo gate para ACK e apply. |
 | `dr_gate_ready` | gauge | `1` se o gate está pronto para leitura forte. |
-| `dr_applied_index` | gauge | Último índice aplicado no banco local. |
+| `dr_applied_index` | gauge | Marca d'água do apply: o maior índice que, com todos os anteriores, está no banco local (ADR-058). |
 | `dr_replog_last_index` | gauge | Último índice gravado no log de replicação. |
 | `dr_replog_durable_index` | gauge | Último índice durável (fsync) no log de replicação. |
 | `dr_quorum_active` | gauge | Votantes ativos recentes, incluindo a líder; só na líder. |
@@ -100,6 +100,10 @@ O adaptador `prometheus/client_golang` fica isolado em `internal/adapter/out/pro
 | `dr_applier_stopped` | gauge | `1` se o applier parou numa entrada que não conseguiu aplicar. |
 | `dr_ready` | gauge | `1` se a célula responde `/readyz` como pronta. |
 | `dr_azure_off` | gauge | `1` no modo sem Azure desta POC. |
+| `dr_apply_workers` | gauge | Workers do applier: itens gravados em paralelo, por chave (`APPLY_WORKERS`). |
+| `dr_apply_inflight` | gauge | Itens despachados ao banco e ainda não concluídos pelo applier. |
+| `dr_apply_item_duration_seconds` | histograma | Duração da gravação de um item no banco pelo applier, com as repetições. |
+| `dr_replog_sync_duration_seconds` | histograma | Duração do fsync do checkpoint do log de replicação (fora da trava do `Append`). |
 
 ## Roteiros manuais
 
@@ -120,7 +124,9 @@ O adaptador `prometheus/client_golang` fica isolado em `internal/adapter/out/pro
 - **Modo sem Azure (G-08).** Com `LEARNERS` vazia o gate é o commit do Raft e está sempre pronto: RPO 0 só entre as células AWS. A partida só aceita isso com `POC_SEM_AZURE=true`; sem a variável, `LEARNERS` vazia derruba a partida (SG-12). As regras da Azure (G-01 a G-07) são provadas por testes de unidade com learners simulados (`internal/domain/gate_rules_test.go`).
 - **Laço do Ready síncrono.** O `etcdraft` segue a RT-04 literalmente (só o `MsgApp` da líder sai antes do `wal.Save`; o resto depois do fsync). O escritor `internal/adapter/out/raftstore` do esboço foi copiado sem mudanças e não é ligado.
 - **gRPC sem `.proto`.** `api/peerv1` declara o serviço à mão com um codec JSON (N-03).
-- **Applier estacionado.** Erro permanente do banco para o applier daquela célula sem pular o item e sem derrubar o processo; o `/readyz` cai e o `/status` mostra `erroApply`. Erro transitório é repetido com backoff de 100 ms a 5 s.
+- **Apply paralelo por chave (ADR-058).** O applier grava até `APPLY_WORKERS` itens ao mesmo tempo (padrão 16). Cada item vai para o worker escolhido pelo hash de (tabela, chave), então a mesma chave é sempre gravada na ordem do log. O `aplicado` é a marca d'água: o maior índice que, com todos os anteriores, está no banco; é ele que o ACK da líder e a leitura forte esperam, e é ele que vai para o arquivo `progress`. O `/status` mostra `apply.workers` e `apply.emVoo`. `APPLY_WORKERS=1` volta ao comportamento de um item por vez, útil para comparar.
+- **Applier estacionado.** Erro permanente do banco para o applier daquela célula sem pular o item e sem derrubar o processo; o `/readyz` cai e o `/status` mostra `erroApply`. Com workers em paralelo, os itens anteriores ao venenoso terminam, o despacho para, e a marca d'água fica logo antes dele. Erro transitório é repetido com backoff de 100 ms a 5 s.
+- **Checkpoint do log de replicação sem trava (ADR-059).** O `Append` roda numa goroutine própria do `CommitPump`, com fila de 1024 lotes, e grava cada lote com uma escrita só. O fsync do checkpoint (`REPLOG_SYNC_INTERVAL`) roda fora da trava do `Append`, então nem o gate nem o ACK param durante o checkpoint. O `Append` só espera o disco na rotação de segmento (a cada 64 MiB).
 - **`x-dr-index`.** AWS CLI does not print response headers; `task write` reads the index from `--debug` output.
 - **Testes de integração.** O teste do `StateStore` contra o LocalStack só roda com `DR_IT_DYNAMODB_ENDPOINT` definida (ex.: `http://localhost:4566`).
 
@@ -136,7 +142,7 @@ As da N-01: `fasthttp`, `net/http`, `zerolog`, `viper`, `fx`, `google.golang.org
 
 1. Sem Azure, o gate de ponta a ponta com learners não é exercitado; só os testes de unidade cobrem.
 2. O modo sem Azure não pode escapar para produção (SG-12).
-3. Applier lento ou estacionado enche a fila e pode segurar o laço do Ready.
+3. Applier lento ou estacionado enche a fila e pode segurar o laço do Ready. Com o apply paralelo (ADR-058) o applier lento fica menos provável; o estacionado continua.
 4. Sem dedupe de retry: uma escrita `PENDING` repetida vira outra entrada (as tasks usam `AWS_MAX_ATTEMPTS=1`).
 5. Um único LocalStack para as três células: sem isolamento de falha entre bancos.
 6. `inspecionar` logo depois do ACK pode mostrar o item em só 1 ou 2 tabelas.

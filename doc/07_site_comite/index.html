@@ -24,7 +24,7 @@ Gerado em 14/10/2026 a partir do pacote DataReplication_Versao_1.
 <li><a class="idx" href="success-path/index.html">Índice da seção</a></li>
 <li><a href="success-path/C01-visao-geral.html"><b>C01</b> Visão geral da arquitetura</a></li>
 <li><a href="success-path/C02-dentro-da-celula.html"><b>C02</b> Dentro da célula: apps do cliente e DataReplication</a></li>
-<li><a href="success-path/C03-escrita-strong.html"><b>C03</b> Caminho feliz: escrita (apply serial depois do gate)</a></li>
+<li><a href="success-path/C03-escrita-strong.html"><b>C03</b> Caminho feliz: escrita (apply depois do gate, paralelo por chave)</a></li>
 <li><a href="success-path/C05-leitura-strong.html"><b>C05</b> Caminho feliz: leitura strong</a></li>
 <li><a href="success-path/C06-follower-encaminha.html"><b>C06</b> Requisição chega numa célula que não é a líder</a></li>
 <li><a href="success-path/C11-transferencia-planejada.html"><b>C11</b> Transferência planejada de liderança (manutenção)</a></li>
@@ -92,7 +92,7 @@ Gerado em 14/10/2026 a partir do pacote DataReplication_Versao_1.
 
 <h1>DataReplication v1</h1>
 <p class="lead">Camada intermediária entre a aplicação e o banco que só confirma a escrita depois de o dado estar
-durável na AWS (DynamoDB) e na Azure (Cosmos DB). Estado da documentação: 13/10/2026, com as decisões da revisão crítica (ADR-044 a ADR-054) o log de replicação segmentado (ADR-055) e o group commit por shard (ADR-056).</p>
+durável na AWS (DynamoDB) e na Azure (Cosmos DB). Estado da documentação: 14/10/2026, com as decisões da revisão crítica (ADR-044 a ADR-054), o log de replicação segmentado (ADR-055), o group commit por shard (ADR-056), o apply paralelo por chave (ADR-058) e o checkpoint sem trava (ADR-059).</p>
 <div class="kpis">
 <div><b>RPO = 0</b><span>em operação normal</span></div>
 <div><b>RTO = Delta-T</b><span>sem número: não decidido na fonte</span></div>

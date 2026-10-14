@@ -148,7 +148,8 @@ func TestAllSeriesRegistered(t *testing.T) {
 		"dr_read_barrier_duration_seconds", "dr_is_leader", "dr_leader_id", "dr_raft_term", "dr_commit_index",
 		"dr_gate_index", "dr_gate_ready", "dr_applied_index", "dr_replog_last_index", "dr_replog_durable_index",
 		"dr_quorum_active", "dr_quorum_voters", "dr_quorum_ok", "dr_peer_match_index", "dr_peer_lag",
-		"dr_applier_stopped", "dr_ready", "dr_azure_off",
+		"dr_applier_stopped", "dr_ready", "dr_azure_off", "dr_apply_workers", "dr_apply_inflight",
+		"dr_apply_item_duration_seconds", "dr_replog_sync_duration_seconds",
 	} {
 		if !names[n] {
 			t.Errorf("série %s não registrada", n)
@@ -156,34 +157,40 @@ func TestAllSeriesRegistered(t *testing.T) {
 	}
 }
 
-// Contrato com o dashboard: toda métrica dr_* citada no JSON do Grafana existe no registro.
+// Contrato com os dashboards: toda métrica dr_* citada em cada JSON do Grafana em
+// observability/grafana/dashboards existe no registro.
 func TestDashboardOnlyUsesExistingMetrics(t *testing.T) {
-	path := filepath.Join("..", "..", "..", "..", "observability", "grafana", "dashboards", "datareplication.json")
-	b, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("dashboard não encontrado: %v", err)
+	paths, err := filepath.Glob(filepath.Join("..", "..", "..", "..", "observability", "grafana", "dashboards", "*.json"))
+	if err != nil || len(paths) == 0 {
+		t.Fatalf("nenhum dashboard encontrado: %v", err)
 	}
 	names := registeredNames(t)
-	used := map[string]bool{}
-	for _, m := range regexp.MustCompile(`dr_[a-z_]+`).FindAllString(string(b), -1) {
-		for _, suf := range []string{"_bucket", "_sum", "_count"} {
-			if strings.HasSuffix(m, suf) && names[strings.TrimSuffix(m, suf)] {
-				m = strings.TrimSuffix(m, suf)
+	for _, path := range paths {
+		b, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		used := map[string]bool{}
+		for _, m := range regexp.MustCompile(`dr_[a-z_]+`).FindAllString(string(b), -1) {
+			for _, suf := range []string{"_bucket", "_sum", "_count"} {
+				if strings.HasSuffix(m, suf) && names[strings.TrimSuffix(m, suf)] {
+					m = strings.TrimSuffix(m, suf)
+				}
+			}
+			used[m] = true
+		}
+		var missing []string
+		for m := range used {
+			if !names[m] {
+				missing = append(missing, m)
 			}
 		}
-		used[m] = true
-	}
-	var missing []string
-	for m := range used {
-		if !names[m] {
-			missing = append(missing, m)
+		sort.Strings(missing)
+		if len(missing) > 0 {
+			t.Errorf("%s consulta séries que não existem: %v", filepath.Base(path), missing)
 		}
-	}
-	sort.Strings(missing)
-	if len(missing) > 0 {
-		t.Fatalf("o dashboard consulta séries que não existem: %v", missing)
-	}
-	if len(used) < 20 {
-		t.Fatalf("o dashboard cita só %d séries dr_*; esperado o conjunto da O-18", len(used))
+		if len(used) < 20 {
+			t.Errorf("%s cita só %d séries dr_*; esperado o conjunto da O-18", filepath.Base(path), len(used))
+		}
 	}
 }

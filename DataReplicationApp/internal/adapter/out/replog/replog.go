@@ -1,10 +1,11 @@
 // Package replog é o log de replicação (ADR-055): um log segmentado simples, por shard,
 // em volume próprio, derivado do log do Raft.
 //
-//   - Append grava SEM fsync. O log não está no caminho do ACK: a durabilidade que conta
-//     para o ACK é o fsync do log do Raft.
+//   - Append grava SEM fsync, com uma escrita por lote. O log não está no caminho do ACK:
+//     a durabilidade que conta para o ACK é o fsync do log do Raft.
 //   - Sync é o checkpoint: um fsync do segmento ativo que publica o DurableIndex. Só até
-//     ele o log do Raft pode ser compactado (domain.RaftCompactLimit).
+//     ele o log do Raft pode ser compactado (domain.RaftCompactLimit). O fsync roda FORA
+//     da trava do Append (ADR-059): o Append só espera o disco na rotação de segmento.
 //   - CompactPrefix apaga segmentos inteiros: o disco volta na hora, sem compactação.
 //   - Open trata a cauda rasgada do último segmento (trunca) e recusa corrupção no meio.
 //
@@ -56,14 +57,20 @@ type segment struct {
 }
 
 // Log é o log de replicação de UM shard. Seguro para uso concorrente.
+//
+// Duas travas (ADR-059): mu protege o estado e é a única que o Append toma; syncMu deixa
+// um checkpoint por vez e nunca é tomada por quem segura mu. Ordem: syncMu antes de mu.
 type Log struct {
 	mu       sync.Mutex
+	syncMu   sync.Mutex
 	dir      string
 	maxSeg   int64
 	segs     []*segment // ordenados; o último é o ativo
 	active   *os.File
+	retired  []*os.File // segmentos que saíram na rotação (já com fsync); o Sync fecha
 	durable  domain.Index
 	progress *os.File
+	fsync    func(*os.File) error // (*os.File).Sync; os testes trocam para simular disco lento
 }
 
 // Open abre (ou cria) o log do shard em dir. maxSegment é o tamanho para rotacionar.
@@ -71,7 +78,7 @@ func Open(dir string, maxSegment int64) (*Log, error) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return nil, err
 	}
-	l := &Log{dir: dir, maxSeg: maxSegment}
+	l := &Log{dir: dir, maxSeg: maxSegment, fsync: (*os.File).Sync}
 	names, err := filepath.Glob(filepath.Join(dir, "*.seg"))
 	if err != nil {
 		return nil, err
@@ -166,22 +173,34 @@ func readRecord(r *bufio.Reader) (domain.Entry, int64, error) {
 	return e, int64(headerLen) + int64(n), nil
 }
 
-// Append grava o lote no fim do log, sem fsync. Entradas que o log já tem são ignoradas:
+// Append grava o lote no fim do log, sem fsync e com UMA escrita por lote (ou uma por
+// trecho, quando o lote atravessa a rotação). Entradas que o log já tem são ignoradas:
 // na partida, o trecho vindo do Raft pode se sobrepor ao que sobreviveu (ADR-055, item 6).
+// Nunca espera o checkpoint, só a rotação de segmento (ADR-059).
 func (l *Log) Append(_ context.Context, batch []domain.Entry) error {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	var buf []byte
+	next := l.lastLocked() + 1 // só vale com segmento aberto
 	for _, e := range batch {
-		last := l.lastLocked()
-		if len(l.segs) > 0 && e.Index <= last {
-			continue
+		if len(l.segs) > 0 {
+			if e.Index < next {
+				continue
+			}
+			if e.Index != next {
+				if err := l.flushLocked(&buf, next-1); err != nil {
+					return err
+				}
+				return fmt.Errorf("%w: chegou %d, cabeça em %d", ErrGap, e.Index, next-1)
+			}
 		}
-		if len(l.segs) > 0 && e.Index != last+1 {
-			return fmt.Errorf("%w: chegou %d, cabeça em %d", ErrGap, e.Index, last)
-		}
-		if err := l.rotateIfNeededLocked(e.Index); err != nil {
-			return err
+		if n := len(l.segs); n == 0 || l.segs[n-1].size+int64(len(buf)) >= l.maxSeg {
+			if err := l.flushLocked(&buf, next-1); err != nil {
+				return err
+			}
+			if err := l.rotateLocked(e.Index); err != nil {
+				return err
+			}
 		}
 		payload, err := json.Marshal(e)
 		if err != nil {
@@ -190,30 +209,39 @@ func (l *Log) Append(_ context.Context, batch []domain.Entry) error {
 		var hdr [headerLen]byte
 		binary.LittleEndian.PutUint32(hdr[0:4], uint32(len(payload)))
 		binary.LittleEndian.PutUint32(hdr[4:8], crc32.Checksum(payload, castagnoli))
-		buf = append(append(buf[:0], hdr[:]...), payload...)
-		if _, err := l.active.Write(buf); err != nil {
-			return err // o chamador trata como fatal (ADR-055, item 10)
-		}
-		seg := l.segs[len(l.segs)-1]
-		seg.last = e.Index
-		seg.size += int64(len(buf))
+		buf = append(append(buf, hdr[:]...), payload...)
+		next = e.Index + 1
 	}
+	return l.flushLocked(&buf, next-1)
+}
+
+// flushLocked grava de uma vez o que foi montado para o segmento ativo; last é o índice
+// da última entrada em buf.
+func (l *Log) flushLocked(buf *[]byte, last domain.Index) error {
+	if len(*buf) == 0 {
+		return nil
+	}
+	if _, err := l.active.Write(*buf); err != nil {
+		return err // o chamador trata como fatal (ADR-055, item 10)
+	}
+	seg := l.segs[len(l.segs)-1]
+	seg.last = last
+	seg.size += int64(len(*buf))
+	*buf = (*buf)[:0]
 	return nil
 }
 
-// rotateIfNeededLocked abre um segmento novo quando não há nenhum ou o ativo encheu.
-// O segmento que sai é sincronizado: só o ativo pode ter dados sem fsync.
-func (l *Log) rotateIfNeededLocked(next domain.Index) error {
-	if n := len(l.segs); n > 0 && l.segs[n-1].size < l.maxSeg {
-		return nil
-	}
+// rotateLocked abre um segmento novo começando em next. O segmento que sai é sincronizado
+// aqui (só o ativo pode ter dados sem fsync) e vai para retired em vez de ser fechado: um
+// Sync pode estar fazendo fsync nele agora, fora da trava, e é o Sync que o fecha (ADR-059).
+func (l *Log) rotateLocked(next domain.Index) error {
 	if l.active != nil {
-		if err := l.active.Sync(); err != nil {
+		if err := l.fsync(l.active); err != nil {
 			return err
 		}
-		if err := l.active.Close(); err != nil {
-			return err
-		}
+		l.retired = append(l.retired, l.active)
+		l.active = nil
+		l.durable = max(l.durable, l.lastLocked())
 	}
 	path := filepath.Join(l.dir, fmt.Sprintf("%020d.seg", uint64(next)))
 	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0o644)
@@ -225,17 +253,37 @@ func (l *Log) rotateIfNeededLocked(next domain.Index) error {
 	return syncDir(l.dir) // o nome do arquivo novo também precisa ser durável
 }
 
-// Sync é o checkpoint durável. Chamado a cada SYNC_INTERVAL, fora do caminho do ACK.
+// Sync é o checkpoint durável, chamado a cada REPLOG_SYNC_INTERVAL, fora do caminho do
+// ACK. Sob a trava só se lê qual arquivo sincronizar e até que índice ele vai; o fsync
+// roda sem a trava, e o Append continua gravando no cache de páginas enquanto o disco
+// trabalha (ADR-059). Tudo até o índice lido está nesse arquivo ou em segmentos que já
+// tiveram fsync na rotação, então o DurableIndex nunca passa do que está no disco.
 func (l *Log) Sync(context.Context) (domain.Index, error) {
+	l.syncMu.Lock()
+	defer l.syncMu.Unlock()
+	return l.syncLocked()
+}
+
+// syncLocked exige syncMu.
+func (l *Log) syncLocked() (domain.Index, error) {
 	l.mu.Lock()
-	defer l.mu.Unlock()
-	if l.active != nil {
-		if err := l.active.Sync(); err != nil {
-			return l.durable, err // fatal para o processo: não se repete fsync
+	f, upTo := l.active, l.lastLocked()
+	l.mu.Unlock()
+	if f != nil {
+		if err := l.fsync(f); err != nil {
+			return l.DurableIndex(), err // fatal para o processo: não se repete fsync
 		}
 	}
-	l.durable = l.lastLocked()
-	return l.durable, nil
+	l.mu.Lock()
+	l.durable = max(l.durable, upTo)
+	d, retired := l.durable, l.retired
+	l.retired = nil
+	l.mu.Unlock()
+	var err error
+	for _, r := range retired {
+		err = errors.Join(err, r.Close())
+	}
+	return d, err
 }
 
 // DurableIndex é o maior índice coberto pelo último Sync.
@@ -262,7 +310,10 @@ func (l *Log) lastLocked() domain.Index {
 // Read devolve as entradas de from a to, inclusive: catch-up da Azure, replay, drctl.
 func (l *Log) Read(_ context.Context, from, to domain.Index) ([]domain.Entry, error) {
 	l.mu.Lock()
-	segs := append([]*segment(nil), l.segs...)
+	segs := make([]segment, len(l.segs)) // cópia: o Append muda last e size do ativo
+	for i, s := range l.segs {
+		segs[i] = *s
+	}
 	l.mu.Unlock()
 	var out []domain.Entry
 	for _, s := range segs {
@@ -317,8 +368,9 @@ func (l *Log) TruncateSuffix(context.Context, domain.Index) error {
 	return errors.New("replog: o log de replicação só tem entradas commitadas")
 }
 
-// SaveProgress grava o progresso do applier por item (ADR-048), sem fsync. Perdido numa
-// queda de host, o replay só fica mais longo.
+// SaveProgress grava o progresso do applier, sem fsync: a marca d'água (índice, ordem)
+// até a qual tudo está no banco (ADR-048, ADR-058). Perdido numa queda de host, o replay
+// só fica mais longo.
 func (l *Log) SaveProgress(idx domain.Index, ord uint32) error {
 	var b [progressLen]byte
 	binary.LittleEndian.PutUint64(b[0:8], uint64(idx))
@@ -346,11 +398,14 @@ func (l *Log) LoadProgress() (domain.Index, uint32, error) {
 
 // Close sincroniza e fecha.
 func (l *Log) Close() error {
-	_, err := l.Sync(context.Background())
+	l.syncMu.Lock()
+	defer l.syncMu.Unlock()
+	_, err := l.syncLocked()
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	if l.active != nil {
 		err = errors.Join(err, l.active.Close())
+		l.active = nil
 	}
 	return errors.Join(err, l.progress.Close())
 }

@@ -13,39 +13,55 @@ import (
 // processo: sem eventos o gate nunca mais avança.
 var ErrStreamClosed = errors.New("canal do consenso fechado")
 
-// CommitPump liga o Raft ao resto, em DUAS goroutines independentes:
+// CommitPump liga o Raft ao resto, em TRÊS goroutines independentes:
 //
 //  1. progresso: cada resposta de learner da Azure (evento) alimenta o gate no momento
 //     em que chega, com termo e identidade (ADR-046), e registra o contato (t_c) que sustenta
 //     o lease do modo degradado (ADR-044). Não depende de haver commit novo,
 //     nem de o disco do log de replicação ou o applier estarem lentos;
 //  2. commits: cada lote commitado vai (a) para o gate (commit Raft), (b) para o Applier,
-//     da memória, e (c) para o log de replicação.
+//     da memória, e (c) para a fila do log de replicação;
+//  3. log de replicação: grava os lotes da fila, em ordem, sem fsync (ADR-055).
 //
-// Ponto de atenção: Log.Append continua SÍNCRONO dentro da goroutine de commits (gravação
-// sem fsync no log de replicação, ADR-055). Ele atrasa a entrega do próximo lote ao Applier, mas não atrasa o
-// gate, que tem goroutine própria. Na versão final o Append roda numa goroutine com
-// fila limitada (backpressure), e o Applier espera o gate, não o Append.
+// O Append fica fora da goroutine de commits (ADR-059): um disco lento ou um checkpoint
+// em andamento não atrasa o avanço do gate nem a entrega ao Applier. A fila é limitada
+// (LogQueue lotes): cheia, a goroutine de commits espera, o que é a contrapressão para um
+// disco que não acompanha. Erro de escrita no log de replicação continua fatal.
 type CommitPump struct {
 	Consensus port.ConsensusEngine
 	Log       port.ReplicationLog
 	Gate      *domain.Gate
 	Lease     *domain.Lease // opcional: recebe t_c (último contato com a maioria Azure)
 	ToApplier chan<- []domain.Entry
+	LogQueue  int // lotes à espera do Append; 0 = defaultLogQueue
 }
+
+// defaultLogQueue é a fila de lotes entre a goroutine de commits e a do Append.
+const defaultLogQueue = 1024
 
 func (p *CommitPump) Run(ctx context.Context) error {
 	ctx, cancel := context.WithCancelCause(ctx)
 	defer cancel(nil)
+	n := p.LogQueue
+	if n <= 0 {
+		n = defaultLogQueue
+	}
+	toLog := make(chan []domain.Entry, n)
 	var wg sync.WaitGroup
-	wg.Add(1)
+	wg.Add(2)
 	go func() {
 		defer wg.Done()
 		if err := p.runProgress(ctx); err != nil {
 			cancel(err)
 		}
 	}()
-	err := p.runCommits(ctx)
+	go func() {
+		defer wg.Done()
+		if err := p.runAppend(ctx, toLog); err != nil {
+			cancel(err)
+		}
+	}()
+	err := p.runCommits(ctx, toLog)
 	cancel(err)
 	wg.Wait()
 	if cause := context.Cause(ctx); cause != nil && !errors.Is(cause, context.Canceled) {
@@ -77,7 +93,7 @@ func (p *CommitPump) runProgress(ctx context.Context) error {
 	}
 }
 
-func (p *CommitPump) runCommits(ctx context.Context) error {
+func (p *CommitPump) runCommits(ctx context.Context, toLog chan<- []domain.Entry) error {
 	committed := p.Consensus.Committed()
 	for {
 		select {
@@ -97,7 +113,23 @@ func (p *CommitPump) runCommits(ctx context.Context) error {
 			case <-ctx.Done():
 				return ctx.Err()
 			}
-			if err := p.Log.Append(ctx, b.Entries); err != nil {
+			select {
+			case toLog <- b.Entries: // o Append roda na própria goroutine (ADR-059)
+			case <-ctx.Done():
+				return ctx.Err()
+			}
+		}
+	}
+}
+
+// runAppend grava no log de replicação os lotes da fila, na ordem do commit.
+func (p *CommitPump) runAppend(ctx context.Context, toLog <-chan []domain.Entry) error {
+	for {
+		select {
+		case <-ctx.Done():
+			return nil
+		case b := <-toLog:
+			if err := p.Log.Append(ctx, b); err != nil {
 				return err // erro de escrita no log de replicação é fatal (ADR-055)
 			}
 		}

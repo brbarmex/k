@@ -11,8 +11,8 @@
     {
       "titulo": "Requisito de que applied nunca passe do gate",
       "origem": "Falhas e tratativas",
-      "contexto": "A barreira `min(ReadIndex, gate)` só é correta se o `applied` de uma célula nunca ultrapassar o gate; se ultrapassasse, uma leitura forte poderia ver dado ainda não durável na Azure. O modo único strong garante isso com o apply sempre serial depois do gate. Uma regressão futura que reintroduza apply antecipado quebraria a garantia de leitura sem sinal visível.",
-      "na_fonte": "A fonte decide pelo ADR-057 (modo único strong, apply serial depois do gate) e cobre a propriedade no TLA+ (P17 do X01).",
+      "contexto": "A barreira `min(ReadIndex, gate)` só é correta se o `applied` de uma célula nunca ultrapassar o gate; se ultrapassasse, uma leitura forte poderia ver dado ainda não durável na Azure. O modo único strong garante isso com o apply sempre depois do gate: o despachante só entrega uma entrada aos workers quando o gate já passou dela (ADR-058). Uma regressão futura que reintroduza apply antecipado quebraria a garantia de leitura sem sinal visível.",
+      "na_fonte": "A fonte decide pelo ADR-057 (modo único strong, apply depois do gate; ADR-058 para o paralelo por chave) e cobre a propriedade no TLA+ (P17 do X01).",
       "sugestao": "Além do TLA+, incluir uma asserção em tempo de execução que falha alto se `last_applied > last_azure_durable` na célula, com métrica e alerta. Isso protege contra regressões no código, que o modelo não cobre."
     },
     {

@@ -80,7 +80,7 @@ func TestStoreAgainstLocalStack(t *testing.T) {
 	defer cancel()
 	cell := fmt.Sprintf("it%d", time.Now().UnixNano())
 	tm, _ := domain.NewTableMap(cell, []string{"dr_teste_{cell}"})
-	s, err := New(ctx, endpoint, "sa-east-1", tm)
+	s, err := New(ctx, endpoint, "sa-east-1", tm, 4)
 	if err != nil {
 		t.Fatal(err)
 	}

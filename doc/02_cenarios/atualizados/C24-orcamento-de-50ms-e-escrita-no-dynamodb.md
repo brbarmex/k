@@ -18,13 +18,13 @@ flowchart TD
     A --> C["Replicação e durabilidade na Azure: t_azure"]
     B --> D["Gate = max de t_raft e t_azure"]
     C --> D
-    D --> F["Apply serial no DynamoDB depois do gate: t_apply"]
+    D --> F["Apply no DynamoDB depois do gate, paralelo por chave: t_apply"]
     F --> H["ACK"]
 ```
 
 ## Etapas
 
-1. **Fórmula única:** `t_ack = t_parse + max(t_raft, t_azure) + t_apply + t_resp`. O apply é sempre serial e depois do gate, no modo único strong ([ADR-057](../../03_adr/ADR-057-um-unico-modo-strong-consistency.md)). Se `t_apply` estourar o orçamento no spike S5, o ajuste é no banco ou no orçamento, não na garantia.
+1. **Fórmula única:** `t_ack = t_parse + max(t_raft, t_azure) + t_apply + t_resp`. O apply é sempre depois do gate, no modo único strong ([ADR-057](../../03_adr/ADR-057-um-unico-modo-strong-consistency.md)), e em paralelo por chave ([ADR-058](../../03_adr/ADR-058-apply-paralelo-por-chave-com-marca-dagua.md)): o `t_apply` do ACK é o de **um** item mais a espera da marca d'água, não a fila inteira do shard. Se `t_apply` estourar o orçamento no spike S5, o ajuste é no banco ou no orçamento, não na garantia.
 2. **Overhead medido** = `t_ack − t_apply`.
 3. **Contrato com o cliente:** a latência que ele vê é `overhead + escrita no banco`; o P99 do DynamoDB faz parte dela. O SLO é medido **ponta a ponta**, sobre a operação completa (latência, taxa de erro e recuperação), e não pela soma de percentis de etapas.
 4. As quatro parcelas são métricas separadas (`t_parse`, `t_raft`, `t_azure`, `t_apply`).

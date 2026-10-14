@@ -36,6 +36,10 @@ type Config struct {
 	GatePublishInterval time.Duration // GATE_PUBLISH_INTERVAL: padrão 100ms (G-06)
 	ReplogSyncInterval  time.Duration // REPLOG_SYNC_INTERVAL: padrão 1s (AP-10)
 
+	// ApplyWorkers (APPLY_WORKERS) é quantos itens o applier grava em paralelo no banco da
+	// célula, com a ordem garantida por chave (ADR-058). Padrão 16; 1 = um item por vez.
+	ApplyWorkers int
+
 	// Modo degradado (ADR-044 e ADR-045). DEGRADED_POLICY é OBRIGATÓRIA e sem valor
 	// padrão. DEGRADED_LEASE (D) também não tem padrão e é obrigatória só com
 	// DEGRADED_POLICY=accept; com reject é ignorada, sem erro (nunca há lease). O valor de
@@ -54,6 +58,9 @@ type Config struct {
 
 // RemovedModeVars são as variáveis do antigo modo Eventual (ADR-057).
 var RemovedModeVars = []string{"READ_MODE_DEFAULT", "WRITE_MODE", "MAX_STALENESS"}
+
+// MaxApplyWorkers limita APPLY_WORKERS: cada worker é uma conexão ao banco (ADR-058).
+const MaxApplyWorkers = 256
 
 // MinIdleTimeout é o maior idle de SDK conhecido (Go, 90 s). O servidor precisa ficar
 // acima, senão o SDK reusa uma conexão que o servidor já fechou.
@@ -109,6 +116,15 @@ func LoadFrom(getenv func(string) string) (Config, error) {
 	c.TableWait = dur("TABLE_WAIT", 120*time.Second, false)
 	c.GatePublishInterval = dur("GATE_PUBLISH_INTERVAL", 100*time.Millisecond, false)
 	c.ReplogSyncInterval = dur("REPLOG_SYNC_INTERVAL", time.Second, false)
+
+	c.ApplyWorkers = 16
+	if s := getenv("APPLY_WORKERS"); s != "" {
+		if n, err := strconv.Atoi(s); err != nil || n < 1 || n > MaxApplyWorkers {
+			errs = append(errs, fmt.Errorf("APPLY_WORKERS inválida %q: inteiro de 1 a %d", s, MaxApplyWorkers))
+		} else {
+			c.ApplyWorkers = n
+		}
+	}
 
 	if s := getenv("NODE_ID"); s == "" {
 		errs = append(errs, errors.New("variável obrigatória ausente: NODE_ID"))

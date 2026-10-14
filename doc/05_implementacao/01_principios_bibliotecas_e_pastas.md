@@ -60,7 +60,7 @@ datareplication/
 │   │   ├── read.go                    # leitura forte (barreira min(ReadIndex, gate), ADR-049) só na tabela base; Query em GSI recusada (ADR-050)
 │   │   ├── replicate.go               # CommitPump: progresso dos learners -> gate (por evento); commit do Raft -> gate, applier e log de replicação
 │   │   ├── checkpoint.go              # fsync do log de replicação, compacta o Raft (RaftCompactLimit) e trunca o log (ReplogTruncateLimit) (ADR-055)
-│   │   ├── apply.go                   # aplicar no banco, serial depois do gate, ordem por chave, checkpoint por item (índice, ordem), SKIP por item (ADR-048)
+│   │   ├── apply.go                   # aplicar no banco depois do gate, paralelo por chave com ordem por chave, marca d'água (ADR-058), SKIP por item (ADR-048)
 │   │   ├── degrade.go                 # DegradeService: política, DEGRADE/RESTORE/RENEW e lease (ADR-044, ADR-045)
 │   │   ├── leadership.go              # transferência planejada (ADR-013)
 │   │   └── recovery.go                # partida: completar o log, reabrir leitura

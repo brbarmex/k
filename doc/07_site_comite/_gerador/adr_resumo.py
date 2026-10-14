@@ -52,4 +52,6 @@ RESUMO = {
     "055": "Log de replicação segmentado, derivado do Raft, sem fsync no caminho do ACK e em volume separado.",
     "056": "Group commit por shard sem espera fixa; nada (ACK, voto, MsgAppResp) sai antes do fsync; AsyncStorageWrites decidido pelo spike S1b.",
     "057": "Um único modo, strong consistency, na escrita, na replicação e no Raft; leitura sempre forte; sem variável de modo.",
+    "058": "Apply paralelo por chave depois do gate: APPLY_WORKERS workers por shard, a mesma chave na ordem do log; applied = marca d'água contígua.",
+    "059": "Fsync do checkpoint do log de replicação fora da trava do Append; Append em goroutine própria com fila limitada; o checkpoint não atrasa o gate.",
 }

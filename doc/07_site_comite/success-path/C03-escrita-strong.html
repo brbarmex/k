@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>C03 — Caminho feliz: escrita (apply serial depois do gate) · DataReplication v1</title>
+<title>C03 — Caminho feliz: escrita (apply depois do gate, paralelo por chave) · DataReplication v1</title>
 <link rel="stylesheet" href="../assets/site.css">
 </head>
 <body>
@@ -25,7 +25,7 @@ Gerado em 14/10/2026 a partir do pacote DataReplication_Versao_1.
 <li><a class="idx" href="index.html">Índice da seção</a></li>
 <li><a href="C01-visao-geral.html"><b>C01</b> Visão geral da arquitetura</a></li>
 <li><a href="C02-dentro-da-celula.html"><b>C02</b> Dentro da célula: apps do cliente e DataReplication</a></li>
-<li><a class="atual" aria-current="page" href="C03-escrita-strong.html"><b>C03</b> Caminho feliz: escrita (apply serial depois do gate)</a></li>
+<li><a class="atual" aria-current="page" href="C03-escrita-strong.html"><b>C03</b> Caminho feliz: escrita (apply depois do gate, paralelo por chave)</a></li>
 <li><a href="C05-leitura-strong.html"><b>C05</b> Caminho feliz: leitura strong</a></li>
 <li><a href="C06-follower-encaminha.html"><b>C06</b> Requisição chega numa célula que não é a líder</a></li>
 <li><a href="C11-transferencia-planejada.html"><b>C11</b> Transferência planejada de liderança (manutenção)</a></li>
@@ -90,10 +90,10 @@ Gerado em 14/10/2026 a partir do pacote DataReplication_Versao_1.
 </nav>
 <main>
 <div class="migalhas"><a href="../index.html">Início</a> / <a href="index.html">Success path</a> / C03</div>
-<h1>C03 — Caminho feliz: escrita (apply serial depois do gate)</h1>
+<h1>C03 — Caminho feliz: escrita (apply depois do gate, paralelo por chave)</h1>
 <div class="meta"><span class="selo success-path">Success path</span><div><b>Status na fonte:</b> ✅ Atualizado (modelo v1, revisão crítica de 13/10/2026)</div><div><b>Relacionados:</b> <a href="../../01_arquitetura/06_leitura_forte_escrita_serial_e_latencia.md">Orçamento de latência</a>, <a href="C03-escrita-strong.html">C03</a>, <a href="C05-leitura-strong.html">C05</a></div></div>
 <section id="visao-geral"><h2>1. Visão geral do cenário</h2>
-<p>Regime normal, AWS e Azure se alcançando. A app faz um <code>PutItem</code>. O <code>DataReplication</code> valida, deduplica e propõe a entrada ao Raft. A entrada é gravada com fsync no log do Raft, replicada para 2 de 3 votantes AWS e para 2 de 3 learners Azure. Quando o gate alcança o índice, o applier grava no banco da célula e o ACK sai. <strong>O apply é sempre serial e depois do gate</strong>, em todas as instalações (modo único, <a href="../../03_adr/ADR-057-um-unico-modo-strong-consistency.md">ADR-057</a>), então o <code>applied</code> nunca passa do gate. RPO = 0. O apply nas outras células é assíncrono.</p>
+<p>Regime normal, AWS e Azure se alcançando. A app faz um <code>PutItem</code>. O <code>DataReplication</code> valida, deduplica e propõe a entrada ao Raft. A entrada é gravada com fsync no log do Raft, replicada para 2 de 3 votantes AWS e para 2 de 3 learners Azure. Quando o gate alcança o índice, o applier grava no banco da célula e o ACK sai. <strong>O apply é sempre depois do gate</strong>, em paralelo por chave e com o <code>applied</code> como marca d'água contígua (<a href="../../03_adr/ADR-058-apply-paralelo-por-chave-com-marca-dagua.md">ADR-058</a>), em todas as instalações (modo único, <a href="../../03_adr/ADR-057-um-unico-modo-strong-consistency.md">ADR-057</a>), então o <code>applied</code> nunca passa do gate. RPO = 0. O apply nas outras células é assíncrono.</p>
 </section>
 <section id="diagrama"><h2>2. Diagrama</h2>
 <div class="diagrama"><pre class="mermaid">sequenceDiagram
@@ -119,7 +119,7 @@ Gerado em 14/10/2026 a partir do pacote DataReplication_Versao_1.
     DR-&gt;&gt;G: commit Raft
     G--&gt;&gt;DR: gate alcançou o índice N
     DR-&gt;&gt;DR: entrega N ao applier pela memória e ao log de replicação em lote
-    DR-&gt;&gt;AP: aplicar N, em série e só depois do gate
+    DR-&gt;&gt;AP: aplicar N só depois do gate (paralelo por chave)
     AP-&gt;&gt;DB: escrita condicional, versão menor que N
     DB--&gt;&gt;AP: ok
     DR--&gt;&gt;App: 200 no formato DynamoDB</pre></div>
@@ -159,7 +159,7 @@ Gerado em 14/10/2026 a partir do pacote DataReplication_Versao_1.
 <li><strong>Durabilidade Azure:</strong> em paralelo, os learners gravam com fsync; 2 de 3 confirmam. O progresso da Azure só chega pelas respostas do <code>AppendEntries</code>, com termo, índice e identidade do learner (<a href="../../03_adr/ADR-046-gate-so-conta-progresso-validado-pelo-raft.md">ADR-046</a>).</li>
 <li><strong>Gate:</strong> <code>gateIndex = min(commit Raft, maioria Azure durável no termo atual)</code> alcança N. O gate é alimentado <strong>por evento</strong> (cada resposta de learner), não só quando chega um lote commitado.</li>
 <li><strong>Distribuição:</strong> o <code>CommitPump</code> entrega N ao applier pela memória e ao log de replicação em lote (fora do caminho do ACK).</li>
-<li><strong>Apply:</strong> o applier grava no banco da célula <strong>só depois do gate</strong>, em série, com escrita condicional <code>v &lt; N</code>. A barreira entre gate e apply é a razão de a leitura forte poder usar <code>min(ReadIndex, gate)</code> (<a href="C05-leitura-strong.html">C05</a>).</li>
+<li><strong>Apply:</strong> o applier grava no banco da célula <strong>só depois do gate</strong>, em paralelo por chave (a mesma chave na ordem do log), com escrita condicional <code>v &lt; N</code>; o ACK espera a marca d'água alcançar N. A barreira entre gate e apply é a razão de a leitura forte poder usar <code>min(ReadIndex, gate)</code> (<a href="C05-leitura-strong.html">C05</a>).</li>
 <li><strong>ACK:</strong> o <code>DataReplication</code> responde ao SDK. As demais células aplicam N de forma assíncrona.</li>
 </ol></div>
 </section>
@@ -170,13 +170,13 @@ Gerado em 14/10/2026 a partir do pacote DataReplication_Versao_1.
 <dl>
 <dt>Contexto</dt><dd>Depois do commit e do gate, o applier pode receber throttling ou erro 5xx do banco. Como o ACK só sai depois do apply na célula da líder, a escrita fica sem resposta positiva embora já esteja durável. O RPO não é afetado, mas a latência sobe e o cliente pode receber resultado desconhecido.</dd>
 <dt>O que a fonte define</dt><dd class="">A escrita não se perde: a resposta é <code>503 PENDING</code> (retentável) e o applier repete com backoff; o retry do SDK é absorvido pelo dedupe e pela versão (<a href="../../03_adr/ADR-026-dedupe-de-retry-id-estavel.md">ADR-026</a>).</dd>
-<dt class="sug">Sugestão de encaminhamento <small>(inferência, não decidida)</small></dt><dd class="sug">Testar com injeção de throttling no DynamoDB da líder e medir quantas escritas viram <code>503 PENDING</code> e o tempo até o applier drenar. Alertar sobre o atraso <code>last_committed</code> menos <code>last_applied</code> na líder com limiar a definir, pois um throttling longo trava todo o shard já que o apply é serial.</dd>
+<dt class="sug">Sugestão de encaminhamento <small>(inferência, não decidida)</small></dt><dd class="sug">Testar com injeção de throttling no DynamoDB da líder e medir quantas escritas viram <code>503 PENDING</code> e o tempo até o applier drenar. Alertar sobre o atraso <code>last_committed</code> menos <code>last_applied</code> na líder com limiar a definir, pois um throttling longo segura a marca d'água do applier e, com ela, o ACK de todo o shard (<a href="../../03_adr/ADR-058-apply-paralelo-por-chave-com-marca-dagua.md">ADR-058</a>).</dd>
 </dl>
 </article>
 <article class="ponto">
 <h3><span class="num">2</span>Apply falha de forma permanente <span class="origem">Falhas e tratativas</span></h3>
 <dl>
-<dt>Contexto</dt><dd>Se o banco recusa sempre um item já commitado, o apply serial para nesse ponto e todas as escritas seguintes do shard ficam presas. Todas as células tropeçam na mesma entrada, então o problema afeta disponibilidade do shard inteiro, não só de uma chave.</dd>
+<dt>Contexto</dt><dd>Se o banco recusa sempre um item já commitado, o applier para nesse ponto (a marca d'água não passa dele) e todas as escritas seguintes do shard ficam presas. Todas as células tropeçam na mesma entrada, então o problema afeta disponibilidade do shard inteiro, não só de uma chave.</dd>
 <dt>O que a fonte define</dt><dd class="">Remete a <a href="../fail-path/C26-entrada-venenosa.html">C26</a> (entrada venenosa); o desvio da entrada é sempre decisão humana (<a href="../../03_adr/ADR-038-skip-de-entrada-venenosa-sempre-humano.md">ADR-038</a>) com skip por item (<a href="../../03_adr/ADR-048-skip-por-item.md">ADR-048</a>).</dd>
 <dt class="sug">Sugestão de encaminhamento <small>(inferência, não decidida)</small></dt><dd class="sug">Ver <a href="../fail-path/C26-entrada-venenosa.html">C26</a> e priorizar validação antes do commit (tamanho, tipos, nomes de atributo) para que o caso permanente seja raro. Definir o alerta e o tempo de resposta esperado do humano, já que o shard fica parado até a decisão.</dd>
 </dl>
@@ -201,7 +201,7 @@ Gerado em 14/10/2026 a partir do pacote DataReplication_Versao_1.
 <h3><span class="num">5</span>P99 do DynamoDB no caminho do ACK <span class="origem">Pontos em aberto</span></h3>
 <dl>
 <dt>Contexto</dt><dd>O ACK espera o apply no banco da célula líder, então a cauda de latência do DynamoDB, incluindo throttling por partição quente, aparece inteira no tempo que o cliente vê. A meta de overhead de 50 ms exclui a escrita no banco, mas o cliente sente <code>overhead + escrita no banco</code>.</dd>
-<dt>O que a fonte define</dt><dd class="">Tratado em <a href="../fail-path/C24-orcamento-de-50ms-e-escrita-no-dynamodb.html">C24</a> e <a href="../../03_adr/ADR-036-slo-de-50ms-exclui-a-escrita-no-banco.md">ADR-036</a> (SLO de 50 ms exclui a escrita no banco). O apply é sempre serial e depois do gate (modo único strong, <a href="../../03_adr/ADR-057-um-unico-modo-strong-consistency.md">ADR-057</a>); não existe apply paralelo para reavaliar.</dd>
+<dt>O que a fonte define</dt><dd class="">Tratado em <a href="../fail-path/C24-orcamento-de-50ms-e-escrita-no-dynamodb.html">C24</a> e <a href="../../03_adr/ADR-036-slo-de-50ms-exclui-a-escrita-no-banco.md">ADR-036</a> (SLO de 50 ms exclui a escrita no banco). O apply é sempre depois do gate (modo único strong, <a href="../../03_adr/ADR-057-um-unico-modo-strong-consistency.md">ADR-057</a>) e paralelo por chave, com a marca d'água contígua como <code>applied</code> (<a href="../../03_adr/ADR-058-apply-paralelo-por-chave-com-marca-dagua.md">ADR-058</a>); o paralelismo reduz a fila, mas não a latência de um item.</dd>
 <dt class="sug">Sugestão de encaminhamento <small>(inferência, não decidida)</small></dt><dd class="sug">Definir antes do spike S5 o critério de aceite de <code>t_apply</code> (por exemplo, a fração do P99 ponta a ponta explicada por ele, limiar a definir) e, se estourar, ajustar o banco (capacidade, chave de partição) ou o orçamento, não o modo. Medir com escrita condicional e itens de tamanho real.</dd>
 </dl>
 </article>
@@ -220,6 +220,7 @@ Gerado em 14/10/2026 a partir do pacote DataReplication_Versao_1.
 <tr><td class="nw"><a href="../../03_adr/ADR-017-azure-learners-e-gate.md">ADR-017</a></td><td>Azure como learners, com gate</td><td>Azure como learners; gateIndex = min(commit Raft, índice durável em 2 de 3 learners) controla ACK e applier.</td><td><a href="../../03_adr/ADR-017-azure-learners-e-gate.md">ADR-017-azure-learners-e-gate.md</a></td></tr>
 <tr><td class="nw"><a href="../../03_adr/ADR-018-dois-logs-raft-e-replicacao.md">ADR-018</a></td><td>Dois logs separados: o do Raft e o de replicação</td><td>Dois logs: o do Raft (curto, fsync antes do ACK) e o de replicação (longo, após o commit); revisado pelo <a href="../../03_adr/ADR-055-log-de-replicacao-segmentado-derivado-do-raft.md">ADR-055</a>.</td><td><a href="../../03_adr/ADR-018-dois-logs-raft-e-replicacao.md">ADR-018-dois-logs-raft-e-replicacao.md</a></td></tr>
 <tr><td class="nw"><a href="../../03_adr/ADR-057-um-unico-modo-strong-consistency.md">ADR-057</a></td><td>Um único modo: strong consistency</td><td>Um único modo, strong consistency, na escrita, na replicação e no Raft; leitura sempre forte; sem variável de modo.</td><td><a href="../../03_adr/ADR-057-um-unico-modo-strong-consistency.md">ADR-057-um-unico-modo-strong-consistency.md</a></td></tr>
+<tr><td class="nw"><a href="../../03_adr/ADR-058-apply-paralelo-por-chave-com-marca-dagua.md">ADR-058</a></td><td>Apply paralelo por chave, com a marca d'água contígua como <code>applied</code></td><td>Apply paralelo por chave depois do gate: APPLY_WORKERS workers por shard, a mesma chave na ordem do log; applied = marca d'água contígua.</td><td><a href="../../03_adr/ADR-058-apply-paralelo-por-chave-com-marca-dagua.md">ADR-058-apply-paralelo-por-chave-com-marca-dagua.md</a></td></tr>
 <tr><td class="nw"><a href="../../03_adr/ADR-029-gate-monotonico-na-troca-de-lider.md">ADR-029</a></td><td>O gate nunca recua; líder nova reconstrói antes de ACKar</td><td>O gate nunca recua: a líder nova reconstrói o gate com os learners antes de ACKar.</td><td><a href="../../03_adr/ADR-029-gate-monotonico-na-troca-de-lider.md">ADR-029-gate-monotonico-na-troca-de-lider.md</a></td></tr>
 <tr><td class="nw"><a href="../../03_adr/ADR-046-gate-so-conta-progresso-validado-pelo-raft.md">ADR-046</a></td><td>O gate só conta progresso validado pelo Raft no termo atual</td><td>O gate só conta progresso da Azure confirmado pelo AppendEntries no termo atual.</td><td><a href="../../03_adr/ADR-046-gate-so-conta-progresso-validado-pelo-raft.md">ADR-046-gate-so-conta-progresso-validado-pelo-raft.md</a></td></tr>
 </tbody></table></div>

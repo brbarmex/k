@@ -9,7 +9,7 @@ O `BatchWriteItem` carrega até 25 itens. Se cada item virasse uma entrada, uma 
 ## Decisão
 
 1. O lote vira **uma única entrada** do log: um índice, um ACK, itens em ordem. A versão de todos os itens do lote é esse índice.
-2. O applier grava com **`PutItem` e `DeleteItem` condicionais por item**, em paralelo limitado a 25 por entrada. Item já aplicado devolve `ConditionalCheckFailed` e conta como "já aplicado".
+2. O applier grava com **`PutItem` e `DeleteItem` condicionais por item**, em paralelo pelos workers do applier, um por chave ([ADR-058](ADR-058-apply-paralelo-por-chave-com-marca-dagua.md)). Item já aplicado devolve `ConditionalCheckFailed` e conta como "já aplicado".
 3. O ACK do lote só sai com **todos** os itens aplicados na célula da líder. O dedupe é pelo identificador da requisição inteira ([ADR-026](ADR-026-dedupe-de-retry-id-estavel.md)).
 4. No Cosmos, o Cloud-Adapter também aplica por item.
 

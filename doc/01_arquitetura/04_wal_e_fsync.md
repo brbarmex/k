@@ -167,12 +167,12 @@ No Raft comum, o snapshot é uma cópia da máquina de estados. Aqui o estado vi
 **Formato** (pacote `internal/adapter/out/replog` no [código de exemplo](../05_implementacao/codigo_exemplo/README.md))
 - Um diretório por shard; segmentos de tamanho fixo (proposta 64 MiB), nome = primeiro índice com zeros à esquerda.
 - Registro: `len u32 | crc32c u32 | payload`. O payload leva índice, termo, tipo, post-image, versão, nome lógico e os itens com ordem.
-- Registro `progress` com CRC no mesmo diretório: `(índice, ordem)` do applier (ADR-048).
+- Registro `progress` com CRC no mesmo diretório: `(índice, ordem)` da marca d'água do applier (ADR-048, ADR-058).
 
 **Escrita e checkpoint**
-1. `Append` anexa sem fsync. Índice já presente é ignorado (sobreposição com o Raft na partida); buraco é erro.
-2. `Sync` (chamado pelo `Checkpointer` a cada `REPLOG_SYNC_INTERVAL`, proposta 100 ms ou 8 MiB) faz fsync do segmento ativo e publica o **`DurableIndex`**.
-3. Ao rotacionar, o segmento que sai recebe fsync e o diretório também. Só o segmento ativo pode ter dados sem fsync.
+1. `Append` anexa sem fsync, com uma escrita por lote, numa goroutine própria do `CommitPump` ligada por fila limitada (1024 lotes): nunca na goroutine que avança o gate (ADR-059). Índice já presente é ignorado (sobreposição com o Raft na partida); buraco é erro.
+2. `Sync` (chamado pelo `Checkpointer` a cada `REPLOG_SYNC_INTERVAL`, proposta 100 ms ou 8 MiB) faz fsync do segmento ativo e publica o **`DurableIndex`**. O fsync roda **fora da trava do `Append`**: sob a trava só se lê o arquivo e o último índice gravado; o `DurableIndex` publicado nunca passa desse índice (ADR-059).
+3. Ao rotacionar, o segmento que sai recebe fsync e o diretório também, e o arquivo é fechado pelo `Sync` seguinte (que pode estar fazendo fsync nele). Só o segmento ativo pode ter dados sem fsync.
 4. Erro de escrita ou de fsync é fatal (não se repete fsync).
 
 **Três regras de retenção** (`internal/domain/retention.go`)

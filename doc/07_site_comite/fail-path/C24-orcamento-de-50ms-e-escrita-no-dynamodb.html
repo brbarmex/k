@@ -25,7 +25,7 @@ Gerado em 14/10/2026 a partir do pacote DataReplication_Versao_1.
 <li><a class="idx" href="../success-path/index.html">Índice da seção</a></li>
 <li><a href="../success-path/C01-visao-geral.html"><b>C01</b> Visão geral da arquitetura</a></li>
 <li><a href="../success-path/C02-dentro-da-celula.html"><b>C02</b> Dentro da célula: apps do cliente e DataReplication</a></li>
-<li><a href="../success-path/C03-escrita-strong.html"><b>C03</b> Caminho feliz: escrita (apply serial depois do gate)</a></li>
+<li><a href="../success-path/C03-escrita-strong.html"><b>C03</b> Caminho feliz: escrita (apply depois do gate, paralelo por chave)</a></li>
 <li><a href="../success-path/C05-leitura-strong.html"><b>C05</b> Caminho feliz: leitura strong</a></li>
 <li><a href="../success-path/C06-follower-encaminha.html"><b>C06</b> Requisição chega numa célula que não é a líder</a></li>
 <li><a href="../success-path/C11-transferencia-planejada.html"><b>C11</b> Transferência planejada de liderança (manutenção)</a></li>
@@ -103,7 +103,7 @@ Gerado em 14/10/2026 a partir do pacote DataReplication_Versao_1.
     A --&gt; C[&quot;Replicação e durabilidade na Azure: t_azure&quot;]
     B --&gt; D[&quot;Gate = max de t_raft e t_azure&quot;]
     C --&gt; D
-    D --&gt; F[&quot;Apply serial no DynamoDB depois do gate: t_apply&quot;]
+    D --&gt; F[&quot;Apply no DynamoDB depois do gate, paralelo por chave: t_apply&quot;]
     F --&gt; H[&quot;ACK&quot;]</pre></div>
 <h3>Arquitetura geral relacionada: <a href="../../04_diagramas/D07-prazos-em-cascata.md">D07 — Prazos em cascata dentro dos 30 s do SDK</a></h3><p class="nota">Diagrama de <code>04_diagramas/</code> escolhido pelo site como contexto; o cenário fonte não faz essa associação.</p>
 <div class="diagrama"><pre class="mermaid">flowchart TD
@@ -121,7 +121,7 @@ Gerado em 14/10/2026 a partir do pacote DataReplication_Versao_1.
 </section>
 <section id="etapas"><h2>3. Legenda e etapas</h2>
 <div class="etapas"><ol>
-<li><strong>Fórmula única:</strong> <code>t_ack = t_parse + max(t_raft, t_azure) + t_apply + t_resp</code>. O apply é sempre serial e depois do gate, no modo único strong (<a href="../../03_adr/ADR-057-um-unico-modo-strong-consistency.md">ADR-057</a>). Se <code>t_apply</code> estourar o orçamento no spike S5, o ajuste é no banco ou no orçamento, não na garantia.</li>
+<li><strong>Fórmula única:</strong> <code>t_ack = t_parse + max(t_raft, t_azure) + t_apply + t_resp</code>. O apply é sempre depois do gate, no modo único strong (<a href="../../03_adr/ADR-057-um-unico-modo-strong-consistency.md">ADR-057</a>), e em paralelo por chave (<a href="../../03_adr/ADR-058-apply-paralelo-por-chave-com-marca-dagua.md">ADR-058</a>): o <code>t_apply</code> do ACK é o de <strong>um</strong> item mais a espera da marca d'água, não a fila inteira do shard. Se <code>t_apply</code> estourar o orçamento no spike S5, o ajuste é no banco ou no orçamento, não na garantia.</li>
 <li><strong>Overhead medido</strong> = <code>t_ack − t_apply</code>.</li>
 <li><strong>Contrato com o cliente:</strong> a latência que ele vê é <code>overhead + escrita no banco</code>; o P99 do DynamoDB faz parte dela. O SLO é medido <strong>ponta a ponta</strong>, sobre a operação completa (latência, taxa de erro e recuperação), e não pela soma de percentis de etapas.</li>
 <li>As quatro parcelas são métricas separadas (<code>t_parse</code>, <code>t_raft</code>, <code>t_azure</code>, <code>t_apply</code>).</li>
@@ -149,7 +149,7 @@ Gerado em 14/10/2026 a partir do pacote DataReplication_Versao_1.
 <h3><span class="num">3</span>ACK antes do apply descartado <span class="origem">Falhas e tratativas</span></h3>
 <dl>
 <dt>Contexto</dt><dd>Responder o ACK antes do apply reduziria a latência, mas quebraria a leitura do que escrevi na leitura forte local. O tradeoff foi resolvido a favor da consistência, à custa de manter <code>t_apply</code> no caminho crítico.</dd>
-<dt>O que a fonte define</dt><dd class="">Descartado na fonte. O apply é sempre serial e depois do gate e o ACK sai depois do apply (modo único strong, <a href="../../03_adr/ADR-057-um-unico-modo-strong-consistency.md">ADR-057</a>).</dd>
+<dt>O que a fonte define</dt><dd class="">Descartado na fonte. O apply é sempre depois do gate, paralelo por chave, e o ACK sai quando a marca d'água do apply passa do índice (modo único strong, <a href="../../03_adr/ADR-057-um-unico-modo-strong-consistency.md">ADR-057</a> e <a href="../../03_adr/ADR-058-apply-paralelo-por-chave-com-marca-dagua.md">ADR-058</a>).</dd>
 <dt class="sug">Sugestão de encaminhamento <small>(inferência, não decidida)</small></dt><dd class="sug">Registrar no TLA+ a propriedade de leitura do que escrevi associada ao ACK depois do apply. Definir antes do spike qual resultado do S5 exige ajuste do banco ou do orçamento.</dd>
 </dl>
 </article>

@@ -55,7 +55,7 @@ O trabalho segue as **[cinco fases](07_fases_de_trabalho.md)** (decisão 14 da r
 2. Portas + fakes + `WriteService` + `DegradeService` (escrita ponta a ponta em memória, com lease e política).
 3. Adaptador `wal` + suíte de conformidade + `fio` (spike S1).
 4. Adaptador `etcdraft` sobre o `wal` do etcd e `replog` (ADR-055) + conformidade do `ConsensusEngine`; o progresso dos learners sai só das respostas do `AppendEntries`.
-5. `dynamohttp` + `Applier` (serial, depois do gate, checkpoint por item) + **um** `DynamoStore` (um nó, depois três). Este é o único caminho de banco da fase 3.
+5. `dynamohttp` + `Applier` (depois do gate, paralelo por chave, marca d'água, ADR-058) + **um** `DynamoStore` (um nó, depois três). Este é o único caminho de banco da fase 3.
 6. `peergrpc` + learners da Azure + gate real.
 7. `DegradeController`, `Recovery`, `LeadershipService`.
 8. Os seis caminhos de banco: `CosmosStore`, rebuild em tabela sombra, anti-entropia, `drctl`, observabilidade e testes de falha.

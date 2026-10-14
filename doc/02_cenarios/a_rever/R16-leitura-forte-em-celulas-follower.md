@@ -36,7 +36,7 @@ flowchart TD
 ## Falhas e tratativas
 
 - **Líder como gargalo.** Se a maioria das leituras for forte e houver muitas células, a líder confirma liderança com muita frequência. O batch limita isso, mas o spike S1/S5 deve medir com a proporção real de leitura e escrita.
-- **Requisito sobre o apply.** A barreira só é correta se `applied` nunca passar do gate; é o que o modo único strong garante, com o apply sempre serial depois do gate (ADR-057). O modelo TLA+ cobre isso (P17 em [X01](../complexos/X01-gate-e-troca-de-lider.md)).
+- **Requisito sobre o apply.** A barreira só é correta se `applied` nunca passar do gate; é o que o modo único strong garante, com o apply sempre despachado depois do gate (ADR-057) e o `applied` como marca d'água contígua (ADR-058). O modelo TLA+ cobre isso (P17 em [X01](../complexos/X01-gate-e-troca-de-lider.md)).
 
 ## Pontos em aberto
 

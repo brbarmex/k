@@ -36,3 +36,5 @@ func (r *recMetrics) Forwarded()                            { r.inc("forwarded")
 func (r *recMetrics) WriteDone(res string, _ time.Duration) { r.inc("write:" + res) }
 func (r *recMetrics) ReadDone(op, res string)               { r.inc("read:" + op + ":" + res) }
 func (r *recMetrics) ReadBarrier(time.Duration)             { r.inc("barrier") }
+func (r *recMetrics) ApplyItem(time.Duration)               { r.inc("apply") }
+func (r *recMetrics) ReplogSync(time.Duration)              { r.inc("replogsync") }

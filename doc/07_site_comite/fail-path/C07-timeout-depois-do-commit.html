@@ -25,7 +25,7 @@ Gerado em 14/10/2026 a partir do pacote DataReplication_Versao_1.
 <li><a class="idx" href="../success-path/index.html">Índice da seção</a></li>
 <li><a href="../success-path/C01-visao-geral.html"><b>C01</b> Visão geral da arquitetura</a></li>
 <li><a href="../success-path/C02-dentro-da-celula.html"><b>C02</b> Dentro da célula: apps do cliente e DataReplication</a></li>
-<li><a href="../success-path/C03-escrita-strong.html"><b>C03</b> Caminho feliz: escrita (apply serial depois do gate)</a></li>
+<li><a href="../success-path/C03-escrita-strong.html"><b>C03</b> Caminho feliz: escrita (apply depois do gate, paralelo por chave)</a></li>
 <li><a href="../success-path/C05-leitura-strong.html"><b>C05</b> Caminho feliz: leitura strong</a></li>
 <li><a href="../success-path/C06-follower-encaminha.html"><b>C06</b> Requisição chega numa célula que não é a líder</a></li>
 <li><a href="../success-path/C11-transferencia-planejada.html"><b>C11</b> Transferência planejada de liderança (manutenção)</a></li>
@@ -93,7 +93,7 @@ Gerado em 14/10/2026 a partir do pacote DataReplication_Versao_1.
 <h1>C07 — Prazo estoura depois do commit, antes do ACK (retry do SDK)</h1>
 <div class="meta"><span class="selo fail-path">Fail path</span><div><b>Status na fonte:</b> ✅ Atualizado (modelo v1)</div><div><b>Relacionados:</b> <a href="../complex-path/X05-timeouts-e-idempotencia.html">X05 Timeouts e idempotência</a></div></div>
 <section id="visao-geral"><h2>1. Visão geral do cenário</h2>
-<p>A escrita foi commitada pelo Raft, mas o gate (ou o apply, que é sempre serial e depois do gate) ainda não terminou e o prazo da requisição (<code>REQUEST_DEADLINE</code>, 7,5 s) acaba. O <code>DataReplication</code> responde <code>503 PENDING</code>, que o SDK retenta. O SDK tem 30 s por tentativa e no máximo 3 tentativas. O retry <strong>não pode duplicar</strong> a escrita.</p>
+<p>A escrita foi commitada pelo Raft, mas o gate (ou o apply, que é sempre depois do gate) ainda não terminou e o prazo da requisição (<code>REQUEST_DEADLINE</code>, 7,5 s) acaba. O <code>DataReplication</code> responde <code>503 PENDING</code>, que o SDK retenta. O SDK tem 30 s por tentativa e no máximo 3 tentativas. O retry <strong>não pode duplicar</strong> a escrita.</p>
 </section>
 <section id="diagrama"><h2>2. Diagrama</h2>
 <div class="diagrama"><pre class="mermaid">sequenceDiagram
@@ -119,7 +119,7 @@ Gerado em 14/10/2026 a partir do pacote DataReplication_Versao_1.
     UC --&gt; GATE[&quot;Espera da Azure&lt;br/&gt;DEGRADE_AFTER 2 s&quot;]
     GATE --&gt;|&quot;estourou 2 s, DEGRADED_POLICY accept&quot;| DEG[&quot;propõe DEGRADE com lease e segue&quot;]
     GATE --&gt;|&quot;estourou 2 s, DEGRADED_POLICY reject&quot;| REJ[&quot;segue esperando o gate&quot;]
-    UC --&gt; APPLY[&quot;Apply serial depois do gate&lt;br/&gt;1 s por tentativa, até 2&quot;]
+    UC --&gt; APPLY[&quot;Apply depois do gate, paralelo por chave&lt;br/&gt;1 s por tentativa, até 2&quot;]
     API --&gt;|&quot;prazo estourou&quot;| PEND[&quot;503 PENDING&lt;br/&gt;a entrada pode já estar commitada&quot;]
     REJ --&gt; PEND
     PEND --&gt; RETRY[&quot;retry do SDK&lt;br/&gt;dedupe e versão tornam seguro&quot;]</pre></div>

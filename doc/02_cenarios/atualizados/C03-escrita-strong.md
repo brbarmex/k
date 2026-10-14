@@ -1,10 +1,10 @@
-# C03 — Caminho feliz: escrita (apply serial depois do gate)
+# C03 — Caminho feliz: escrita (apply depois do gate, paralelo por chave)
 
-**Status:** ✅ Atualizado (modelo v1, revisão crítica de 13/10/2026) · **ADRs:** [ADR-005](../../03_adr/ADR-005-ack-exige-gate.md), [ADR-017](../../03_adr/ADR-017-azure-learners-e-gate.md), [ADR-018](../../03_adr/ADR-018-dois-logs-raft-e-replicacao.md), [ADR-057](../../03_adr/ADR-057-um-unico-modo-strong-consistency.md), [ADR-029](../../03_adr/ADR-029-gate-monotonico-na-troca-de-lider.md), [ADR-046](../../03_adr/ADR-046-gate-so-conta-progresso-validado-pelo-raft.md), [ADR-057](../../03_adr/ADR-057-um-unico-modo-strong-consistency.md) · **Relacionados:** [Orçamento de latência](../../01_arquitetura/06_leitura_forte_escrita_serial_e_latencia.md), [C03](C03-escrita-strong.md), [C05](C05-leitura-strong.md)
+**Status:** ✅ Atualizado (modelo v1, revisão crítica de 13/10/2026) · **ADRs:** [ADR-005](../../03_adr/ADR-005-ack-exige-gate.md), [ADR-017](../../03_adr/ADR-017-azure-learners-e-gate.md), [ADR-018](../../03_adr/ADR-018-dois-logs-raft-e-replicacao.md), [ADR-057](../../03_adr/ADR-057-um-unico-modo-strong-consistency.md), [ADR-058](../../03_adr/ADR-058-apply-paralelo-por-chave-com-marca-dagua.md), [ADR-029](../../03_adr/ADR-029-gate-monotonico-na-troca-de-lider.md), [ADR-046](../../03_adr/ADR-046-gate-so-conta-progresso-validado-pelo-raft.md), [ADR-057](../../03_adr/ADR-057-um-unico-modo-strong-consistency.md) · **Relacionados:** [Orçamento de latência](../../01_arquitetura/06_leitura_forte_escrita_serial_e_latencia.md), [C03](C03-escrita-strong.md), [C05](C05-leitura-strong.md)
 
 ## Cenário
 
-Regime normal, AWS e Azure se alcançando. A app faz um `PutItem`. O `DataReplication` valida, deduplica e propõe a entrada ao Raft. A entrada é gravada com fsync no log do Raft, replicada para 2 de 3 votantes AWS e para 2 de 3 learners Azure. Quando o gate alcança o índice, o applier grava no banco da célula e o ACK sai. **O apply é sempre serial e depois do gate**, em todas as instalações (modo único, [ADR-057](../../03_adr/ADR-057-um-unico-modo-strong-consistency.md)), então o `applied` nunca passa do gate. RPO = 0. O apply nas outras células é assíncrono.
+Regime normal, AWS e Azure se alcançando. A app faz um `PutItem`. O `DataReplication` valida, deduplica e propõe a entrada ao Raft. A entrada é gravada com fsync no log do Raft, replicada para 2 de 3 votantes AWS e para 2 de 3 learners Azure. Quando o gate alcança o índice, o applier grava no banco da célula e o ACK sai. **O apply é sempre depois do gate**, em paralelo por chave e com o `applied` como marca d'água contígua ([ADR-058](../../03_adr/ADR-058-apply-paralelo-por-chave-com-marca-dagua.md)), em todas as instalações (modo único, [ADR-057](../../03_adr/ADR-057-um-unico-modo-strong-consistency.md)), então o `applied` nunca passa do gate. RPO = 0. O apply nas outras células é assíncrono.
 
 ## Diagrama
 
@@ -32,7 +32,7 @@ sequenceDiagram
     DR->>G: commit Raft
     G-->>DR: gate alcançou o índice N
     DR->>DR: entrega N ao applier pela memória e ao log de replicação em lote
-    DR->>AP: aplicar N, em série e só depois do gate
+    DR->>AP: aplicar N só depois do gate (paralelo por chave)
     AP->>DB: escrita condicional, versão menor que N
     DB-->>AP: ok
     DR-->>App: 200 no formato DynamoDB
@@ -47,7 +47,7 @@ sequenceDiagram
 5. **Durabilidade Azure:** em paralelo, os learners gravam com fsync; 2 de 3 confirmam. O progresso da Azure só chega pelas respostas do `AppendEntries`, com termo, índice e identidade do learner ([ADR-046](../../03_adr/ADR-046-gate-so-conta-progresso-validado-pelo-raft.md)).
 6. **Gate:** `gateIndex = min(commit Raft, maioria Azure durável no termo atual)` alcança N. O gate é alimentado **por evento** (cada resposta de learner), não só quando chega um lote commitado.
 7. **Distribuição:** o `CommitPump` entrega N ao applier pela memória e ao log de replicação em lote (fora do caminho do ACK).
-8. **Apply:** o applier grava no banco da célula **só depois do gate**, em série, com escrita condicional `v < N`. A barreira entre gate e apply é a razão de a leitura forte poder usar `min(ReadIndex, gate)` ([C05](C05-leitura-strong.md)).
+8. **Apply:** o applier grava no banco da célula **só depois do gate**, em paralelo por chave (a mesma chave na ordem do log), com escrita condicional `v < N`; o ACK espera a marca d'água alcançar N. A barreira entre gate e apply é a razão de a leitura forte poder usar `min(ReadIndex, gate)` ([C05](C05-leitura-strong.md)).
 9. **ACK:** o `DataReplication` responde ao SDK. As demais células aplicam N de forma assíncrona.
 
 ## Falhas e tratativas

@@ -6,12 +6,12 @@
       "origem": "Falhas e tratativas",
       "contexto": "Depois do commit e do gate, o applier pode receber throttling ou erro 5xx do banco. Como o ACK só sai depois do apply na célula da líder, a escrita fica sem resposta positiva embora já esteja durável. O RPO não é afetado, mas a latência sobe e o cliente pode receber resultado desconhecido.",
       "na_fonte": "A escrita não se perde: a resposta é `503 PENDING` (retentável) e o applier repete com backoff; o retry do SDK é absorvido pelo dedupe e pela versão (ADR-026).",
-      "sugestao": "Testar com injeção de throttling no DynamoDB da líder e medir quantas escritas viram `503 PENDING` e o tempo até o applier drenar. Alertar sobre o atraso `last_committed` menos `last_applied` na líder com limiar a definir, pois um throttling longo trava todo o shard já que o apply é serial."
+      "sugestao": "Testar com injeção de throttling no DynamoDB da líder e medir quantas escritas viram `503 PENDING` e o tempo até o applier drenar. Alertar sobre o atraso `last_committed` menos `last_applied` na líder com limiar a definir, pois um throttling longo segura a marca d'água do applier e, com ela, o ACK de todo o shard (ADR-058)."
     },
     {
       "titulo": "Apply falha de forma permanente",
       "origem": "Falhas e tratativas",
-      "contexto": "Se o banco recusa sempre um item já commitado, o apply serial para nesse ponto e todas as escritas seguintes do shard ficam presas. Todas as células tropeçam na mesma entrada, então o problema afeta disponibilidade do shard inteiro, não só de uma chave.",
+      "contexto": "Se o banco recusa sempre um item já commitado, o applier para nesse ponto (a marca d'água não passa dele) e todas as escritas seguintes do shard ficam presas. Todas as células tropeçam na mesma entrada, então o problema afeta disponibilidade do shard inteiro, não só de uma chave.",
       "na_fonte": "Remete a C26 (entrada venenosa); o desvio da entrada é sempre decisão humana (ADR-038) com skip por item (ADR-048).",
       "sugestao": "Ver C26 e priorizar validação antes do commit (tamanho, tipos, nomes de atributo) para que o caso permanente seja raro. Definir o alerta e o tempo de resposta esperado do humano, já que o shard fica parado até a decisão."
     },
@@ -33,7 +33,7 @@
       "titulo": "P99 do DynamoDB no caminho do ACK",
       "origem": "Pontos em aberto",
       "contexto": "O ACK espera o apply no banco da célula líder, então a cauda de latência do DynamoDB, incluindo throttling por partição quente, aparece inteira no tempo que o cliente vê. A meta de overhead de 50 ms exclui a escrita no banco, mas o cliente sente `overhead + escrita no banco`.",
-      "na_fonte": "Tratado em C24 e ADR-036 (SLO de 50 ms exclui a escrita no banco). O apply é sempre serial e depois do gate (modo único strong, ADR-057); não existe apply paralelo para reavaliar.",
+      "na_fonte": "Tratado em C24 e ADR-036 (SLO de 50 ms exclui a escrita no banco). O apply é sempre depois do gate (modo único strong, ADR-057) e paralelo por chave, com a marca d'água contígua como `applied` (ADR-058); o paralelismo reduz a fila, mas não a latência de um item.",
       "sugestao": "Definir antes do spike S5 o critério de aceite de `t_apply` (por exemplo, a fração do P99 ponta a ponta explicada por ele, limiar a definir) e, se estourar, ajustar o banco (capacidade, chave de partição) ou o orçamento, não o modo. Medir com escrita condicional e itens de tamanho real."
     },
     {

@@ -10,7 +10,8 @@ import (
 
 // Checkpointer liga os dois logs (ADR-055), fora do caminho do ACK. A cada Interval:
 //
-//  1. Sync do log de replicação: um fsync que publica o DurableIndex;
+//  1. Sync do log de replicação: um fsync que publica o DurableIndex. O fsync roda fora
+//     da trava do Append (ADR-059): o checkpoint não para o CommitPump nem o gate;
 //  2. compacta o log do Raft até domain.RaftCompactLimit (nunca além do durável);
 //  3. se Retention estiver ligado, trunca o log de replicação até
 //     domain.ReplogTruncateLimit (applied, maioria Azure, F do rebuild).
@@ -21,6 +22,7 @@ type Checkpointer struct {
 	Raft      port.RaftCompactor
 	RetainMax uint64 // folga do Raft para pares pouco atrasados, em entradas
 	Interval  time.Duration
+	Metrics   port.Metrics // opcional: duração de cada Sync
 	// Retention devolve as entradas da regra de truncamento do log de replicação.
 	Retention func() (applied, azureDurable domain.Index, azureInWindow bool, rebuildFrom domain.Index)
 }
@@ -42,10 +44,12 @@ func (c *Checkpointer) Run(ctx context.Context) error {
 
 // Tick faz um ciclo; exposto para os testes.
 func (c *Checkpointer) Tick(ctx context.Context) error {
+	start := time.Now()
 	durable, err := c.Log.Sync(ctx)
 	if err != nil {
 		return err
 	}
+	port.MetricsOrNop(c.Metrics).ReplogSync(time.Since(start))
 	if err := c.Raft.Compact(domain.RaftCompactLimit(durable, c.Raft.MinPeerMatch(), c.RetainMax)); err != nil {
 		return err
 	}

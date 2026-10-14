@@ -16,7 +16,7 @@ Todo cenário tem um diagrama Mermaid, as etapas e as falhas com a tratativa. Os
 |---|---|---|
 | [C01](atualizados/C01-visao-geral.md) | Visão geral da arquitetura | Mapa das peças: clouds, células, link, roteamento externo |
 | [C02](atualizados/C02-dentro-da-celula.md) | Dentro da célula: apps do cliente e DataReplication | Um `DataReplication` por célula, sem sidecar |
-| [C03](atualizados/C03-escrita-strong.md) | Caminho feliz: escrita (apply serial depois do gate) | Raft + gate por evento no termo atual; apply sempre serial depois do gate; ACK depois do apply na célula da líder |
+| [C03](atualizados/C03-escrita-strong.md) | Caminho feliz: escrita (apply depois do gate, paralelo por chave) | Raft + gate por evento no termo atual; apply sempre depois do gate, paralelo por chave (ADR-058); ACK depois da marca d'água na célula da líder |
 | [C05](atualizados/C05-leitura-strong.md) | Caminho feliz: leitura strong | Espera `min(ReadIndex, gate)`; Query em GSI dá 400 (ADR-049, ADR-050, ADR-057) |
 | [C06](atualizados/C06-follower-encaminha.md) | Requisição chega numa célula que não é a líder | Follower encaminha à líder, um salto |
 | [C07](atualizados/C07-timeout-depois-do-commit.md) | Prazo estoura depois do commit, antes do ACK (retry do SDK) | `503 PENDING`, dedupe e versão condicional |

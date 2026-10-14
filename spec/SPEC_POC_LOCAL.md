@@ -2,7 +2,7 @@
 
 [Início](../doc/00_COMECE_AQUI.md) · [Documento principal](../doc/DataReplication_Versao_1.md) · [Implementação](../doc/05_implementacao/README.md)
 
-**Para:** execução no SPDD pelo Bruno · **Data:** 13/10/2026 · **Status:** revisada com as decisões do Bruno (só AWS com 3 células, busca pelo DR, Delete e Batch na fase 2)
+**Para:** execução no SPDD pelo Bruno · **Data:** 13/10/2026, revisada em 14/10/2026 · **Status:** revisada com as decisões do Bruno (só AWS com 3 células, busca pelo DR, Delete e Batch na fase 2; em 14/10, apply paralelo por chave, [ADR-058](../doc/03_adr/ADR-058-apply-paralelo-por-chave-com-marca-dagua.md), e checkpoint do log de replicação sem trava, [ADR-059](../doc/03_adr/ADR-059-checkpoint-do-log-de-replicacao-sem-trava-no-append.md))
 **Formato:** REASONS Canvas (Requirements, Entities, Approach, Structure, Operations, Norms, Safeguards), confirmado pelo Bruno em 13/10/2026.
 
 Esta especificação **não traz código**. Ela diz o que a POC precisa fazer, como verificar e quais regras não podem ser quebradas. Cada requisito tem um identificador e cada critério de aceite pode ser verificado por comando.
@@ -118,7 +118,7 @@ sequenceDiagram
 1. A borda (HTTP compatível com DynamoDB) valida a requisição **antes** de propor (SG-07) e troca o nome físico pelo lógico.
 2. Se a célula não é líder, encaminha a escrita inteira à líder por gRPC. Se não há líder conhecida, espera até `WAIT_LEADER` e responde 503 `NO_LEADER`.
 3. A líder propõe uma `Entry` ao Raft e recebe o índice quando a entrada é commitada (2 de 3 células com fsync).
-4. A líder espera o gate alcançar o índice e espera o applier da própria célula aplicar o índice.
+4. A líder espera o gate alcançar o índice e espera a marca d'água do applier da própria célula alcançar o índice (AP-03).
 5. Só então responde 200. Prazo estourado em qualquer espera vira 503 `PENDING` (resultado desconhecido).
 6. As duas follower aplicam a mesma entrada nas suas tabelas, sem bloquear o ACK, mas nunca além do gate que a líder propagou.
 
@@ -160,16 +160,17 @@ O gate é o índice máximo que pode ser confirmado ao cliente e aplicado em qua
 
 | ID | Regra |
 |---|---|
-| AP-01 | O `CommitPump` recebe cada lote commitado e, nesta ordem: informa o termo e o commit ao gate; entrega o lote ao applier **pela memória**; grava o lote no log de replicação **sem fsync**. Um erro de escrita no log de replicação é fatal. |
+| AP-01 | O `CommitPump` recebe cada lote commitado e, nesta ordem: informa o termo e o commit ao gate; entrega o lote ao applier **pela memória**; põe o lote na **fila do log de replicação** (limitada, 1024 lotes). Uma goroutine própria do `CommitPump` lê a fila em ordem e grava cada lote no log de replicação **sem fsync**, com **uma escrita por lote**. O `Append` nunca roda na goroutine que avança o gate; com a fila cheia, a goroutine de commits espera (contrapressão). Um erro de escrita no log de replicação é fatal ([ADR-059](../doc/03_adr/ADR-059-checkpoint-do-log-de-replicacao-sem-trava-no-append.md)). |
 | AP-02 | O progresso dos learners corre numa goroutine própria do `CommitPump`, por evento, sem depender de haver commit novo ([`usecase/replicate.go`](../doc/05_implementacao/codigo_exemplo/internal/usecase/replicate.go)). Na POC, sem learners, ela fica parada. |
-| AP-03 | O applier é **serial** e na ordem do índice. Antes de cada entrada, espera `gate >= índice`. **Invariante: aplicado <= gate**, sempre, nas três células. |
+| AP-03 | O applier lê as entradas **na ordem do índice** e, antes de despachar cada entrada, espera `gate >= índice`. Os itens são gravados **em paralelo por chave** ([ADR-058](../doc/03_adr/ADR-058-apply-paralelo-por-chave-com-marca-dagua.md)): `APPLY_WORKERS` workers, e cada item vai para o worker `hash(tabela lógica, chave canônica) mod APPLY_WORKERS`; cada worker grava um item por vez, na ordem em que recebeu. A **mesma chave** é gravada sempre na ordem do log. O **aplicado** é a **marca d'água**: o maior índice que, com todos os anteriores, está no banco; o ACK da líder (AP-09) e a leitura forte (A.6) esperam a marca d'água. **Invariante: aplicado <= gate**, sempre, nas três células: nenhum item é despachado antes do gate da sua entrada. |
 | AP-04 | Cada item vira um `PutItem` **condicional** na tabela da célula, com `_dr_v` = índice e a condição `attribute_not_exists(_dr_v) OR _dr_v < :v`. `ConditionalCheckFailedException` significa "já aplicado" e não é erro ([ADR-015](../doc/03_adr/ADR-015-wal-post-image-e-versao.md), [ADR-035](../doc/03_adr/ADR-035-lote-batchwriteitem-uma-entrada-e-apply-condicional.md)). |
 | AP-05 | A tabela física é a lógica com `{cell}` trocado pelo `CELL_ID` **da célula que aplica**: a mesma entrada vai para `cadastro_cliente_cell_1`, `_2` e `_3`. |
-| AP-06 | Depois de cada item, o applier grava o progresso (índice, ordem) no volume do log de replicação, **sem fsync**. Perder o progresso só alonga o replay. |
-| AP-07 | Erro transitório do banco (throttling, 5xx, rede) é repetido com backoff exponencial de 100 ms a 5 s, sem limite, com log a cada tentativa. Erro permanente (4xx que não seja a condição de versão) **para o applier do shard naquela célula**: o processo continua de pé, o `/readyz` fica falso, o `/status` mostra o erro e a entrada, e a saída é humana ([ADR-038](../doc/03_adr/ADR-038-skip-de-entrada-venenosa-sempre-humano.md)). |
-| AP-08 | Entradas `Noop` só avançam o índice aplicado. |
-| AP-09 | Na líder, o ACK espera o apply **da própria célula**. Nas follower o apply é assíncrono ao ACK. Por isso, logo depois do ACK, uma leitura **direta** no LocalStack (task `inspecionar`) pode ainda não mostrar o item nas três tabelas; a busca e a leitura via DR (A.6) sempre mostram. |
-| AP-10 | O `Checkpointer` faz o fsync do log de replicação a cada `REPLOG_SYNC_INTERVAL` (1 s) e publica o índice durável. A compactação do Raft fica desligada na POC (o `RaftCompactor` não faz nada e registra em log). |
+| AP-06 | A cada avanço da marca d'água, o applier grava o progresso (índice, ordem = número de itens da entrada) no volume do log de replicação, **sem fsync**. Na partida, tudo depois do progresso é reaplicado; o que já estava no banco recebe `ConditionalCheckFailedException` e conta como "já aplicado". Perder o progresso só alonga o replay. |
+| AP-07 | Erro transitório do banco (throttling, 5xx, rede) é repetido com backoff exponencial de 100 ms a 5 s, sem limite, com log a cada tentativa. Erro permanente (4xx que não seja a condição de versão) **para o applier do shard naquela célula**: o processo continua de pé, o `/readyz` fica falso, o `/status` mostra o erro e a entrada, e a saída é humana ([ADR-038](../doc/03_adr/ADR-038-skip-de-entrada-venenosa-sempre-humano.md)). Com workers em paralelo: o despacho para, os itens **anteriores** ao venenoso terminam, os **posteriores** não são gravados (salvo os que já estavam a caminho do banco) e a marca d'água para logo antes do item venenoso; com dois itens venenosos, vale o primeiro na ordem do log. |
+| AP-08 | Entradas `Noop` só avançam a marca d'água. |
+| AP-09 | Na líder, o ACK espera a marca d'água **da própria célula** alcançar o índice. Nas follower o apply é assíncrono ao ACK. Por isso, logo depois do ACK, uma leitura **direta** no LocalStack (task `inspecionar`) pode ainda não mostrar o item nas três tabelas; a busca e a leitura via DR (A.6) sempre mostram. |
+| AP-10 | O `Checkpointer` faz o fsync do log de replicação a cada `REPLOG_SYNC_INTERVAL` (1 s) e publica o índice durável. O fsync roda **fora da trava do `Append`** ([ADR-059](../doc/03_adr/ADR-059-checkpoint-do-log-de-replicacao-sem-trava-no-append.md)): sob a trava, o checkpoint só lê qual segmento sincronizar e até que índice ele vai; publica o índice durável depois do fsync, e nunca acima do que estava gravado quando o fsync começou. Na rotação de segmento, o segmento que sai recebe fsync e é fechado pelo checkpoint seguinte. A duração de cada fsync vai para `dr_replog_sync_duration_seconds`. A compactação do Raft fica desligada na POC (o `RaftCompactor` não faz nada e registra em log). |
+| AP-11 | `APPLY_WORKERS` (padrão 16, de 1 a 256) define os workers do applier; `1` volta a um item por vez, para comparação. O cliente do SDK do DynamoDB guarda `max(2 × APPLY_WORKERS, 32)` conexões ociosas por host (o padrão do SDK é 10). O `/status` mostra `apply.workers` e `apply.emVoo` (itens a caminho do banco); as métricas `dr_apply_workers`, `dr_apply_inflight` e `dr_apply_item_duration_seconds` mostram o mesmo no dashboard. |
 
 ### A.6 Leitura forte (GetItem e Scan)
 
@@ -289,6 +290,7 @@ Requisitos do taskfile:
 | `DEGRADED_POLICY` | `reject` | Obrigatória (G-10) |
 | `TABLE_WAIT` | `120s` | Espera pelas tabelas na partida |
 | `GATE_PUBLISH_INTERVAL`, `REPLOG_SYNC_INTERVAL` | `100ms`, `1s` | |
+| `APPLY_WORKERS` | `16` | Inteiro de 1 a 256; padrão 16 (AP-11, [ADR-058](../doc/03_adr/ADR-058-apply-paralelo-por-chave-com-marca-dagua.md)) |
 | `CLIENT_TIMEOUT`, `REQUEST_DEADLINE`, `WAIT_LEADER`, `FORWARD_TIMEOUT` | padrões do esboço (30 s, 7,5 s, 1 s, 3 s) | Regras de coerência do `config.go` |
 
 As variáveis do antigo modo eventual (`READ_MODE_DEFAULT`, `WRITE_MODE`, `MAX_STALENESS`) continuam derrubando a partida ([ADR-057](../doc/03_adr/ADR-057-um-unico-modo-strong-consistency.md)).
@@ -299,7 +301,7 @@ As variáveis do antigo modo eventual (`READ_MODE_DEFAULT`, `WRITE_MODE`, `MAX_S
 |---|---|
 | `GET /livez` | 200 se o processo está de pé |
 | `GET /readyz` | 200 só com tabela conferida, Raft rodando, líder conhecida e applier sem erro |
-| `GET /status` | JSON com `celula`, `no`, `papel` (líder ou follower), `lider`, `termo`, `commit`, `gate`, `gatePronto`, `aplicado`, `azure` (`on`/`off`), `replog` (`ultimo`, `duravel`), `erroApply`; na líder também o `match` de cada par |
+| `GET /status` | JSON com `celula`, `no`, `papel` (líder ou follower), `lider`, `termo`, `commit`, `gate`, `gatePronto`, `aplicado` (marca d'água), `apply` (`workers`, `emVoo`), `azure` (`on`/`off`), `replog` (`ultimo`, `duravel`), `erroApply`; na líder também o `match` de cada par |
 | `POST /transferir?para=N` | PODE: transferência planejada de liderança ([ADR-013](../doc/03_adr/ADR-013-transferencia-planejada-de-lideranca.md)) |
 
 ---
@@ -323,6 +325,7 @@ As variáveis do antigo modo eventual (`READ_MODE_DEFAULT`, `WRITE_MODE`, `MAX_S
 | O-11 | `docker-compose.yml` (S.4) | `docker compose config` sem erro |
 | O-12 | `taskfile.yaml` (S.5) | Critérios da O.3 |
 | O-13 | `README.md` da POC: pré-requisitos, comandos, o que observar | |
+| O-14 | Apply paralelo por chave (AP-03, AP-06, AP-07, AP-11) e checkpoint do log de replicação sem trava (AP-01, AP-10) | CA-15 e CA-16 |
 
 ### O.2 Pré-requisitos na máquina
 
@@ -346,6 +349,8 @@ Docker com Compose v2, Task v3, AWS CLI v2. Nada de Go no host (o build é no co
 | **CA-12** | **Dados** volumes já criados, **quando** mudo `PEERS` ou `LEARNERS` e subo sem limpar, **então** a célula não sobe e o log pede `task limpar` (RT-10). |
 | **CA-13** | **Quando** envio `delete-item` ou `batch-write-item`, **então** recebo 400 `ValidationException` "não suportado nesta fase". |
 | **CA-14** | **Quando** rodo `go test -race ./...` no container de build, **então** todos os testes passam, inclusive os do gate com learners simulados (O-02). |
+| **CA-15** | **Quando** rodo `go test -race ./...`, **então** passam os testes de: gravações de chaves diferentes ao mesmo tempo; marca d'água que não passa de uma entrada ainda no banco, mesmo com entradas seguintes já gravadas; mesma chave gravada na ordem do log com 16 workers; item venenoso parando a marca d'água logo antes dele, sem gravar a entrada seguinte da mesma chave; `Append` que termina enquanto o fsync do checkpoint está preso, com o índice durável sem passar do que estava gravado; lotes chegando ao gate e ao applier com o `Append` preso. |
+| **CA-16** | **Quando** rodo o benchmark do applier com banco simulado de 4 ms por item, **então** 16 workers aplicam pelo menos 10 vezes mais itens por segundo que 1 worker. **E**, com o ambiente de pé, o `task status` mostra `apply.workers: 16` nas três células. |
 
 ---
 
@@ -369,7 +374,7 @@ Docker com Compose v2, Task v3, AWS CLI v2. Nada de Go no host (o build é no co
 | ID | Salvaguarda |
 |---|---|
 | SG-01 | **Nenhum ACK antes de: commit do Raft (2 de 3), gate >= índice e apply na célula da líder.** |
-| SG-02 | **Aplicado <= gate**, nas três células, sempre. Uma follower nunca aplica além do gate propagado (G-06). |
+| SG-02 | **Aplicado <= gate**, nas três células, sempre. Uma follower nunca aplica além do gate propagado (G-06). Com o apply paralelo, nenhum item é despachado antes de `gate >= índice` da sua entrada. |
 | SG-03 | **Nada sai antes do fsync**, exceto o `MsgApp` da líder (RT-04). Em especial, `MsgAppResp` e votos só depois do `wal.Save`. |
 | SG-04 | O gate nunca recua e só conta learner no termo atual (G-02, G-03). |
 | SG-05 | Erro de fsync no WAL do Raft derruba o processo (RT-05). |
@@ -381,6 +386,8 @@ Docker com Compose v2, Task v3, AWS CLI v2. Nada de Go no host (o build é no co
 | SG-11 | Prazos em cascata coerentes: `REQUEST_DEADLINE` < `CLIENT_TIMEOUT`; `FORWARD_TIMEOUT` < `REQUEST_DEADLINE`; `WAIT_LEADER` <= `FORWARD_TIMEOUT` ([ADR-028](../doc/03_adr/ADR-028-timeouts-em-cascata.md)). |
 | SG-12 | O modo sem Azure (G-08) é **só da POC**: aviso na partida, `azure: "off"` no `/status` e um comentário no código dizendo que nunca vai para produção. Em produção, `LEARNERS` vazia derruba a partida. |
 | SG-13 | Nenhuma credencial real em arquivo; nada de push para o repositório sem pedido do Bruno. |
+| SG-15 | **Mesma chave, mesma ordem:** a mesma chave (tabela e chave canônica) é gravada sempre pelo mesmo worker, na ordem do log. O aplicado só avança pela marca d'água contígua ([ADR-058](../doc/03_adr/ADR-058-apply-paralelo-por-chave-com-marca-dagua.md)). |
+| SG-16 | **O checkpoint não para o ACK:** o fsync do log de replicação nunca roda sob a trava do `Append`, e o `Append` nunca roda na goroutine que avança o gate ([ADR-059](../doc/03_adr/ADR-059-checkpoint-do-log-de-replicacao-sem-trava-no-append.md)). |
 | SG-14 | Imagem do LocalStack com versão fixa (`4.14.0`): a imagem da comunidade avisa que muda de modelo em 2026 e as versões novas podem exigir token. |
 
 ---
@@ -389,9 +396,10 @@ Docker com Compose v2, Task v3, AWS CLI v2. Nada de Go no host (o build é no co
 
 1. **Sem Azure, o gate de ponta a ponta não é testado.** Com a lista de learners vazia, o gate é o commit do Raft: a POC prova RPO 0 entre as 3 células AWS, não entre nuvens. A parte da Azure (maioria 2 de 3, termo, monotonia, gate pronto) fica provada só nos testes de unidade (O-02, CA-14). Ligar a Azure depois é configuração (`LEARNERS`), mas o caminho do learner (fsync antes de responder, evento de progresso, gate esperando a Azure) só será exercitado de verdade nessa hora.
 2. **O risco de "gate = commit" escapar para produção.** O modo sem Azure torna o ACK igual ao commit AWS. SG-12 exige que, fora da POC, a lista vazia derrube a partida.
-3. **Applier lento trava o Raft.** A fila entre o laço do Ready, o `CommitPump` e o applier é limitada. Se o banco de uma célula fica lento ou o applier para (entrada venenosa), a fila enche, o laço do Ready espera, os heartbeats atrasam e a célula pode provocar eleição. Na POC, filas grandes resolvem. Em produção o applier precisa ler do log de replicação quando fica para trás, sem segurar o laço do Ready.
+3. **Applier lento trava o Raft.** A fila entre o laço do Ready, o `CommitPump` e o applier é limitada. Se o banco de uma célula fica lento ou o applier para (entrada venenosa), a fila enche, o laço do Ready espera, os heartbeats atrasam e a célula pode provocar eleição. Na POC, filas grandes resolvem, e o apply paralelo por chave (AP-03) torna o applier lento menos provável; o estacionado continua. Em produção o applier precisa ler do log de replicação quando fica para trás, sem segurar o laço do Ready.
 4. **Retry do AWS CLI sem dedupe.** O AWS CLI v2 repete 503 automaticamente. Uma escrita `PENDING` repetida vira outra entrada no log, com outro índice. O item final é o mesmo, mas o `_dr_v` fica com o índice da repetição. É o comportamento esperado sem o [ADR-026](../doc/03_adr/ADR-026-dedupe-de-retry-id-estavel.md). T-05 desliga o retry nas tasks.
 5. **Um LocalStack para as três células.** As três tabelas estão no mesmo processo: não há isolamento de falha entre bancos. Serve para o conceito, não para medir.
 6. **Leitura direta no LocalStack logo depois do ACK.** O ACK só espera o apply da líder (AP-09). Um `task inspecionar` imediato pode mostrar o item em 1 ou 2 tabelas. A busca via DR não tem esse problema, porque espera a barreira.
 7. **Memória do Raft sem compactação** (RT-11): rodar a POC por horas sob carga faz o processo crescer. Fora do escopo do teste de conceito.
 8. **Gate atrasado nas follower.** Cada follower só aplica até o último gate recebido. Se uma mensagem `GateUpdate` se perde, a reenvio periódica (G-06) cobre; o atraso máximo é `GATE_PUBLISH_INTERVAL`.
+9. **Chave quente.** O paralelismo é entre chaves. Muitas escritas na mesma `pk` são gravadas uma por vez (no máximo `1 / tempo do PutItem` por segundo), atrasam as outras chaves do mesmo worker e, pela marca d'água contígua, o ACK de todas as escritas seguintes. Na POC o `task carga` usa `pk` diferentes e não exercita isso. Aparece como `dr_apply_inflight` alto com `dr_applied_index` parado ([ADR-058](../doc/03_adr/ADR-058-apply-paralelo-por-chave-com-marca-dagua.md)).

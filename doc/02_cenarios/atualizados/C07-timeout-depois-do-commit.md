@@ -4,7 +4,7 @@
 
 ## Cenário
 
-A escrita foi commitada pelo Raft, mas o gate (ou o apply, que é sempre serial e depois do gate) ainda não terminou e o prazo da requisição (`REQUEST_DEADLINE`, 7,5 s) acaba. O `DataReplication` responde `503 PENDING`, que o SDK retenta. O SDK tem 30 s por tentativa e no máximo 3 tentativas. O retry **não pode duplicar** a escrita.
+A escrita foi commitada pelo Raft, mas o gate (ou o apply, que é sempre depois do gate) ainda não terminou e o prazo da requisição (`REQUEST_DEADLINE`, 7,5 s) acaba. O `DataReplication` responde `503 PENDING`, que o SDK retenta. O SDK tem 30 s por tentativa e no máximo 3 tentativas. O retry **não pode duplicar** a escrita.
 
 ## Diagrama
 
@@ -36,7 +36,7 @@ flowchart TD
     UC --> GATE["Espera da Azure<br/>DEGRADE_AFTER 2 s"]
     GATE -->|"estourou 2 s, DEGRADED_POLICY accept"| DEG["propõe DEGRADE com lease e segue"]
     GATE -->|"estourou 2 s, DEGRADED_POLICY reject"| REJ["segue esperando o gate"]
-    UC --> APPLY["Apply serial depois do gate<br/>1 s por tentativa, até 2"]
+    UC --> APPLY["Apply depois do gate, paralelo por chave<br/>1 s por tentativa, até 2"]
     API -->|"prazo estourou"| PEND["503 PENDING<br/>a entrada pode já estar commitada"]
     REJ --> PEND
     PEND --> RETRY["retry do SDK<br/>dedupe e versão tornam seguro"]

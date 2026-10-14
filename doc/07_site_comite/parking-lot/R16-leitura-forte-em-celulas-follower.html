@@ -25,7 +25,7 @@ Gerado em 14/10/2026 a partir do pacote DataReplication_Versao_1.
 <li><a class="idx" href="../success-path/index.html">Índice da seção</a></li>
 <li><a href="../success-path/C01-visao-geral.html"><b>C01</b> Visão geral da arquitetura</a></li>
 <li><a href="../success-path/C02-dentro-da-celula.html"><b>C02</b> Dentro da célula: apps do cliente e DataReplication</a></li>
-<li><a href="../success-path/C03-escrita-strong.html"><b>C03</b> Caminho feliz: escrita (apply serial depois do gate)</a></li>
+<li><a href="../success-path/C03-escrita-strong.html"><b>C03</b> Caminho feliz: escrita (apply depois do gate, paralelo por chave)</a></li>
 <li><a href="../success-path/C05-leitura-strong.html"><b>C05</b> Caminho feliz: leitura strong</a></li>
 <li><a href="../success-path/C06-follower-encaminha.html"><b>C06</b> Requisição chega numa célula que não é a líder</a></li>
 <li><a href="../success-path/C11-transferencia-planejada.html"><b>C11</b> Transferência planejada de liderança (manutenção)</a></li>
@@ -161,8 +161,8 @@ Gerado em 14/10/2026 a partir do pacote DataReplication_Versao_1.
 <article class="ponto">
 <h3><span class="num">2</span>Requisito de que applied nunca passe do gate <span class="origem">Falhas e tratativas</span></h3>
 <dl>
-<dt>Contexto</dt><dd>A barreira <code>min(ReadIndex, gate)</code> só é correta se o <code>applied</code> de uma célula nunca ultrapassar o gate; se ultrapassasse, uma leitura forte poderia ver dado ainda não durável na Azure. O modo único strong garante isso com o apply sempre serial depois do gate. Uma regressão futura que reintroduza apply antecipado quebraria a garantia de leitura sem sinal visível.</dd>
-<dt>O que a fonte define</dt><dd class="">A fonte decide pelo <a href="../../03_adr/ADR-057-um-unico-modo-strong-consistency.md">ADR-057</a> (modo único strong, apply serial depois do gate) e cobre a propriedade no TLA+ (P17 do <a href="../complex-path/X01-gate-e-troca-de-lider.html">X01</a>).</dd>
+<dt>Contexto</dt><dd>A barreira <code>min(ReadIndex, gate)</code> só é correta se o <code>applied</code> de uma célula nunca ultrapassar o gate; se ultrapassasse, uma leitura forte poderia ver dado ainda não durável na Azure. O modo único strong garante isso com o apply sempre depois do gate: o despachante só entrega uma entrada aos workers quando o gate já passou dela (<a href="../../03_adr/ADR-058-apply-paralelo-por-chave-com-marca-dagua.md">ADR-058</a>). Uma regressão futura que reintroduza apply antecipado quebraria a garantia de leitura sem sinal visível.</dd>
+<dt>O que a fonte define</dt><dd class="">A fonte decide pelo <a href="../../03_adr/ADR-057-um-unico-modo-strong-consistency.md">ADR-057</a> (modo único strong, apply depois do gate; <a href="../../03_adr/ADR-058-apply-paralelo-por-chave-com-marca-dagua.md">ADR-058</a> para o paralelo por chave) e cobre a propriedade no TLA+ (P17 do <a href="../complex-path/X01-gate-e-troca-de-lider.html">X01</a>).</dd>
 <dt class="sug">Sugestão de encaminhamento <small>(inferência, não decidida)</small></dt><dd class="sug">Além do TLA+, incluir uma asserção em tempo de execução que falha alto se <code>last_applied &gt; last_azure_durable</code> na célula, com métrica e alerta. Isso protege contra regressões no código, que o modelo não cobre.</dd>
 </dl>
 </article>
@@ -187,7 +187,7 @@ Gerado em 14/10/2026 a partir do pacote DataReplication_Versao_1.
 <section id="anexo"><h2>Anexo: texto original da fonte</h2><p class="nota">Seções do .md fonte reproduzidas sem reescrita, para conferência.</p>
 <details class="anexo"><summary>Falhas e tratativas</summary><ul>
 <li><strong>Líder como gargalo.</strong> Se a maioria das leituras for forte e houver muitas células, a líder confirma liderança com muita frequência. O batch limita isso, mas o spike S1/S5 deve medir com a proporção real de leitura e escrita.</li>
-<li><strong>Requisito sobre o apply.</strong> A barreira só é correta se <code>applied</code> nunca passar do gate; é o que o modo único strong garante, com o apply sempre serial depois do gate (ADR-057). O modelo TLA+ cobre isso (P17 em <a href="../complex-path/X01-gate-e-troca-de-lider.html">X01</a>).</li>
+<li><strong>Requisito sobre o apply.</strong> A barreira só é correta se <code>applied</code> nunca passar do gate; é o que o modo único strong garante, com o apply sempre despachado depois do gate (ADR-057) e o <code>applied</code> como marca d'água contígua (ADR-058). O modelo TLA+ cobre isso (P17 em <a href="../complex-path/X01-gate-e-troca-de-lider.html">X01</a>).</li>
 </ul></details>
 <details class="anexo"><summary>Pontos em aberto</summary><ul>
 <li>Proporção real de leituras fortes por escrita e SLO de latência de leitura (hoje só existe a meta de escrita); entra no SLO ponta a ponta (<a href="R18-rto-nao-quantificado.html">R18</a>).</li>

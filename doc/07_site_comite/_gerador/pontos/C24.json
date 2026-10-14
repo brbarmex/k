@@ -19,7 +19,7 @@
       "titulo": "ACK antes do apply descartado",
       "origem": "Falhas e tratativas",
       "contexto": "Responder o ACK antes do apply reduziria a latência, mas quebraria a leitura do que escrevi na leitura forte local. O tradeoff foi resolvido a favor da consistência, à custa de manter `t_apply` no caminho crítico.",
-      "na_fonte": "Descartado na fonte. O apply é sempre serial e depois do gate e o ACK sai depois do apply (modo único strong, ADR-057).",
+      "na_fonte": "Descartado na fonte. O apply é sempre depois do gate, paralelo por chave, e o ACK sai quando a marca d'água do apply passa do índice (modo único strong, ADR-057 e ADR-058).",
       "sugestao": "Registrar no TLA+ a propriedade de leitura do que escrevi associada ao ACK depois do apply. Definir antes do spike qual resultado do S5 exige ajuste do banco ou do orçamento."
     },
     {

@@ -4,7 +4,7 @@
 
 ## Contexto
 
-Com apply serial por shard no Strong, o applier não pode pular uma entrada. Uma entrada já commitada que o banco recusa para sempre trava o shard.
+Com o `applied` como marca d'água contígua por shard ([ADR-058](ADR-058-apply-paralelo-por-chave-com-marca-dagua.md)), o applier não pode pular uma entrada: os itens são gravados em paralelo por chave, mas a marca d'água para no primeiro item que o banco recusa. Uma entrada já commitada que o banco recusa para sempre trava o shard.
 
 ## Decisão
 

@@ -17,7 +17,7 @@ O SLO de 50 ms **continua excluindo** a escrita no DynamoDB (`t_apply`). Ao clie
 
 ## Consequências
 
-- A latência soma `t_parse + max(t_raft, t_azure) + t_apply + t_resp`: o apply é sempre serial depois do gate (modo único strong, [ADR-057](ADR-057-um-unico-modo-strong-consistency.md)).
+- A latência soma `t_parse + max(t_raft, t_azure) + t_apply + t_resp`: o apply é sempre depois do gate (modo único strong, [ADR-057](ADR-057-um-unico-modo-strong-consistency.md)), em paralelo por chave ([ADR-058](ADR-058-apply-paralelo-por-chave-com-marca-dagua.md)).
 - Throttling do DynamoDB por mais que o prazo vira `503 PENDING` ([ADR-028](ADR-028-timeouts-em-cascata.md)).
 - O alvo de 150 ms de escrita P99 do cliente continua valendo ponta a ponta; os números fecham no spike S1.
 

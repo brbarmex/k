@@ -5,10 +5,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"strconv"
 	"sync"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
+	awshttp "github.com/aws/aws-sdk-go-v2/aws/transport/http"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
@@ -34,9 +36,20 @@ var (
 	_ port.Catalog    = (*Store)(nil)
 )
 
+// minIdleConns é o piso de conexões ociosas guardadas para o banco: leituras e Scans
+// usam o mesmo cliente que o applier.
+const minIdleConns = 32
+
 // New cria o cliente do DynamoDB. endpoint vazio = AWS real; com valor, o LocalStack.
-func New(ctx context.Context, endpoint, region string, tm domain.TableMap) (*Store, error) {
-	cfg, err := config.LoadDefaultConfig(ctx, config.WithRegion(region))
+// applyWorkers dimensiona o pool HTTP: o padrão do SDK guarda só 10 conexões ociosas por
+// host, e com mais workers que isso cada gravação a mais abriria conexão nova (ADR-058).
+func New(ctx context.Context, endpoint, region string, tm domain.TableMap, applyWorkers int) (*Store, error) {
+	idle := max(2*applyWorkers, minIdleConns)
+	httpClient := awshttp.NewBuildableClient().WithTransportOptions(func(tr *http.Transport) {
+		tr.MaxIdleConns = idle
+		tr.MaxIdleConnsPerHost = idle
+	})
+	cfg, err := config.LoadDefaultConfig(ctx, config.WithRegion(region), config.WithHTTPClient(httpClient))
 	if err != nil {
 		return nil, fmt.Errorf("dynamodb: configuração do SDK: %w", err)
 	}

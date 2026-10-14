@@ -105,7 +105,7 @@ A leitura forte esperava `applied >= ReadIndex`. Como o apply só ocorre depois 
 - Na célula follower, a líder devolve o `ReadIndex` e o gate **na mesma resposta**; um gate antigo guardado na follower enfraqueceria a garantia.
 - A líder recém-eleita só atende leitura forte **depois de reconstruir o gate** (5.3, ADR-029, ADR-046).
 - Com o applier parado por entrada venenosa, a leitura forte do shard **falha rápido com `503`**, em vez de esperar até o timeout.
-- Depende de `applied` nunca passar do gate (apply serial depois do gate, ADR-057).
+- Depende de `applied` nunca passar do gate (apply só despachado depois do gate, ADR-057; `applied` é a marca d'água contígua, ADR-058).
 
 Detalhe: [06_leitura_forte_escrita_serial_e_latencia](06_leitura_forte_escrita_serial_e_latencia.md) (7.2) e [R16](../02_cenarios/a_rever/R16-leitura-forte-em-celulas-follower.md).
 

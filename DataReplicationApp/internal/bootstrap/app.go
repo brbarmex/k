@@ -37,6 +37,9 @@ const replogSegment = 64 << 20
 // applierQueue é a fila em memória entre o CommitPump e o Applier (risco 3: generosa na POC).
 const applierQueue = 4096
 
+// replogQueue é a fila de lotes entre o CommitPump e o Append do log de replicação (ADR-059).
+const replogQueue = 1024
+
 // New monta o núcleo (configuração, gate, escrita, borda HTTP). Os adaptadores de Raft,
 // banco e transporte entram por `extra` (Runtime em produção, substitutos nos testes).
 func New(extra ...fx.Option) *fx.App {
@@ -173,7 +176,7 @@ func newReplog(lc fx.Lifecycle, cfg config.Config) (*replog.Log, error) {
 }
 
 func newStore(cfg config.Config, tm domain.TableMap) (*dynamodb.Store, error) {
-	return dynamodb.New(context.Background(), cfg.DynamoEndpoint, cfg.AWSRegion, tm)
+	return dynamodb.New(context.Background(), cfg.DynamoEndpoint, cfg.AWSRegion, tm, cfg.ApplyWorkers)
 }
 
 func newPeerClient(lc fx.Lifecycle, cfg config.Config, log zerolog.Logger, m port.Metrics) (*peerclient.Client, error) {
@@ -208,9 +211,9 @@ func newRaft(lc fx.Lifecycle, cfg config.Config, send *peerclient.Client, log ze
 	return n, nil
 }
 
-func newApplier(g *domain.Gate, st port.StateStore, p port.ApplyProgress, in chan []domain.Entry, log zerolog.Logger) *usecase.Applier {
-	return &usecase.Applier{Gate: g, Store: st, Progress: p, In: in,
-		Backoff: usecase.Backoff{Min: 100 * time.Millisecond, Max: 5 * time.Second}, Log: log}
+func newApplier(cfg config.Config, g *domain.Gate, st port.StateStore, p port.ApplyProgress, in chan []domain.Entry, log zerolog.Logger, m port.Metrics) *usecase.Applier {
+	return &usecase.Applier{Gate: g, Store: st, Progress: p, In: in, Workers: cfg.ApplyWorkers,
+		Backoff: usecase.Backoff{Min: 100 * time.Millisecond, Max: 5 * time.Second}, Log: log, Metrics: m}
 }
 
 func newReadService(cfg config.Config, c port.ConsensusEngine, g *domain.Gate, a port.AppliedWaiter, b port.BarrierClient, st port.StateStore, sc port.Scanner, m port.Metrics) *usecase.ReadService {
@@ -258,6 +261,7 @@ type runtimeDeps struct {
 	GateSync *usecase.GateSync
 	Reads    *usecase.ReadService
 	Writer   port.Writer
+	Metrics  port.Metrics
 }
 
 // runRuntime confere as tabelas, abre o gRPC entre células e roda os laços de fundo.
@@ -290,14 +294,14 @@ func runRuntime(d runtimeDeps) {
 					d.Log.Fatal().Err(err).Msg("gRPC entre células caiu")
 				}
 			}()
-			pump := &usecase.CommitPump{Consensus: d.Node, Log: d.Replog, Gate: d.Gate, Lease: d.Lease, ToApplier: d.ToApply}
-			ckpt := &usecase.Checkpointer{Log: d.Replog, Raft: d.Node, Interval: d.Cfg.ReplogSyncInterval}
+			pump := &usecase.CommitPump{Consensus: d.Node, Log: d.Replog, Gate: d.Gate, Lease: d.Lease, ToApplier: d.ToApply, LogQueue: replogQueue}
+			ckpt := &usecase.Checkpointer{Log: d.Replog, Raft: d.Node, Interval: d.Cfg.ReplogSyncInterval, Metrics: d.Metrics}
 			fatal("raft", d.Node.Run)
 			fatal("commitpump", pump.Run)
 			fatal("applier", d.Applier.Run)
 			fatal("checkpoint", ckpt.Run)
 			fatal("gatesync", d.GateSync.Run)
-			d.Log.Info().Str("peer", d.Cfg.PeerAddr).Msg("célula iniciada")
+			d.Log.Info().Str("peer", d.Cfg.PeerAddr).Int("applyWorkers", d.Applier.WorkerCount()).Msg("célula iniciada")
 			return nil
 		},
 		OnStop: func(stopCtx context.Context) error {

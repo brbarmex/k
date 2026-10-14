@@ -4,7 +4,7 @@
 
 ## Cenário
 
-Com apply **serial por shard** (sempre, depois do gate), o applier não pode pular um item sem decisão. Se um item de uma entrada **já commitada** é recusado de forma **permanente** pelo banco (item acima do limite, tipo sem tradução no Cloud-Adapter, nome de atributo inválido no Cosmos), o `appliedIndex` para: as escritas seguintes ficam `PENDING` e as leituras fortes do shard não chegam ao alvo. **Um item trava o shard.** Como o apply é determinístico, todas as células aplicam os mesmos itens anteriores e param no mesmo item ruim: não há divergência entre réplicas, mas a semântica de pular a entrada inteira era ruim.
+Com o `applied` como **marca d'água contígua por shard** (apply sempre depois do gate, em paralelo por chave, [ADR-058](../../03_adr/ADR-058-apply-paralelo-por-chave-com-marca-dagua.md)), o applier não pode pular um item sem decisão. Os itens anteriores ao venenoso terminam, o despacho para e a marca d'água fica logo antes dele. Se um item de uma entrada **já commitada** é recusado de forma **permanente** pelo banco (item acima do limite, tipo sem tradução no Cloud-Adapter, nome de atributo inválido no Cosmos), o `appliedIndex` para: as escritas seguintes ficam `PENDING` e as leituras fortes do shard não chegam ao alvo. **Um item trava o shard.** Como o apply é determinístico, todas as células aplicam os mesmos itens anteriores e param no mesmo item ruim: não há divergência entre réplicas, mas a semântica de pular a entrada inteira era ruim.
 
 Variante silenciosa: a recusa acontece só no Cosmos. A AWS segue normal e o atraso da Azure cresce até o failover.
 

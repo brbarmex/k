@@ -85,7 +85,7 @@ flowchart TD
 2. O Raft envia a entrada aos pares (só o `MsgApp` da líder sai antes do fsync, F3) e o `raftstore.Writer` grava o lote no **log do Raft** com um fsync; nenhuma resposta (`MsgAppResp`, voto, auto-ACK da líder) sai antes do fsync ([ADR-056](../03_adr/ADR-056-group-commit-por-shard-e-nada-sai-antes-do-fsync.md)). Na replicação por gRPC, 2 de 3 votantes AWS decidem o commit, e os 3 learners da Azure recebem a mesma entrada.
 3. Cada learner informa o índice que já tornou durável **na resposta do `AppendEntries`**, com o termo e a identidade dele ([ADR-046](../03_adr/ADR-046-gate-so-conta-progresso-validado-pelo-raft.md)). Cada resposta alimenta o `Gate` na hora, sem esperar um commit novo; o gate só adota o termo atual e guarda `min(commit do Raft, maioria Azure)`. **Só aqui o ACK é liberado.**
 4. Os lotes commitados chegam ao `CommitPump`, que os entrega ao `Applier` **pela memória** e ao **log de replicação** em lote, fora do caminho do ACK. O progresso dos learners corre em outra goroutine do `CommitPump`: um `Append` lento não atrasa o gate.
-5. O `Applier` escreve no banco da célula com escrita condicional por versão, **sempre em série e depois do gate** ([ADR-057](../03_adr/ADR-057-um-unico-modo-strong-consistency.md)); o checkpoint do applier é por item `(índice, ordem)` ([ADR-048](../03_adr/ADR-048-skip-por-item.md)).
+5. O `Applier` escreve no banco da célula com escrita condicional por versão, **sempre depois do gate** ([ADR-057](../03_adr/ADR-057-um-unico-modo-strong-consistency.md)) e **em paralelo por chave**, com a mesma chave na ordem do log ([ADR-058](../03_adr/ADR-058-apply-paralelo-por-chave-com-marca-dagua.md)); o `applied` é a marca d'água contígua, e o progresso salvo é ela `(índice, ordem)` ([ADR-048](../03_adr/ADR-048-skip-por-item.md)).
 6. O log do Raft só é truncado até o `DurableIndex` do log de replicação, que é o índice coberto pelo último checkpoint (fsync) do log de replicação, e não o índice apenas copiado (regra de segurança da 5.5.1, [ADR-055](../03_adr/ADR-055-log-de-replicacao-segmentado-derivado-do-raft.md)).
 
 **Quem grava o quê, por escrita lógica:**
@@ -94,7 +94,7 @@ flowchart TD
 |---|---|---|---|
 | `raftlog` (cada réplica) | Entrada do consenso | Antes de responder ao líder, com fsync | **Sim** |
 | `replicationlog` (todas as réplicas) | Registro commitado, nosso formato | Depois do commit, sem fsync; checkpoint com fsync periódico | Não |
-| Banco da célula (DynamoDB ou Cosmos) | Item com versão | Depois do gate, em série | **Sim**, na célula da líder o ACK espera o apply (o `t_apply` está no orçamento, [ADR-036](../03_adr/ADR-036-slo-de-50ms-exclui-a-escrita-no-banco.md)) |
+| Banco da célula (DynamoDB ou Cosmos) | Item com versão | Depois do gate, em paralelo por chave (ADR-058) | **Sim**, na célula da líder o ACK espera o apply (o `t_apply` está no orçamento, [ADR-036](../03_adr/ADR-036-slo-de-50ms-exclui-a-escrita-no-banco.md)) |
 | Volume do log de replicação (progresso do applier) | Progresso por item `(índice, ordem)` | Depois de cada item aplicado, sem fsync | Não |
 
 **Visão do cluster:** quem replica para quem, e o que cada célula guarda.
@@ -159,7 +159,7 @@ sequenceDiagram
     L-->>G: commit Raft
     Az-->>G: maioria Azure durável
     G-->>W: gate alcançou o índice
-    G-->>AP: pode aplicar até o índice (sempre em série)
+    G-->>AP: pode aplicar até o índice (paralelo por chave)
     AP->>DB: escrita condicional v menor que índice
     DB-->>AP: ok
     AP-->>W: WaitApplied liberado
@@ -167,7 +167,7 @@ sequenceDiagram
     API-->>App: 200 (header x-dr-mode se degradado)
 ```
 
-**O ACK sai só depois do gate e do apply na célula da líder** (6.9, item 4 do documento de arquitetura). O apply é sempre serial e depois do gate, em todas as instalações (modo único, [ADR-057](../03_adr/ADR-057-um-unico-modo-strong-consistency.md)). Antes de responder, a líder ainda confere a validade do lease se o shard estiver degradado ([ADR-044](../03_adr/ADR-044-lease-do-modo-degradado-e-promocao-da-azure.md)).
+**O ACK sai só depois do gate e do apply na célula da líder** (6.9, item 4 do documento de arquitetura). O apply é sempre depois do gate, em todas as instalações (modo único, [ADR-057](../03_adr/ADR-057-um-unico-modo-strong-consistency.md)), em paralelo por chave, e o ACK espera a marca d'água contígua ([ADR-058](../03_adr/ADR-058-apply-paralelo-por-chave-com-marca-dagua.md)). Antes de responder, a líder ainda confere a validade do lease se o shard estiver degradado ([ADR-044](../03_adr/ADR-044-lease-do-modo-degradado-e-promocao-da-azure.md)).
 
 ### 5.1b Escrita em modo degradado (política `accept`, com lease)
 
@@ -237,7 +237,7 @@ flowchart TD
     P -->|reject| R["segue esperando<br/>até o prazo: 503 PENDING"]
     F --> D
     D --> E
-    E --> G["apply no banco, em série, depois do gate"]
+    E --> G["apply no banco, depois do gate, paralelo por chave"]
     G --> L{"degradado e<br/>now maior ou igual a t_c + D?"}
     L -->|sim| X["503 LEASE_EXPIRED"]
     L -->|não| K["resposta"]

@@ -46,3 +46,15 @@ func TestStatusQuorumOnlyOnLeader(t *testing.T) {
 		t.Fatal("célula saudável devia estar pronta")
 	}
 }
+
+// ADR-058: o /status mostra os workers do applier (pelo menos 1) e os itens em voo.
+func TestStatusShowsApplyWorkers(t *testing.T) {
+	s := newStatus(port.RaftInfo{NodeID: 1, Lead: 1, Running: true})
+	if got := s.Status().Apply; got != (ApplyStatus{Workers: 1, EmVoo: 0}) {
+		t.Fatalf("apply = %+v; sem Workers configurado devia ser 1 worker", got)
+	}
+	s.Applier = &Applier{Workers: 16}
+	if got := s.Status().Apply; got.Workers != 16 {
+		t.Fatalf("apply = %+v; quer 16 workers", got)
+	}
+}

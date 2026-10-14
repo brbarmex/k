@@ -33,7 +33,7 @@ sequenceDiagram
 ## Etapas
 
 1. **Alvo:** a célula pede à líder o `ReadIndex`; a líder confirma com o quórum que ainda é líder e devolve R **e o gate G na mesma resposta**. Um gate antigo guardado na follower enfraqueceria a garantia, por isso nunca é reutilizado.
-2. **Barreira:** o `DataReplication` compara o `appliedIndex` local com `min(R, G)` e espera o applier, até o prazo da requisição. Como o apply é serial e depois do gate, `applied` nunca passa do gate, e uma Azure lenta **não atrasa** a leitura.
+2. **Barreira:** o `DataReplication` compara o `appliedIndex` local com `min(R, G)` e espera o applier, até o prazo da requisição. Como o apply só é despachado depois do gate e o `applied` é a marca d'água contígua ([ADR-058](../../03_adr/ADR-058-apply-paralelo-por-chave-com-marca-dagua.md)), `applied` nunca passa do gate, e uma Azure lenta **não atrasa** a leitura.
 3. **Leitura:** lê o banco local e responde com todas as escritas ACKadas até `min(R, G)`.
 4. **Líder recém-eleita:** só atende leitura depois de reconstruir o gate com progresso confirmado no termo novo ([ADR-029](../../03_adr/ADR-029-gate-monotonico-na-troca-de-lider.md), [ADR-046](../../03_adr/ADR-046-gate-so-conta-progresso-validado-pelo-raft.md)).
 5. **GSI:** `Query` ou `Scan` com `IndexName` de GSI é recusado com `ValidationException` (400), com ou sem `ConsistentRead`.

@@ -16,7 +16,7 @@ Tombstone com TTL.
 
 ## Consequências
 
-Risco de "zumbi" no replay (o apply é sempre serial, [ADR-057](ADR-057-um-unico-modo-strong-consistency.md)); leituras só abrem depois do high-water mark na partida.
+Risco de "zumbi" no replay (o apply é sempre depois do gate, [ADR-057](ADR-057-um-unico-modo-strong-consistency.md), e a mesma chave é aplicada na ordem do log, [ADR-058](ADR-058-apply-paralelo-por-chave-com-marca-dagua.md)); leituras só abrem depois do high-water mark na partida.
 
 ## Atualização de 13/10/2026 (revisão crítica)
 

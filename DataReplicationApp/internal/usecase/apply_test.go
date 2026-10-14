@@ -186,3 +186,277 @@ func TestTransientErrorIsRetried(t *testing.T) {
 		t.Fatalf("saúde = %+v, itens = %d", a.Health(), st.count())
 	}
 }
+
+// keyedWrite cria uma entrada com um item por chave dada.
+func keyedWrite(idx domain.Index, keys ...string) domain.Entry {
+	e := domain.Entry{Index: idx, Term: 1, Kind: domain.KindWrite}
+	for _, k := range keys {
+		e.Ops = append(e.Ops, domain.Op{Table: "t_{cell}", Kind: domain.OpPut, Key: []byte(k)})
+	}
+	return e
+}
+
+// gatedStore segura cada gravação até o teste liberar a chave, e mede quantas gravações
+// estiveram no banco ao mesmo tempo.
+type gatedStore struct {
+	mu      sync.Mutex
+	release map[string]chan struct{}
+	order   map[string][]domain.Index // versões gravadas, por chave, na ordem de gravação
+	now     int
+	peak    int
+}
+
+func newGatedStore() *gatedStore {
+	return &gatedStore{release: map[string]chan struct{}{}, order: map[string][]domain.Index{}}
+}
+
+func (s *gatedStore) gate(key string) chan struct{} {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	ch, ok := s.release[key]
+	if !ok {
+		ch = make(chan struct{})
+		s.release[key] = ch
+	}
+	return ch
+}
+
+func (s *gatedStore) open(key string) { close(s.gate(key)) }
+
+func (s *gatedStore) ApplyBatch(ctx context.Context, ops []port.VersionedOp) error {
+	key := string(ops[0].Key)
+	s.mu.Lock()
+	s.now++
+	s.peak = max(s.peak, s.now)
+	s.mu.Unlock()
+	select {
+	case <-s.gate(key):
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+	s.mu.Lock()
+	s.now--
+	s.order[key] = append(s.order[key], ops[0].Version)
+	s.mu.Unlock()
+	return nil
+}
+func (*gatedStore) Get(context.Context, domain.LogicalTable, []byte) ([]byte, error) {
+	return nil, nil
+}
+func (s *gatedStore) peakNow() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.peak
+}
+
+// ADR-058: chaves diferentes são gravadas ao mesmo tempo, até o número de workers.
+func TestApplierWritesDifferentKeysInParallel(t *testing.T) {
+	g := &domain.Gate{}
+	releaseGate(g, 1, 100)
+	in := make(chan []domain.Entry, 1)
+	st := newGatedStore()
+	a := &Applier{Gate: g, Store: st, Progress: &fakeProgress{}, In: in, Workers: 64}
+	cancel, _ := startApplier(t, a)
+	defer cancel()
+
+	var batch []domain.Entry
+	keys := make([]string, 8)
+	for i := range keys {
+		keys[i] = fmt.Sprintf("k%d", i)
+		batch = append(batch, keyedWrite(domain.Index(i+1), keys[i]))
+	}
+	in <- batch
+	// Com um item por vez, só uma gravação estaria no banco; com 64 workers e 8 chaves,
+	// as que caem em workers diferentes ficam no banco juntas.
+	waitUntil(t, func() bool { return st.peakNow() >= 2 }, "nenhuma gravação em paralelo")
+	if a.Applied() != 0 {
+		t.Fatalf("marca d'água = %d com tudo ainda no banco", a.Applied())
+	}
+	for _, k := range keys {
+		st.open(k)
+	}
+	ctx, c := context.WithTimeout(context.Background(), 2*time.Second)
+	defer c()
+	if err := a.WaitApplied(ctx, 8); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// A marca d'água só passa de uma entrada quando ela e todas as anteriores estão no banco,
+// e o progresso salvo é a marca d'água.
+func TestWatermarkWaitsForTheSlowestEarlierKey(t *testing.T) {
+	g := &domain.Gate{}
+	releaseGate(g, 1, 100)
+	in := make(chan []domain.Entry, 1)
+	st := newGatedStore()
+	prog := &fakeProgress{}
+	a := &Applier{Gate: g, Store: st, Progress: prog, In: in, Workers: 64}
+	cancel, _ := startApplier(t, a)
+	defer cancel()
+
+	slot := func(k string) int { return keySlot(domain.Op{Table: "t_{cell}", Key: []byte(k)}, 64) }
+	fast := "b"
+	for i := 0; slot(fast) == slot("a"); i++ { // garante workers diferentes para "a" e a rápida
+		fast = fmt.Sprintf("b%d", i)
+	}
+	in <- []domain.Entry{keyedWrite(1, "a"), keyedWrite(2, fast), {Index: 3, Term: 1, Kind: domain.KindNoop}}
+	st.open(fast)
+	waitUntil(t, func() bool {
+		st.mu.Lock()
+		defer st.mu.Unlock()
+		return len(st.order[fast]) == 1
+	}, "a entrada 2 não foi gravada")
+	time.Sleep(20 * time.Millisecond)
+	if a.Applied() != 0 {
+		t.Fatalf("marca d'água = %d com a entrada 1 ainda no banco", a.Applied())
+	}
+	st.open("a")
+	ctx, c := context.WithTimeout(context.Background(), 2*time.Second)
+	defer c()
+	if err := a.WaitApplied(ctx, 3); err != nil {
+		t.Fatal(err)
+	}
+	if idx, ord, _ := prog.LoadProgress(); idx != 3 || ord != 0 {
+		t.Fatalf("progresso = (%d, %d), quer (3, 0): a marca d'água", idx, ord)
+	}
+}
+
+// A mesma chave é gravada na ordem do log, mesmo com muitos workers.
+func TestSameKeyIsAppliedInLogOrder(t *testing.T) {
+	g := &domain.Gate{}
+	releaseGate(g, 1, 1000)
+	in := make(chan []domain.Entry, 1)
+	st := newGatedStore()
+	for _, k := range []string{"x", "y", "z"} {
+		st.open(k)
+	}
+	a := &Applier{Gate: g, Store: st, Progress: &fakeProgress{}, In: in, Workers: 16}
+	cancel, _ := startApplier(t, a)
+	defer cancel()
+
+	var batch []domain.Entry
+	for i := 1; i <= 300; i++ {
+		batch = append(batch, keyedWrite(domain.Index(i), []string{"x", "y", "z"}[i%3]))
+	}
+	in <- batch
+	ctx, c := context.WithTimeout(context.Background(), 2*time.Second)
+	defer c()
+	if err := a.WaitApplied(ctx, 300); err != nil {
+		t.Fatal(err)
+	}
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	for k, vs := range st.order {
+		for i := 1; i < len(vs); i++ {
+			if vs[i] <= vs[i-1] {
+				t.Fatalf("chave %s gravada fora de ordem: %v", k, vs)
+			}
+		}
+	}
+}
+
+// Com workers em paralelo, o item venenoso para a marca d'água logo antes dele, os itens
+// anteriores de outras chaves terminam e nenhum item posterior é gravado depois da parada.
+func TestPoisonItemStopsTheWatermarkWithParallelWorkers(t *testing.T) {
+	g := &domain.Gate{}
+	releaseGate(g, 1, 100)
+	in := make(chan []domain.Entry, 1)
+	st := &fakeStore{failAt: 4}
+	a := &Applier{Gate: g, Store: st, Progress: &fakeProgress{}, In: in, Workers: 8}
+	cancel, done := startApplier(t, a)
+
+	var batch []domain.Entry
+	for i := 1; i <= 3; i++ {
+		batch = append(batch, keyedWrite(domain.Index(i), fmt.Sprintf("k%d", i)))
+	}
+	in <- batch
+	ctx, c := context.WithTimeout(context.Background(), 2*time.Second)
+	defer c()
+	if err := a.WaitApplied(ctx, 3); err != nil {
+		t.Fatal(err)
+	}
+	in <- []domain.Entry{keyedWrite(4, "k4"), keyedWrite(5, "k5"), keyedWrite(6, "k4")}
+	waitUntil(t, func() bool { return a.Health().Stopped }, "applier não parou no item venenoso")
+	if h := a.Health(); h.Index != 4 || h.Ord != 1 {
+		t.Fatalf("saúde = %+v; devia parar em (4, 1)", h)
+	}
+	time.Sleep(30 * time.Millisecond)
+	if a.Applied() != 3 {
+		t.Fatalf("marca d'água = %d; devia parar em 3", a.Applied())
+	}
+	st.mu.Lock()
+	for _, op := range st.applied {
+		if op.Version == 6 {
+			t.Fatal("a entrada 6 (mesma chave do item venenoso) foi gravada")
+		}
+	}
+	st.mu.Unlock()
+	cancel()
+	<-done
+}
+
+func TestKeySlotIsStableAndSpreads(t *testing.T) {
+	op := func(table, key string) domain.Op {
+		return domain.Op{Table: domain.LogicalTable(table), Key: []byte(key)}
+	}
+	if keySlot(op("t", "a"), 16) != keySlot(op("t", "a"), 16) {
+		t.Fatal("a mesma chave precisa cair sempre no mesmo worker")
+	}
+	if keySlot(op("t", "a"), 1) != 0 || keySlot(op("t", "a"), 0) != 0 {
+		t.Fatal("com 1 worker tudo vai para o 0")
+	}
+	used := map[int]bool{}
+	for i := 0; i < 200; i++ {
+		used[keySlot(op("t", fmt.Sprintf("cli-%d", i)), 16)] = true
+	}
+	if len(used) < 12 {
+		t.Fatalf("200 chaves usaram só %d de 16 workers", len(used))
+	}
+}
+
+// slowStore simula a latência de um PutItem.
+type slowStore struct{ d time.Duration }
+
+func (s slowStore) ApplyBatch(ctx context.Context, _ []port.VersionedOp) error {
+	t := time.NewTimer(s.d)
+	defer t.Stop()
+	select {
+	case <-t.C:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+func (slowStore) Get(context.Context, domain.LogicalTable, []byte) ([]byte, error) { return nil, nil }
+
+// BenchmarkApplierThroughput mede itens/s do applier com um banco simulado de 4 ms por
+// item e chaves distintas (ADR-058): `go test -bench Applier -run ^$ ./internal/usecase`.
+func BenchmarkApplierThroughput(b *testing.B) {
+	for _, workers := range []int{1, 4, 16, 64} {
+		b.Run(fmt.Sprintf("workers=%d", workers), func(b *testing.B) {
+			const items = 2000
+			g := &domain.Gate{}
+			g.SetAzureOff(true)
+			g.SetRaftCommit(items)
+			for i := 0; i < b.N; i++ {
+				in := make(chan []domain.Entry, 1)
+				a := &Applier{Gate: g, Store: slowStore{4 * time.Millisecond}, Progress: &fakeProgress{}, In: in, Workers: workers}
+				ctx, cancel := context.WithCancel(context.Background())
+				done := make(chan error, 1)
+				go func() { done <- a.Run(ctx) }()
+				batch := make([]domain.Entry, 0, items)
+				for j := 1; j <= items; j++ {
+					batch = append(batch, keyedWrite(domain.Index(j), fmt.Sprintf("cli-%d", j)))
+				}
+				start := time.Now()
+				in <- batch
+				if err := a.WaitApplied(context.Background(), items); err != nil {
+					b.Fatal(err)
+				}
+				b.ReportMetric(float64(items)/time.Since(start).Seconds(), "itens/s")
+				cancel()
+				<-done
+			}
+		})
+	}
+}

@@ -25,7 +25,7 @@ Gerado em 14/10/2026 a partir do pacote DataReplication_Versao_1.
 <li><a class="idx" href="index.html">Índice da seção</a></li>
 <li><a href="C01-visao-geral.html"><b>C01</b> Visão geral da arquitetura</a></li>
 <li><a href="C02-dentro-da-celula.html"><b>C02</b> Dentro da célula: apps do cliente e DataReplication</a></li>
-<li><a href="C03-escrita-strong.html"><b>C03</b> Caminho feliz: escrita (apply serial depois do gate)</a></li>
+<li><a href="C03-escrita-strong.html"><b>C03</b> Caminho feliz: escrita (apply depois do gate, paralelo por chave)</a></li>
 <li><a class="atual" aria-current="page" href="C05-leitura-strong.html"><b>C05</b> Caminho feliz: leitura strong</a></li>
 <li><a href="C06-follower-encaminha.html"><b>C06</b> Requisição chega numa célula que não é a líder</a></li>
 <li><a href="C11-transferencia-planejada.html"><b>C11</b> Transferência planejada de liderança (manutenção)</a></li>
@@ -145,7 +145,7 @@ Gerado em 14/10/2026 a partir do pacote DataReplication_Versao_1.
 <section id="etapas"><h2>3. Legenda e etapas</h2>
 <div class="etapas"><ol>
 <li><strong>Alvo:</strong> a célula pede à líder o <code>ReadIndex</code>; a líder confirma com o quórum que ainda é líder e devolve R <strong>e o gate G na mesma resposta</strong>. Um gate antigo guardado na follower enfraqueceria a garantia, por isso nunca é reutilizado.</li>
-<li><strong>Barreira:</strong> o <code>DataReplication</code> compara o <code>appliedIndex</code> local com <code>min(R, G)</code> e espera o applier, até o prazo da requisição. Como o apply é serial e depois do gate, <code>applied</code> nunca passa do gate, e uma Azure lenta <strong>não atrasa</strong> a leitura.</li>
+<li><strong>Barreira:</strong> o <code>DataReplication</code> compara o <code>appliedIndex</code> local com <code>min(R, G)</code> e espera o applier, até o prazo da requisição. Como o apply só é despachado depois do gate e o <code>applied</code> é a marca d'água contígua (<a href="../../03_adr/ADR-058-apply-paralelo-por-chave-com-marca-dagua.md">ADR-058</a>), <code>applied</code> nunca passa do gate, e uma Azure lenta <strong>não atrasa</strong> a leitura.</li>
 <li><strong>Leitura:</strong> lê o banco local e responde com todas as escritas ACKadas até <code>min(R, G)</code>.</li>
 <li><strong>Líder recém-eleita:</strong> só atende leitura depois de reconstruir o gate com progresso confirmado no termo novo (<a href="../../03_adr/ADR-029-gate-monotonico-na-troca-de-lider.md">ADR-029</a>, <a href="../../03_adr/ADR-046-gate-so-conta-progresso-validado-pelo-raft.md">ADR-046</a>).</li>
 <li><strong>GSI:</strong> <code>Query</code> ou <code>Scan</code> com <code>IndexName</code> de GSI é recusado com <code>ValidationException</code> (400), com ou sem <code>ConsistentRead</code>.</li>

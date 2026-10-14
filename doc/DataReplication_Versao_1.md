@@ -2,7 +2,7 @@
 
 [Início](00_COMECE_AQUI.md) · [Arquitetura](01_arquitetura/README.md) · [Cenários](02_cenarios/INDEX.md) · [ADRs](03_adr/INDEX.md) · [Diagramas](04_diagramas/INDEX.md) · [Implementação](05_implementacao/README.md) · [Pendências](06_pendencias_e_riscos/README.md) · [Glossário](01_arquitetura/00_glossario.md)
 
-**Estado:** 13/10/2026, com as decisões da revisão crítica (ADR-044 a ADR-054) o log de replicação segmentado (ADR-055) e o group commit por shard (ADR-056) · **Dono:** Bruno · **Papel deste documento:** reunir tudo o que importa sobre o `DataReplication` v1 e apontar, a cada assunto, o arquivo com o detalhe. Cada seção termina com os links para o aprofundamento.
+**Estado:** 14/10/2026, com as decisões da revisão crítica (ADR-044 a ADR-054), o log de replicação segmentado (ADR-055), o group commit por shard (ADR-056), o apply paralelo por chave (ADR-058) e o checkpoint sem trava (ADR-059) · **Dono:** Bruno · **Papel deste documento:** reunir tudo o que importa sobre o `DataReplication` v1 e apontar, a cada assunto, o arquivo com o detalhe. Cada seção termina com os links para o aprofundamento.
 
 ## Sumário
 
@@ -128,8 +128,9 @@ Um arquivo por decisão, com contexto, decisão e consequências. Índice comple
 | [ADR-017](03_adr/ADR-017-azure-learners-e-gate.md) | Azure como learners, com gate | Decidido (Bruno) |
 | [ADR-018](03_adr/ADR-018-dois-logs-raft-e-replicacao.md) | Dois logs separados: o do Raft e o de replicação | Decidido (Bruno) |
 | [ADR-019](03_adr/ADR-019-wal-proprio-volume-dedicado.md) | Log do Raft em volume de bloco dedicado; sem ACK em memória | Decidido (Bruno); revisado pelo ADR-055 |
-| [ADR-055](03_adr/ADR-055-log-de-replicacao-segmentado-derivado-do-raft.md) | Log de replicação segmentado, derivado do Raft, sem fsync no caminho do ACK e em volume separado | Decidido (Bruno, 1a 2b 3b e opção a) |
+| [ADR-055](03_adr/ADR-055-log-de-replicacao-segmentado-derivado-do-raft.md) | Log de replicação segmentado, derivado do Raft, sem fsync no caminho do ACK e em volume separado | Decidido (Bruno, 1a 2b 3b e opção a); checkpoint precisado pelo ADR-059 |
 | [ADR-056](03_adr/ADR-056-group-commit-por-shard-e-nada-sai-antes-do-fsync.md) | Group commit por shard; nada sai antes do fsync; `AsyncStorageWrites` decidido por spike | Decidido (Bruno, 1a 2a 3b 4a 5a 6a) |
+| [ADR-059](03_adr/ADR-059-checkpoint-do-log-de-replicacao-sem-trava-no-append.md) | Checkpoint do log de replicação sem trava no `Append`; `Append` fora da goroutine do gate | Decidido (Bruno, 2a) |
 | [ADR-020](03_adr/ADR-020-raft-etcd-io-camada-multigrupo.md) | Raft: etcd-io/raft com camada multi-grupo própria | Decidido (Bruno) |
 | [ADR-021](03_adr/ADR-021-grpc-entre-celulas.md) | gRPC entre as células | Decidido (Bruno) |
 | [ADR-029](03_adr/ADR-029-gate-monotonico-na-troca-de-lider.md) | O gate nunca recua; líder nova reconstrói antes de ACKar | Decidido (Bruno) |
@@ -145,7 +146,8 @@ Um arquivo por decisão, com contexto, decisão e consequências. Índice comple
 
 | ADR | Decisão | Status |
 |---|---|---|
-| [ADR-057](03_adr/ADR-057-um-unico-modo-strong-consistency.md) | Um único modo: strong consistency; leitura sempre forte, apply serial depois do gate | Decidido (Bruno) |
+| [ADR-057](03_adr/ADR-057-um-unico-modo-strong-consistency.md) | Um único modo: strong consistency; leitura sempre forte, apply depois do gate | Decidido (Bruno); "serial" esclarecido pelo ADR-058 |
+| [ADR-058](03_adr/ADR-058-apply-paralelo-por-chave-com-marca-dagua.md) | Apply paralelo por chave (`APPLY_WORKERS`), mesma chave na ordem do log; `applied` = marca d'água contígua | Decidido (Bruno, 1a) |
 | [ADR-015](03_adr/ADR-015-wal-post-image-e-versao.md) | O log guarda a post-image e a versão do item | Aceito |
 | [ADR-022](03_adr/ADR-022-banco-por-celula-nome-logico.md) | Um banco por célula; nome lógico com {cell} | Decidido (Bruno) |
 | [ADR-024](03_adr/ADR-024-delete-real-ttl-local-gsi.md) | DELETE real com ordem por chave; TTL local; GSI | Decidido (Bruno) |
@@ -200,9 +202,9 @@ Um **monolito modular** por célula (módulos `api`, `core`, log, Raft, transpor
 | Retenção | Curta; truncado só até o `DurableIndex` do log de replicação (índice coberto pelo último fsync de checkpoint), mais uma folga | Longa; teto de 70% do volume, medido no espaço lógico |
 | Quem lê | Só o Raft | Applier, Azure atrasada, `drctl`, reconstrução |
 
-O **fsync é o gargalo**: só o log do Raft está no caminho do ACK, com o `wal` do etcd (segmentos pré-alocados, `fdatasync`, CRC) em **volume de bloco dedicado** (NVMe local descartado). O WAL próprio saiu em 13/10: o log de replicação vira um **log segmentado simples**, derivado do Raft, sem fsync no caminho do ACK, em outro volume; o Raft obedece ao checkpoint do log de replicação e este obedece à Azure (o Pebble foi avaliado e descartado) ([ADR-055](03_adr/ADR-055-log-de-replicacao-segmentado-derivado-do-raft.md)). **Falha de fsync é fatal**; disco perdido volta com **identidade nova** como learner e a reconstrução é manual assistida (`drctl rebuild`). Não existe ACK com quórum só em memória. **Group commit por shard** ([ADR-056](03_adr/ADR-056-group-commit-por-shard-e-nada-sai-antes-do-fsync.md)): o buffer em memória só monta o lote; nenhum ACK, voto ou resposta de `AppendEntries` sai antes do fsync; a líder envia `MsgApp` antes de gravar (F3) no modo síncrono, e o `AsyncStorageWrites` entra só se o spike S1b mostrar ganho; o buffer tem teto de 32 MiB por shard, com `ThrottlingException` acima disso.
+O **fsync é o gargalo**: só o log do Raft está no caminho do ACK, com o `wal` do etcd (segmentos pré-alocados, `fdatasync`, CRC) em **volume de bloco dedicado** (NVMe local descartado). O WAL próprio saiu em 13/10: o log de replicação vira um **log segmentado simples**, derivado do Raft, sem fsync no caminho do ACK, em outro volume; o Raft obedece ao checkpoint do log de replicação e este obedece à Azure (o Pebble foi avaliado e descartado) ([ADR-055](03_adr/ADR-055-log-de-replicacao-segmentado-derivado-do-raft.md)). O fsync do checkpoint roda fora da trava do `Append`, e o `Append` roda fora da goroutine que alimenta o gate, com fila limitada: o checkpoint não atrasa o gate nem o ACK ([ADR-059](03_adr/ADR-059-checkpoint-do-log-de-replicacao-sem-trava-no-append.md)). **Falha de fsync é fatal**; disco perdido volta com **identidade nova** como learner e a reconstrução é manual assistida (`drctl rebuild`). Não existe ACK com quórum só em memória. **Group commit por shard** ([ADR-056](03_adr/ADR-056-group-commit-por-shard-e-nada-sai-antes-do-fsync.md)): o buffer em memória só monta o lote; nenhum ACK, voto ou resposta de `AppendEntries` sai antes do fsync; a líder envia `MsgApp` antes de gravar (F3) no modo síncrono, e o `AsyncStorageWrites` entra só se o spike S1b mostrar ganho; o buffer tem teto de 32 MiB por shard, com `ThrottlingException` acima disso.
 
-→ [03_consenso_raft_quorum_e_gate](01_arquitetura/03_consenso_raft_quorum_e_gate.md) (5.5.1), [04_wal_e_fsync](01_arquitetura/04_wal_e_fsync.md), [D04](04_diagramas/D04-dois-logs-e-commitpump.md), [X04](02_cenarios/complexos/X04-partida-recuperacao-e-dois-logs.md), [ADR-018](03_adr/ADR-018-dois-logs-raft-e-replicacao.md), [ADR-019](03_adr/ADR-019-wal-proprio-volume-dedicado.md), [ADR-055](03_adr/ADR-055-log-de-replicacao-segmentado-derivado-do-raft.md), [ADR-056](03_adr/ADR-056-group-commit-por-shard-e-nada-sai-antes-do-fsync.md), [ADR-034](03_adr/ADR-034-fsync-fatal-e-identidade-nova.md).
+→ [03_consenso_raft_quorum_e_gate](01_arquitetura/03_consenso_raft_quorum_e_gate.md) (5.5.1), [04_wal_e_fsync](01_arquitetura/04_wal_e_fsync.md), [D04](04_diagramas/D04-dois-logs-e-commitpump.md), [X04](02_cenarios/complexos/X04-partida-recuperacao-e-dois-logs.md), [ADR-018](03_adr/ADR-018-dois-logs-raft-e-replicacao.md), [ADR-019](03_adr/ADR-019-wal-proprio-volume-dedicado.md), [ADR-055](03_adr/ADR-055-log-de-replicacao-segmentado-derivado-do-raft.md), [ADR-056](03_adr/ADR-056-group-commit-por-shard-e-nada-sai-antes-do-fsync.md), [ADR-059](03_adr/ADR-059-checkpoint-do-log-de-replicacao-sem-trava-no-append.md), [ADR-034](03_adr/ADR-034-fsync-fatal-e-identidade-nova.md).
 
 ### 5.4 Dados: versão, DELETE, TTL, GSI e banco por célula
 
@@ -216,12 +218,12 @@ O **fsync é o gargalo**: só o log do Raft está no caminho do ACK, com o `wal`
 
 O `DataReplication` tem **um único modo**, sem segundo fluxo na escrita, na replicação ou no Raft ([ADR-057](03_adr/ADR-057-um-unico-modo-strong-consistency.md)):
 
-- **Escrita:** apply no banco **em série, depois do gate**; o ACK sai depois do apply.
+- **Escrita:** apply no banco **só depois do gate**, **em paralelo por chave**: `APPLY_WORKERS` workers por shard (padrão 16), a mesma chave sempre no mesmo worker e na ordem do log. O `applied` é a **marca d'água contígua**, e o ACK sai quando ela passa do índice da escrita ([ADR-058](03_adr/ADR-058-apply-paralelo-por-chave-com-marca-dagua.md)). Uma chave quente fica limitada a uma gravação por vez.
 - **Leitura:** sempre forte na tabela base. As aplicações enviam `ConsistentRead=true`; a leitura espera `min(ReadIndex, gate)` e o apply local, o que desacopla a leitura da saúde da Azure ([ADR-049](03_adr/ADR-049-barreira-da-leitura-forte-e-o-gate.md)). Sem barreira no prazo, `503` recuperável, nunca dado velho.
 - **Query e Scan em GSI são recusados** ([ADR-050](03_adr/ADR-050-query-em-gsi-recusada.md)).
 - Não há variável de modo (`READ_MODE_DEFAULT` e `WRITE_MODE` não existem).
 
-→ [06_leitura_forte_escrita_serial_e_latencia](01_arquitetura/06_leitura_forte_escrita_serial_e_latencia.md), [C03](02_cenarios/atualizados/C03-escrita-strong.md), [C05](02_cenarios/atualizados/C05-leitura-strong.md), [X08](02_cenarios/complexos/X08-leitura-forte-com-exemplos.md) (exemplos com dados mock), [ADR-057](03_adr/ADR-057-um-unico-modo-strong-consistency.md), [ADR-049](03_adr/ADR-049-barreira-da-leitura-forte-e-o-gate.md), [ADR-050](03_adr/ADR-050-query-em-gsi-recusada.md).
+→ [06_leitura_forte_escrita_serial_e_latencia](01_arquitetura/06_leitura_forte_escrita_serial_e_latencia.md), [C03](02_cenarios/atualizados/C03-escrita-strong.md), [C05](02_cenarios/atualizados/C05-leitura-strong.md), [X08](02_cenarios/complexos/X08-leitura-forte-com-exemplos.md) (exemplos com dados mock), [ADR-057](03_adr/ADR-057-um-unico-modo-strong-consistency.md), [ADR-058](03_adr/ADR-058-apply-paralelo-por-chave-com-marca-dagua.md), [ADR-049](03_adr/ADR-049-barreira-da-leitura-forte-e-o-gate.md), [ADR-050](03_adr/ADR-050-query-em-gsi-recusada.md).
 
 ### 5.6 Prazos em cascata e idempotência
 
@@ -264,7 +266,7 @@ flowchart TD
     D --> E
     E --> F["Learners Azure: 2 de 3 com fsync"]
     F --> G["Gate alcança o índice"]
-    G --> H["Applier grava no banco da célula da líder"]
+    G --> H["Applier grava no banco da célula da líder, em paralelo por chave"]
     H --> L{"Lease válido, se degradado?"}
     L -->|"sim"| I["ACK ao cliente, com header se estiver degradado"]
     L -->|"não"| M["503 LEASE_EXPIRED"]

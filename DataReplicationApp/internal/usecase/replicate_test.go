@@ -228,3 +228,32 @@ func TestPumpFeedsLastContactToLease(t *testing.T) {
 		t.Fatal("líder nova não herda t_c do termo antigo")
 	}
 }
+
+// ADR-059: com o Append preso (disco lento ou checkpoint), os lotes seguintes continuam
+// chegando ao gate e ao Applier; o log de replicação recebe tudo, em ordem, depois.
+func TestCommitsKeepFlowingWhileLogAppendIsBlocked(t *testing.T) {
+	log := &fakeLog{block: make(chan struct{}), entered: make(chan struct{}, 1)}
+	r := startPump(t, log, 10)
+	r.g.SetAzureOff(true) // POC: gate = commit do Raft (G-08)
+	r.commit(t, 1)
+	<-log.entered // o Append do lote 1 está preso
+	r.commit(t, 2)
+	r.commit(t, 3)
+	waitGate(t, r.g, 3)
+	for want := domain.Index(1); want <= 3; want++ {
+		select {
+		case b := <-r.toApply:
+			if b[0].Index != want {
+				t.Fatalf("Applier recebeu %d, quer %d", b[0].Index, want)
+			}
+		case <-time.After(time.Second):
+			t.Fatalf("o lote %d não chegou ao Applier com o Append preso", want)
+		}
+	}
+	close(log.block)
+	waitUntil(t, func() bool {
+		log.mu.Lock()
+		defer log.mu.Unlock()
+		return log.n == 3
+	}, "o log de replicação não recebeu os três lotes")
+}

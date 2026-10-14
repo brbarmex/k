@@ -637,7 +637,7 @@ type Reader interface {
 
 ### 7.4 Caso de uso: escrever
 
-Ordem do `Write`: acha a líder (espera até `WAIT_LEADER`, ADR-039), recusa se o lease venceu (`now >= t_c + D`), propõe, espera o gate (com `DEGRADE_AFTER` e a política), espera o apply local e **confere o lease de novo antes de responder**. O apply é sempre serial e depois do gate (ADR-053).
+Ordem do `Write`: acha a líder (espera até `WAIT_LEADER`, ADR-039), recusa se o lease venceu (`now >= t_c + D`), propõe, espera o gate (com `DEGRADE_AFTER` e a política), espera o apply local e **confere o lease de novo antes de responder**. O apply é sempre depois do gate (ADR-057), em paralelo por chave, e a espera é pela marca d'água (ADR-058).
 
 ```go
 package usecase
@@ -662,7 +662,7 @@ var (
 )
 
 // WriteService é o caso de uso "escrever": acha a líder, propõe, espera o gate, espera
-// o apply local, confere o lease e responde. O apply é sempre serial e depois do gate
+// o apply local, confere o lease e responde. O apply é sempre depois do gate (marca d'água, ADR-058)
 // (ADR-057); o ACK é sempre depois do gate E do apply.
 type WriteService struct {
 	Consensus port.ConsensusEngine
@@ -1431,7 +1431,7 @@ flowchart TD
     UC --> GATE["Gate: espera a Azure<br/>DEGRADE_AFTER 2 s"]
     GATE -->|"estourou 2 s e política accept"| DEG["propõe DEGRADE com lease D"]
     GATE -->|"estourou 2 s e política reject"| PEND
-    UC --> APPLY["Apply serial depois do gate<br/>tentativa 1 s, 2 tentativas"]
+    UC --> APPLY["Apply depois do gate, paralelo por chave<br/>tentativa 1 s, 2 tentativas"]
     APPLY --> LEASE["confere now menor que t_c + D a cada ACK<br/>vencido: 503 LEASE_EXPIRED"]
     API -->|"prazo estourou"| PEND["503 PENDING<br/>entrada pode já estar commitada"]
     PEND --> RETRY["retry do SDK<br/>dedupe e versão tornam seguro"]

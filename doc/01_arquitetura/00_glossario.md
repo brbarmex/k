@@ -48,9 +48,10 @@
 | **`_dr_v`** | Atributo reservado (nome a definir) com a versão do item. O applier grava só se a versão guardada for menor. **Nunca aparece nas respostas** (ADR-051) |
 | **Commit** | Entrada gravada com fsync em 2 de 3 votantes AWS |
 | **ACK** | Resposta de sucesso ao cliente: depois do gate e do apply no banco da célula da líder (e, no modo degradado, com o lease válido) |
-| **Apply** | Gravação da entrada no banco (DynamoDB ou Cosmos). Sempre serial e depois do gate (ADR-057) |
+| **Apply** | Gravação da entrada no banco (DynamoDB ou Cosmos). Sempre depois do gate (ADR-057), em paralelo por chave, com a mesma chave na ordem do log (ADR-058) |
+| **Marca d'água do apply** | O `applied` da célula: o maior índice que, com todos os anteriores, está no banco. O ACK da líder e a leitura forte esperam por ela (ADR-058) |
 | **`appliedIndex` / `last_applied`** | Último índice aplicado por inteiro no banco local. Nunca passa do gate |
-| **Strong consistency** | Único modo do `DataReplication` (ADR-057): escrita serial depois do gate e leitura sempre forte na tabela base, pela barreira `min(ReadIndex, gate)`. As aplicações enviam `ConsistentRead=true`. Query em GSI é recusada (ADR-050) |
+| **Strong consistency** | Único modo do `DataReplication` (ADR-057): apply só depois do gate e leitura sempre forte na tabela base, pela barreira `min(ReadIndex, gate)`. As aplicações enviam `ConsistentRead=true`. Query em GSI é recusada (ADR-050) |
 | **ReadIndex** | Leitura forte: a líder confirma que ainda é líder e informa o índice que a leitura precisa alcançar |
 | **Barreira da leitura forte** | `min(ReadIndex, gate)`: o que a leitura forte espera que o `appliedIndex` alcance. Desacopla a leitura da saúde da Azure; na follower, `ReadIndex` e gate chegam na mesma resposta (ADR-049) |
 | **Dedupe** | Reconhecer o retry de uma escrita pelo id estável do SDK, numa janela de 5 min, **por requisição inteira** (não por item), para não aplicá-la duas vezes. Fora da janela vale a semântica do DynamoDB (ADR-051) |

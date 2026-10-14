@@ -15,6 +15,7 @@ x-dr-env: &dr-env
   TABLE_WAIT: "120s"
   GATE_PUBLISH_INTERVAL: "100ms"
   REPLOG_SYNC_INTERVAL: "1s"
+  APPLY_WORKERS: "16"
   RAFT_DIR: "/var/lib/dr/raft/wal"
   REPLOG_DIR: "/var/lib/dr/replog"
 
