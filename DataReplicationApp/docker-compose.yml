@@ -1,0 +1,87 @@
+# POC local do DataReplication (S.4): LocalStack (só DynamoDB) e três células AWS.
+
+# Variáveis iguais nas três células: a ConfState de partida tem de ser a mesma (RT-03).
+x-dr-env: &dr-env
+  PEERS: "1=cell-1:7000,2=cell-2:7000,3=cell-3:7000"
+  LEARNERS: ""
+  POC_SEM_AZURE: "true" # SÓ DA POC (G-08, SG-12)
+  TABLES: "cadastro_cliente_cell_{cell}"
+  DYNAMODB_ENDPOINT: "http://localstack:4566"
+  AWS_REGION: "sa-east-1"
+  AWS_ACCESS_KEY_ID: "test"
+  AWS_SECRET_ACCESS_KEY: "test"
+  DEGRADED_POLICY: "reject"
+  TABLE_WAIT: "120s"
+  GATE_PUBLISH_INTERVAL: "100ms"
+  REPLOG_SYNC_INTERVAL: "1s"
+  RAFT_DIR: "/var/lib/dr/raft/wal"
+  REPLOG_DIR: "/var/lib/dr/replog"
+
+x-cell: &cell
+  image: datareplication-poc:local
+  pull_policy: never # a imagem é construída pela cell-1 (C-02)
+  depends_on:
+    localstack:
+      condition: service_healthy
+  restart: on-failure
+
+services:
+  localstack:
+    image: localstack/localstack:4.14.0 # versão fixa (SG-14)
+    environment:
+      SERVICES: dynamodb
+    ports:
+      - "4566:4566"
+    healthcheck:
+      test: ["CMD", "curl", "-fs", "http://localhost:4566/_localstack/health"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+
+  cell-1:
+    <<: *cell
+    build: .
+    environment:
+      <<: *dr-env
+      CELL_ID: "1"
+      NODE_ID: "1"
+    ports:
+      - "8001:8000"
+      - "9091:9090"
+    volumes:
+      - cell-1-raft:/var/lib/dr/raft
+      - cell-1-replog:/var/lib/dr/replog
+
+  cell-2:
+    <<: *cell
+    environment:
+      <<: *dr-env
+      CELL_ID: "2"
+      NODE_ID: "2"
+    ports:
+      - "8002:8000"
+      - "9092:9090"
+    volumes:
+      - cell-2-raft:/var/lib/dr/raft
+      - cell-2-replog:/var/lib/dr/replog
+
+  cell-3:
+    <<: *cell
+    environment:
+      <<: *dr-env
+      CELL_ID: "3"
+      NODE_ID: "3"
+    ports:
+      - "8003:8000"
+      - "9093:9090"
+    volumes:
+      - cell-3-raft:/var/lib/dr/raft
+      - cell-3-replog:/var/lib/dr/replog
+
+volumes:
+  cell-1-raft: { driver: local }
+  cell-1-replog: { driver: local }
+  cell-2-raft: { driver: local }
+  cell-2-replog: { driver: local }
+  cell-3-raft: { driver: local }
+  cell-3-replog: { driver: local }
