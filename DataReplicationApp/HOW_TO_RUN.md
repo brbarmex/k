@@ -97,16 +97,13 @@ Num notebook, o teste de carga mede o notebook tanto quanto o DR: os três WALs,
    ```
 
    A vazão impressa é o teto do apply na sua máquina. Se o gerador de carga passar disso, o atraso do apply cresce e a líder passa a recusar com `atraso_apply`. É o comportamento esperado, não defeito. O LocalStack sobe com `DYNAMODB_HEAP_SIZE=1G`; mude a variável de ambiente para testar outro valor.
-4. **Isole o DR do banco**, se quiser medir só Raft, fsync, gate e filas:
+4. **Use TPS baixo localmente** (por exemplo 10 TPS). O LocalStack não aguenta a vazão de produção; a vazão se mede na AWS. Com carga baixa o apply acompanha e não deve haver contrapressão. Para ver a admissão por atraso funcionar sem carga alta, suba com um teto baixo:
 
    ```bash
    task clean
-   task start STORE=memory                        # banco em memória, sem latência
-   task start STORE=memory MEMSTORE_LATENCY=5ms   # simula o DynamoDB real
-   task start STORE=memory MEMSTORE_LATENCY=1s    # simula o LocalStack lento: não deve haver eleição
+   task start APPLY_LAG_MAX=50    # a líder recusa com atraso_apply quando o apply fica 50 entradas atrás
    ```
 
-   Com `STORE=memory`, `task inspect` não mostra nada (o LocalStack não é usado); use `task scan` e `task read`.
 5. **Rode a carga e leia o diagnóstico:**
 
    ```bash
@@ -270,5 +267,5 @@ task clean  # docker compose down -v; remove named volumes
 | `write` returns `NO_LEADER` | Election in progress or quorum unavailable | Wait 1-2 seconds and check `task status` |
 | `/readyz` reports a stopped applier | Database rejected an item after commit (poison entry) | Check `erroApply` in `task status`; recovery requires operator action (ADR-038) |
 | Tables are empty after `stop` and `start` | LocalStack is not persistent | Use `task clean` then `task start` to reset coherently |
-| Muita `ThrottlingException` com causa `atraso_apply` | O apply não acompanha a carga (banco lento) | Compare com `task bench-localstack`; reduza a carga, aumente `APPLY_WORKERS` ou use `STORE=memory` para medir só o DR |
+| Muita `ThrottlingException` com causa `atraso_apply` | O apply não acompanha a carga (banco lento) | Compare com `task bench-localstack`; reduza a carga ou aumente `APPLY_WORKERS`; a vazão real se mede na AWS |
 | Trocas de líder durante a carga | Laço do Raft lento: fsync com picos acima do timeout de eleição | Veja `dr_raft_loop_duration_seconds`, `dr_raft_tick_gap_seconds` e o fsync P99 no `task diag`; meça o disco com `fio`; `ELECTION_TICKS` já é 30 no compose |

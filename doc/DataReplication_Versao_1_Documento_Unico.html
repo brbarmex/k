@@ -8064,7 +8064,7 @@ gate         = max(gate, candidato)            -- nunca recua
 <li><strong>Ambiente de teste de carga (4a).</strong>
    - Começar de volumes limpos (<code>task clean</code>).
    - <code>task bench-localstack</code> mede o teto do LocalStack sozinho, com o mesmo PutItem condicional do applier (binário <code>benchstore</code>).
-   - <code>STORE=memory</code> (só com <code>POC_SEM_AZURE=true</code>) troca o banco da célula por um banco em memória, com latência simulada opcional (<code>MEMSTORE_LATENCY</code>), para medir o DataReplication sem o LocalStack.
+   - <strong>Sem banco em memória</strong> (Bruno, 14/10, depois da decisão 4a): ele aceita o limite do LocalStack, testa localmente com TPS baixo (por exemplo 10 TPS) e depois na AWS. Com TPS baixo o applier acompanha a carga, então o desacoplamento do laço (item 1) e a admissão (item 2) quase não são exercitados localmente. Para exercitar a admissão sem carga alta, <code>APPLY_LAG_MAX</code> pode ser baixado no compose (<code>task start APPLY_LAG_MAX=50</code>).
    - O LocalStack sobe com <code>DYNAMODB_HEAP_SIZE=1G</code> (o padrão é 256m).</li>
 <li><strong>Partida não reaplica o log inteiro (5a).</strong> O ponto de retomada é <code>min(último do log de replicação + 1, índice do progresso do applier)</code>. O Raft recebe <code>Applied = retomada - 1</code> (limitado entre o snapshot e o commit gravado) e o <code>CommitPump</code> começa na retomada. Precisa ser o mínimo dos dois: o log de replicação não tem fsync por entrada, e numa queda de host ele pode estar atrás do progresso; começar depois dele abriria um buraco (<code>ErrGap</code>, fatal). A entrada do progresso é reentregue inteira, e o applier pula os itens já gravados pela ordem salva.</li>
 <li><strong>Métricas que explicam o que aconteceu (6a).</strong>
@@ -8073,7 +8073,7 @@ gate         = max(gate, candidato)            -- nunca recua
    - <code>dr_raft_tick_gap_seconds</code>: intervalo real entre dois ticks. Perto do timeout de eleição, a célula some para as outras.
    - <code>dr_apply_lag</code>, <code>dr_apply_lag_max</code>, <code>dr_apply_inbox_batches</code>, <code>dr_commit_undelivered</code> e <code>dr_election_ticks</code>.
    - Na porta de API: <code>dr_http_requests_total{op, codigo}</code> (o TPS de entrada por célula), <code>dr_http_request_duration_seconds{op}</code> (todas as respostas) e <code>dr_http_inflight</code>.
-   - O <code>/status</code> ganha <code>apply.atraso</code>, <code>apply.atrasoMax</code>, <code>apply.fila</code>, <code>commitNaoEntregue</code>, <code>electionTicks</code> e <code>banco</code>.
+   - O <code>/status</code> ganha <code>apply.atraso</code>, <code>apply.atrasoMax</code>, <code>apply.fila</code>, <code>commitNaoEntregue</code> e <code>electionTicks</code>.
    - O dashboard v2 ganha as seções 08 (entrada HTTP e contrapressão) e 09 (apply e laço do Raft), e o painel "Resultados de escrita por segundo" deixa de empilhar as séries. Empilhado, a linha de cima era a soma de todos os resultados e parecia ser só throttling.
    - <code>task diag</code> imprime, por célula, entrada, ACK, pending, vazão e latência do apply, atraso, commit não entregue, tick e fsync P99, trocas de líder e contrapressão por causa.</li>
 </ol>
@@ -8093,16 +8093,16 @@ gate         = max(gate, candidato)            -- nunca recua
 <li><strong>Memória:</strong> as entradas não consumidas ficam no <code>MemoryStorage</code>. Na POC isso já acontecia, porque a compactação está desligada. Em produção a memória do Raft é limitada pela compactação até o <code>DurableIndex</code> e pelo teto de disco (<a href="#d-03-adr-adr-041-disco-do-log-teto-de-70-por-cento-sem-s3-na-v1">ADR-041</a>).</li>
 <li><strong>O timeout de eleição maior aumenta o RTO</strong> na queda da líder: de 1 a 2 s para 3 a 6 s na POC.</li>
 <li><strong>A causa <code>nao_lider</code> continua possível</strong> numa janela curta depois de uma troca de líder, porque <code>n.lead</code> ainda é atualizado pelo laço. Com o laço sem bloqueio a janela fica do tamanho de um <code>Ready</code>, e a métrica mostra quando acontece.</li>
-<li><strong><code>STORE=memory</code> não prova nada sobre o banco.</strong> Serve para medir o DataReplication (Raft, fsync, gate, filas) isolado. O teto real do apply sai do <code>task bench-localstack</code> e, em produção, do spike S5.</li>
+<li><strong>O teste local com TPS baixo não exercita os itens 1 e 2.</strong> Eles ficam provados pelos testes de unidade (laço com consumidores parados, admissão) e, de verdade, no teste na AWS. O teto do apply local sai do <code>task bench-localstack</code> e, em produção, do spike S5.</li>
 </ul>
 <h4 id="d-03-adr-adr-060-laco-do-raft-nunca-espera-o-apply-e-admissao-por-atraso--código">Código</h4>
 <ul>
 <li><code>DataReplicationApp/internal/adapter/out/etcdraft/node.go</code>: publicação do commit, <code>CommitIndex</code>, <code>CommitChanged</code>, <code>CommittedEntries</code>, <code>FirstIndex</code>, causa do descarte, <code>ElectionTicks</code>, <code>Applied</code> na partida, métricas do laço e do tick.</li>
 <li><code>DataReplicationApp/internal/usecase/replicate.go</code>: <code>CommitPump</code> por faixa, goroutine do gate, <code>ResumeFrom</code>, <code>Delivered</code>.</li>
 <li><code>DataReplicationApp/internal/usecase/write.go</code>: admissão (<code>MaxApplyLag</code>) e <code>BackpressureError</code> com a causa.</li>
-<li><code>DataReplicationApp/internal/adapter/out/memstore</code>, <code>cmd/benchstore</code>, <code>internal/platform/config</code> (<code>APPLY_LAG_MAX</code>, <code>ELECTION_TICKS</code>, <code>STORE</code>, <code>MEMSTORE_LATENCY</code>), <code>internal/adapter/in/dynamohttp/handler.go</code> (métricas HTTP), <code>internal/adapter/out/prommetrics</code>, <code>observability/grafana/dashboards/datareplication-v2.json</code> e <code>taskfile.yaml</code> (<code>bench-localstack</code>, <code>diag</code>, <code>start STORE=...</code>).</li>
-<li>Testes: laço do Raft com consumidores parados (3.000 propostas de 64 clientes, sem eleição), causa <code>nao_lider</code>, gate da POC acompanhando o commit com o applier parado, retomada, admissão, banco em memória, configuração e métricas.</li>
-<li>Spec da POC: RT-04, RT-06, RT-07, RT-09, RT-13, AP-01, AP-12 a AP-15, O-15, CA-17 e CA-18, SG-17, risco 3 fechado, em <a href="../spec/SPEC_POC_LOCAL.md">SPEC_POC_LOCAL.md</a>. Prompt do SPDD: passos O-27 (laço, admissão, retomada, banco em memória) e O-28 (métricas HTTP, dashboard e tasks).</li>
+<li><code>DataReplicationApp/cmd/benchstore</code>, <code>internal/platform/config</code> (<code>APPLY_LAG_MAX</code>, <code>ELECTION_TICKS</code>), <code>internal/adapter/in/dynamohttp/handler.go</code> (métricas HTTP), <code>internal/adapter/out/prommetrics</code>, <code>observability/grafana/dashboards/datareplication-v2.json</code> e <code>taskfile.yaml</code> (<code>bench-localstack</code>, <code>diag</code>, <code>start APPLY_LAG_MAX=...</code>).</li>
+<li>Testes: laço do Raft com consumidores parados (3.000 propostas de 64 clientes, sem eleição), causa <code>nao_lider</code>, gate da POC acompanhando o commit com o applier parado, retomada, admissão, configuração e métricas.</li>
+<li>Spec da POC: RT-04, RT-06, RT-07, RT-09, RT-13, AP-01, AP-12, AP-13, AP-15, O-15, CA-17 e CA-18, SG-17, risco 3 fechado, em <a href="../spec/SPEC_POC_LOCAL.md">SPEC_POC_LOCAL.md</a>. Prompt do SPDD: passos O-27 (laço, admissão, retomada) e O-28 (métricas HTTP, dashboard e tasks).</li>
 </ul>
 <h4 id="d-03-adr-adr-060-laco-do-raft-nunca-espera-o-apply-e-admissao-por-atraso--onde-está-o-detalhe">Onde está o detalhe</h4>
 <ul>
@@ -12849,7 +12849,7 @@ node.Advance() // só depois do fsync
 <ul>
 <li>Começar de volumes limpos (<code>task clean</code>). O atraso de 207K contaminou o teste.</li>
 <li>Medir o teto do LocalStack sozinho: k6 direto no LocalStack com PutItem condicional nas três tabelas. Ver <code>docker stats</code> do LocalStack e a variável <code>DYNAMODB_HEAP_SIZE</code>. O DynamoDB Local roda em Java com SQLite, e com centenas de milhares de itens um heap pequeno pode provocar GC contínuo (hipótese a confirmar).</li>
-<li>Criar na POC um banco em memória (por exemplo <code>STORE=memory</code>) só para teste de carga. Assim se mede o DataReplication sem o LocalStack.</li>
+<li>~~Criar na POC um banco em memória (por exemplo <code>STORE=memory</code>) só para teste de carga.~~ <strong>Descartado pelo Bruno (14/10):</strong> ele aceita o limite do LocalStack, testa localmente com TPS baixo (por exemplo 10 TPS) e depois na AWS.</li>
 <li>Rodar o k6 em outra máquina, ou fixar CPUs com <code>cpuset</code> para separar o k6 das células.</li>
 <li>Medir o disco antes: <code>fio --rw=write --ioengine=sync --fdatasync=1 --size=22m --bs=2300 --name=wal</code> no diretório dos volumes do Docker.</li>
 </ul>

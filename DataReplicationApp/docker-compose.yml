@@ -19,10 +19,9 @@ x-dr-env: &dr-env
   # ADR-060: timeout de eleição de 3 s (30 ticks de 100 ms) no notebook: o fsync tem picos
   # de 1 a 2 s com tudo no mesmo SSD. APPLY_LAG_MAX fica no padrão (APPLY_WORKERS x 256).
   ELECTION_TICKS: "30"
-  # ADR-060: STORE=memory troca o LocalStack por um banco em memória, só para teste de
-  # carga (task start STORE=memory). MEMSTORE_LATENCY simula a latência por item.
-  STORE: "${STORE:-dynamodb}"
-  MEMSTORE_LATENCY: "${MEMSTORE_LATENCY:-0s}"
+  # ADR-060: vazio = padrão APPLY_WORKERS x 256. Um valor baixo (task start APPLY_LAG_MAX=50)
+  # exercita a admissão por atraso do apply com pouca carga.
+  APPLY_LAG_MAX: "${APPLY_LAG_MAX:-}"
   RAFT_DIR: "/var/lib/dr/raft/wal"
   REPLOG_DIR: "/var/lib/dr/replog"
 

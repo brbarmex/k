@@ -18,7 +18,6 @@ import (
 	"example.com/datareplication/internal/adapter/in/peergrpc"
 	"example.com/datareplication/internal/adapter/out/dynamodb"
 	"example.com/datareplication/internal/adapter/out/etcdraft"
-	"example.com/datareplication/internal/adapter/out/memstore"
 	"example.com/datareplication/internal/adapter/out/peerclient"
 	"example.com/datareplication/internal/adapter/out/prommetrics"
 	"example.com/datareplication/internal/adapter/out/replog"
@@ -192,8 +191,7 @@ func newReplog(lc fx.Lifecycle, cfg config.Config) (*replog.Log, error) {
 	return l, nil
 }
 
-// CellStore é o banco da célula com o catálogo conferido na partida: DynamoDB (padrão) ou,
-// SÓ NA POC, o banco em memória para teste de carga (STORE=memory, ADR-060).
+// CellStore é o banco da célula com o catálogo conferido na partida (DynamoDB).
 type CellStore interface {
 	port.StateStore
 	port.Scanner
@@ -202,9 +200,6 @@ type CellStore interface {
 }
 
 func newStore(cfg config.Config, tm domain.TableMap) (CellStore, error) {
-	if cfg.Store == config.StoreMemory {
-		return memstore.New(tm, cfg.MemStoreLatency), nil
-	}
 	return dynamodb.New(context.Background(), cfg.DynamoEndpoint, cfg.AWSRegion, tm, cfg.ApplyWorkers)
 }
 
@@ -277,7 +272,7 @@ func newStatus(cfg config.Config, r port.RaftStatus, g *domain.Gate, a *usecase.
 	p *usecase.CommitPump, inbox chan []domain.Entry) *usecase.StatusReporter {
 	return &usecase.StatusReporter{CellID: cfg.CellID, NodeID: cfg.NodeID, Raft: r, Gate: g, Applier: a, Log: l, Catalog: cat,
 		AzureOff: len(cfg.Learners) == 0, Pump: p, ApplyInbox: func() int { return len(inbox) },
-		ApplyLagMax: cfg.ApplyLagMax, ElectionTicks: cfg.ElectionTicks, Store: cfg.Store}
+		ApplyLagMax: cfg.ApplyLagMax, ElectionTicks: cfg.ElectionTicks}
 }
 
 // runAdmin abre a administração primeiro: o /livez responde enquanto as tabelas são
@@ -356,7 +351,7 @@ func runRuntime(d runtimeDeps) {
 			fatal("gatesync", d.GateSync.Run)
 			d.Log.Info().Str("peer", d.Cfg.PeerAddr).Int("applyWorkers", d.Applier.WorkerCount()).
 				Uint64("applyLagMax", d.Cfg.ApplyLagMax).Int("electionTicks", d.Cfg.ElectionTicks).
-				Str("store", d.Cfg.Store).Uint64("retomaEm", uint64(d.Pump.From)).Msg("célula iniciada")
+				Uint64("retomaEm", uint64(d.Pump.From)).Msg("célula iniciada")
 			return nil
 		},
 		OnStop: func(stopCtx context.Context) error {

@@ -23,7 +23,6 @@ type CellStatus struct {
 	// applier (ADR-060). Ficam na memória do Raft; o laço do Raft não espera por elas.
 	CommitNaoEntregue uint64            `json:"commitNaoEntregue"`
 	ElectionTicks     int               `json:"electionTicks"`
-	Banco             string            `json:"banco"`
 	Azure             string            `json:"azure"`
 	Replog            ReplogStatus      `json:"replog"`
 	ErroApply         string            `json:"erroApply,omitempty"`
@@ -74,7 +73,6 @@ type StatusReporter struct {
 	ApplyInbox    func() int
 	ApplyLagMax   uint64
 	ElectionTicks int
-	Store         string
 }
 
 func (r *StatusReporter) Status() CellStatus {
@@ -101,7 +99,7 @@ func (r *StatusReporter) Status() CellStatus {
 			st.CommitNaoEntregue = uint64(st.Commit - d)
 		}
 	}
-	st.ElectionTicks, st.Banco = r.ElectionTicks, r.Store
+	st.ElectionTicks = r.ElectionTicks
 	if ri.Lead != 0 && ri.Lead == r.NodeID {
 		st.Papel = "lider"
 		st.Match = make(map[string]uint64, len(ri.Match))

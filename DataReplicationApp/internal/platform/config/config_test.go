@@ -176,34 +176,33 @@ func TestApplyWorkers(t *testing.T) {
 	}
 }
 
-// ADR-060: padrões e limites de APPLY_LAG_MAX, ELECTION_TICKS, STORE e MEMSTORE_LATENCY.
+// ADR-060: padrões e limites de APPLY_LAG_MAX e ELECTION_TICKS.
 func TestLoadADR060Vars(t *testing.T) {
 	c, err := LoadFrom(env(valid()))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c.ApplyLagMax != 16*256 || c.ElectionTicks != 10 || c.Store != StoreDynamoDB || c.MemStoreLatency != 0 {
-		t.Fatalf("padrões inesperados: lag %d ticks %d store %q latência %s", c.ApplyLagMax, c.ElectionTicks, c.Store, c.MemStoreLatency)
+	if c.ApplyLagMax != 16*256 || c.ElectionTicks != 10 {
+		t.Fatalf("padrões inesperados: lag %d ticks %d", c.ApplyLagMax, c.ElectionTicks)
 	}
 	m := valid()
-	m["APPLY_WORKERS"], m["ELECTION_TICKS"], m["STORE"], m["MEMSTORE_LATENCY"] = "4", "30", "memory", "5ms"
+	m["APPLY_WORKERS"], m["ELECTION_TICKS"] = "4", "30"
 	c, err = LoadFrom(env(m))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c.ApplyLagMax != 4*256 || c.ElectionTicks != 30 || c.Store != StoreMemory || c.MemStoreLatency != 5*time.Millisecond {
+	if c.ApplyLagMax != 4*256 || c.ElectionTicks != 30 {
 		t.Fatalf("valores lidos errados: %+v", c)
 	}
-	for k, bad := range map[string]string{"APPLY_LAG_MAX": "0", "ELECTION_TICKS": "2", "STORE": "redis", "MEMSTORE_LATENCY": "-1ms"} {
+	m["APPLY_LAG_MAX"] = "50"
+	if c, err = LoadFrom(env(m)); err != nil || c.ApplyLagMax != 50 {
+		t.Fatalf("APPLY_LAG_MAX=50: %d %v", c.ApplyLagMax, err)
+	}
+	for k, bad := range map[string]string{"APPLY_LAG_MAX": "0", "ELECTION_TICKS": "2"} {
 		m := valid()
 		m[k] = bad
 		if _, err := LoadFrom(env(m)); err == nil || !strings.Contains(err.Error(), k) {
 			t.Errorf("%s=%s devia falhar citando a variável, veio %v", k, bad, err)
 		}
-	}
-	m = valid()
-	m["POC_SEM_AZURE"], m["LEARNERS"], m["STORE"] = "", "4=a:1,5=b:1,6=c:1", "memory"
-	if _, err := LoadFrom(env(m)); err == nil || !strings.Contains(err.Error(), "STORE=memory") {
-		t.Errorf("STORE=memory fora da POC devia falhar, veio %v", err)
 	}
 }

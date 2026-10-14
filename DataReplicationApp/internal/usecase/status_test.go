@@ -69,12 +69,12 @@ func TestStatusShowsApplyLagAndUndelivered(t *testing.T) {
 	s := newStatus(port.RaftInfo{NodeID: 1, Lead: 1, Running: true, Commit: 100})
 	s.Gate.SetAzureOff(true)
 	s.Gate.SetRaftCommit(90)
-	s.Pump, s.ApplyInbox, s.ApplyLagMax, s.ElectionTicks, s.Store = pump, func() int { return 3 }, 4096, 30, "memory"
+	s.Pump, s.ApplyInbox, s.ApplyLagMax, s.ElectionTicks = pump, func() int { return 3 }, 4096, 30
 	st := s.Status()
 	if st.Apply.Atraso != 90 || st.Apply.AtrasoMax != 4096 || st.Apply.Fila != 3 {
 		t.Fatalf("apply = %+v", st.Apply)
 	}
-	if st.CommitNaoEntregue != 60 || st.ElectionTicks != 30 || st.Banco != "memory" {
-		t.Fatalf("commitNaoEntregue %d, electionTicks %d, banco %q", st.CommitNaoEntregue, st.ElectionTicks, st.Banco)
+	if st.CommitNaoEntregue != 60 || st.ElectionTicks != 30 {
+		t.Fatalf("commitNaoEntregue %d, electionTicks %d", st.CommitNaoEntregue, st.ElectionTicks)
 	}
 }

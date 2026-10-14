@@ -174,7 +174,7 @@ O gate é o índice máximo que pode ser confirmado ao cliente e aplicado em qua
 | AP-11 | `APPLY_WORKERS` (padrão 16, de 1 a 256) define os workers do applier; `1` volta a um item por vez, para comparação. O cliente do SDK do DynamoDB guarda `max(2 × APPLY_WORKERS, 32)` conexões ociosas por host (o padrão do SDK é 10). O `/status` mostra `apply.workers` e `apply.emVoo` (itens a caminho do banco); as métricas `dr_apply_workers`, `dr_apply_inflight` e `dr_apply_item_duration_seconds` mostram o mesmo no dashboard. |
 | AP-12 | **Gate pelo commit:** uma goroutine própria do `CommitPump` espera `CommitChanged()` e chama `SetTerm` e `SetRaftCommit(CommitIndex())`. O gate não depende do applier nem do log de replicação: na POC, gate = commit o tempo todo, mesmo com o applier parado. |
 | AP-13 | **Admissão por atraso do apply:** na líder, depois da checagem do lease e antes do `Propose`, se `gate − aplicado > APPLY_LAG_MAX` a escrita é recusada com 400 `ThrottlingException` (causa `atraso_apply`) e nada entra no log. `APPLY_LAG_MAX` tem padrão `APPLY_WORKERS × 256` (4.096 com 16 workers), de 1 a 10.000.000. A conta é contra o gate, nunca contra o commit. |
-| AP-14 | **Banco em memória para teste de carga:** `STORE=memory` (só com `POC_SEM_AZURE=true`) troca o DynamoDB por um banco em memória com o mesmo contrato (put condicional por versão, `GetItem`, `Scan` paginado e ordenado, chave `pk` String) e latência simulada opcional (`MEMSTORE_LATENCY`). Serve para medir o DR sem o LocalStack; não prova nada sobre o banco. |
+| AP-14 | **Sem banco em memória** (Bruno, 14/10): a POC usa só o LocalStack. O teste de carga local é com TPS baixo (por exemplo 10 TPS) e o de vazão é na AWS. Com TPS baixo o applier acompanha a carga, então para exercitar a admissão (AP-13) localmente basta baixar `APPLY_LAG_MAX` (`task start APPLY_LAG_MAX=50`). |
 | AP-15 | **Teto do LocalStack:** o binário `benchstore` (na mesma imagem) mede o PutItem condicional do applier direto no LocalStack, com N workers por um tempo, e imprime vazão e p50, p95 e p99. É a referência de quanto o apply consegue andar na máquina. |
 
 ### A.6 Leitura forte (GetItem e Scan)
@@ -296,10 +296,8 @@ Requisitos do taskfile:
 | `TABLE_WAIT` | `120s` | Espera pelas tabelas na partida |
 | `GATE_PUBLISH_INTERVAL`, `REPLOG_SYNC_INTERVAL` | `100ms`, `1s` | |
 | `APPLY_WORKERS` | `16` | Inteiro de 1 a 256; padrão 16 (AP-11, [ADR-058](../doc/03_adr/ADR-058-apply-paralelo-por-chave-com-marca-dagua.md)) |
-| `APPLY_LAG_MAX` | `4096` | Inteiro de 1 a 10.000.000; padrão `APPLY_WORKERS × 256` (AP-13) |
+| `APPLY_LAG_MAX` | vazio | Inteiro de 1 a 10.000.000; vazio = padrão `APPLY_WORKERS × 256` (AP-13); o compose repassa a variável do host |
 | `ELECTION_TICKS` | `30` | Inteiro de 3 a 100; padrão 10; o compose usa 30 (RT-06) |
-| `STORE` | `dynamodb` | `dynamodb` ou `memory`; `memory` exige `POC_SEM_AZURE=true` (AP-14) |
-| `MEMSTORE_LATENCY` | `0s` | Duração >= 0; latência simulada por gravação com `STORE=memory` |
 | `CLIENT_TIMEOUT`, `REQUEST_DEADLINE`, `WAIT_LEADER`, `FORWARD_TIMEOUT` | padrões do esboço (30 s, 7,5 s, 1 s, 3 s) | Regras de coerência do `config.go` |
 
 As variáveis do antigo modo eventual (`READ_MODE_DEFAULT`, `WRITE_MODE`, `MAX_STALENESS`) continuam derrubando a partida ([ADR-057](../doc/03_adr/ADR-057-um-unico-modo-strong-consistency.md)).
@@ -310,7 +308,7 @@ As variáveis do antigo modo eventual (`READ_MODE_DEFAULT`, `WRITE_MODE`, `MAX_S
 |---|---|
 | `GET /livez` | 200 se o processo está de pé |
 | `GET /readyz` | 200 só com tabela conferida, Raft rodando, líder conhecida e applier sem erro |
-| `GET /status` | JSON com `celula`, `no`, `papel` (líder ou follower), `lider`, `termo`, `commit`, `gate`, `gatePronto`, `aplicado` (marca d'água), `apply` (`workers`, `emVoo`, `atraso` = gate − aplicado, `atrasoMax`, `fila` = lotes na fila do applier), `commitNaoEntregue` (commit menos o que o `CommitPump` entregou), `electionTicks`, `banco` (`dynamodb` ou `memory`), `azure` (`on`/`off`), `replog` (`ultimo`, `duravel`), `erroApply`; na líder também o `match` de cada par |
+| `GET /status` | JSON com `celula`, `no`, `papel` (líder ou follower), `lider`, `termo`, `commit`, `gate`, `gatePronto`, `aplicado` (marca d'água), `apply` (`workers`, `emVoo`, `atraso` = gate − aplicado, `atrasoMax`, `fila` = lotes na fila do applier), `commitNaoEntregue` (commit menos o que o `CommitPump` entregou), `electionTicks`, `azure` (`on`/`off`), `replog` (`ultimo`, `duravel`), `erroApply`; na líder também o `match` de cada par |
 | `POST /transferir?para=N` | PODE: transferência planejada de liderança ([ADR-013](../doc/03_adr/ADR-013-transferencia-planejada-de-lideranca.md)) |
 
 ---
@@ -335,7 +333,7 @@ As variáveis do antigo modo eventual (`READ_MODE_DEFAULT`, `WRITE_MODE`, `MAX_S
 | O-12 | `taskfile.yaml` (S.5) | Critérios da O.3 |
 | O-13 | `README.md` da POC: pré-requisitos, comandos, o que observar | |
 | O-14 | Apply paralelo por chave (AP-03, AP-06, AP-07, AP-11) e checkpoint do log de replicação sem trava (AP-01, AP-10) | CA-15 e CA-16 |
-| O-15 | Laço do Raft sem espera, gate pelo commit, admissão, retomada, banco em memória, `benchstore` e métricas de causa e HTTP (RT-04, RT-06, RT-07, RT-09, RT-13, AP-01, AP-12 a AP-15; passos O-27 e O-28 do prompt do SPDD) | CA-17 e CA-18 |
+| O-15 | Laço do Raft sem espera, gate pelo commit, admissão, retomada, `benchstore` e métricas de causa e HTTP (RT-04, RT-06, RT-07, RT-09, RT-13, AP-01, AP-12, AP-13, AP-15; passos O-27 e O-28 do prompt do SPDD) | CA-17 e CA-18 |
 
 ### O.2 Pré-requisitos na máquina
 
@@ -361,8 +359,8 @@ Docker com Compose v2, Task v3, AWS CLI v2. Nada de Go no host (o build é no co
 | **CA-14** | **Quando** rodo `go test -race ./...` no container de build, **então** todos os testes passam, inclusive os do gate com learners simulados (O-02). |
 | **CA-15** | **Quando** rodo `go test -race ./...`, **então** passam os testes de: gravações de chaves diferentes ao mesmo tempo; marca d'água que não passa de uma entrada ainda no banco, mesmo com entradas seguintes já gravadas; mesma chave gravada na ordem do log com 16 workers; item venenoso parando a marca d'água logo antes dele, sem gravar a entrada seguinte da mesma chave; `Append` que termina enquanto o fsync do checkpoint está preso, com o índice durável sem passar do que estava gravado; lotes chegando ao gate e ao applier com o `Append` preso. |
 | **CA-16** | **Quando** rodo o benchmark do applier com banco simulado de 4 ms por item, **então** 16 workers aplicam pelo menos 10 vezes mais itens por segundo que 1 worker. **E**, com o ambiente de pé, o `task status` mostra `apply.workers: 16` nas três células. |
-| **CA-17** | **Quando** rodo `go test -race ./...`, **então** passam os testes de: 3.000 propostas com os consumidores do commit parados, sem troca de líder e com o commit publicado, e depois leitura contígua de tudo ao voltar; proposta numa follower descartada com a causa `nao_lider`; `Applied` da partida entre o snapshot e o commit; gate da POC acompanhando o commit com o applier parado; `CommitPump` começando na retomada e `ResumeFrom`; admissão recusando com `atraso_apply` e aceitando abaixo do teto; banco em memória (put condicional, `Scan` paginado, latência com cancelamento); variáveis novas da S.6; séries novas de métricas. |
-| **CA-18** | **Dado** `task limpar` e `task subir`, **quando** rodo `task carga` e depois `task diag`, **então** a tabela por célula mostra entrada HTTP, ACK, pending, vazão e latência do apply, atraso, commit não entregue, tick e fsync P99, trocas de líder e contrapressão por causa, e o dashboard v2 mostra as seções 08 e 09. **E**, com o LocalStack lento (ou `STORE=memory MEMSTORE_LATENCY=1s`), o termo **não muda** durante a carga, `dr_raft_tick_gap_seconds` fica perto de 100 ms e a líder recusa com `atraso_apply` em vez de gerar eleição. |
+| **CA-17** | **Quando** rodo `go test -race ./...`, **então** passam os testes de: 3.000 propostas com os consumidores do commit parados, sem troca de líder e com o commit publicado, e depois leitura contígua de tudo ao voltar; proposta numa follower descartada com a causa `nao_lider`; `Applied` da partida entre o snapshot e o commit; gate da POC acompanhando o commit com o applier parado; `CommitPump` começando na retomada e `ResumeFrom`; admissão recusando com `atraso_apply` e aceitando abaixo do teto; variáveis novas da S.6; séries novas de métricas. |
+| **CA-18** | **Dado** `task limpar` e `task subir`, **quando** rodo `task carga` e depois `task diag`, **então** a tabela por célula mostra entrada HTTP, ACK, pending, vazão e latência do apply, atraso, commit não entregue, tick e fsync P99, trocas de líder e contrapressão por causa, e o dashboard v2 mostra as seções 08 e 09. **E**, com a carga baixa (por exemplo 10 TPS), o termo **não muda**, `dr_raft_tick_gap_seconds` fica perto de 100 ms e não há contrapressão. **E**, com `task start APPLY_LAG_MAX=50` e uma rajada acima do teto do `task bench-localstack`, a líder recusa com `atraso_apply` sem troca de líder. |
 
 ---
 
@@ -414,6 +412,6 @@ Docker com Compose v2, Task v3, AWS CLI v2. Nada de Go no host (o build é no co
 5. **Um LocalStack para as três células.** As três tabelas estão no mesmo processo: não há isolamento de falha entre bancos. Serve para o conceito, não para medir.
 6. **Leitura direta no LocalStack logo depois do ACK.** O ACK só espera o apply da líder (AP-09). Um `task inspecionar` imediato pode mostrar o item em 1 ou 2 tabelas. A busca via DR não tem esse problema, porque espera a barreira.
 7. **Memória do Raft sem compactação** (RT-11): rodar a POC por horas sob carga faz o processo crescer. Fora do escopo do teste de conceito. Com o RT-13 as entradas não consumidas também ficam aí enquanto o apply está atrasado (`dr_commit_undelivered`).
-10. **Teste de carga num notebook mede o notebook.** Três WALs, três logs de replicação, o LocalStack, o Prometheus e o k6 dividem o mesmo SSD e as mesmas CPUs. Começar de volumes limpos (`task limpar`), medir o LocalStack sozinho (`task bench-localstack`) e o disco (`fio`) antes, e usar `STORE=memory` para isolar o DR.
+10. **Teste de carga num notebook mede o notebook.** Três WALs, três logs de replicação, o LocalStack, o Prometheus e o k6 dividem o mesmo SSD e as mesmas CPUs. Começar de volumes limpos (`task limpar`), medir o LocalStack sozinho (`task bench-localstack`) e o disco (`fio`) antes. O Bruno decidiu (14/10) testar localmente com TPS baixo e medir vazão na AWS, sem banco em memória.
 8. **Gate atrasado nas follower.** Cada follower só aplica até o último gate recebido. Se uma mensagem `GateUpdate` se perde, a reenvio periódica (G-06) cobre; o atraso máximo é `GATE_PUBLISH_INTERVAL`.
 9. **Chave quente.** O paralelismo é entre chaves. Muitas escritas na mesma `pk` são gravadas uma por vez (no máximo `1 / tempo do PutItem` por segundo), atrasam as outras chaves do mesmo worker e, pela marca d'água contígua, o ACK de todas as escritas seguintes. Na POC o `task carga` usa `pk` diferentes e não exercita isso. Aparece como `dr_apply_inflight` alto com `dr_applied_index` parado ([ADR-058](../doc/03_adr/ADR-058-apply-paralelo-por-chave-com-marca-dagua.md)).

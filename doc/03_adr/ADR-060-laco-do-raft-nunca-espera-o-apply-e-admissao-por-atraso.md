@@ -36,7 +36,7 @@ O ponto central não é da POC. Em produção, um DynamoDB lento ou com throttli
 4. **Ambiente de teste de carga (4a).**
    - Começar de volumes limpos (`task clean`).
    - `task bench-localstack` mede o teto do LocalStack sozinho, com o mesmo PutItem condicional do applier (binário `benchstore`).
-   - `STORE=memory` (só com `POC_SEM_AZURE=true`) troca o banco da célula por um banco em memória, com latência simulada opcional (`MEMSTORE_LATENCY`), para medir o DataReplication sem o LocalStack.
+   - **Sem banco em memória** (Bruno, 14/10, depois da decisão 4a): ele aceita o limite do LocalStack, testa localmente com TPS baixo (por exemplo 10 TPS) e depois na AWS. Com TPS baixo o applier acompanha a carga, então o desacoplamento do laço (item 1) e a admissão (item 2) quase não são exercitados localmente. Para exercitar a admissão sem carga alta, `APPLY_LAG_MAX` pode ser baixado no compose (`task start APPLY_LAG_MAX=50`).
    - O LocalStack sobe com `DYNAMODB_HEAP_SIZE=1G` (o padrão é 256m).
 5. **Partida não reaplica o log inteiro (5a).** O ponto de retomada é `min(último do log de replicação + 1, índice do progresso do applier)`. O Raft recebe `Applied = retomada - 1` (limitado entre o snapshot e o commit gravado) e o `CommitPump` começa na retomada. Precisa ser o mínimo dos dois: o log de replicação não tem fsync por entrada, e numa queda de host ele pode estar atrás do progresso; começar depois dele abriria um buraco (`ErrGap`, fatal). A entrada do progresso é reentregue inteira, e o applier pula os itens já gravados pela ordem salva.
 6. **Métricas que explicam o que aconteceu (6a).**
@@ -45,7 +45,7 @@ O ponto central não é da POC. Em produção, um DynamoDB lento ou com throttli
    - `dr_raft_tick_gap_seconds`: intervalo real entre dois ticks. Perto do timeout de eleição, a célula some para as outras.
    - `dr_apply_lag`, `dr_apply_lag_max`, `dr_apply_inbox_batches`, `dr_commit_undelivered` e `dr_election_ticks`.
    - Na porta de API: `dr_http_requests_total{op, codigo}` (o TPS de entrada por célula), `dr_http_request_duration_seconds{op}` (todas as respostas) e `dr_http_inflight`.
-   - O `/status` ganha `apply.atraso`, `apply.atrasoMax`, `apply.fila`, `commitNaoEntregue`, `electionTicks` e `banco`.
+   - O `/status` ganha `apply.atraso`, `apply.atrasoMax`, `apply.fila`, `commitNaoEntregue` e `electionTicks`.
    - O dashboard v2 ganha as seções 08 (entrada HTTP e contrapressão) e 09 (apply e laço do Raft), e o painel "Resultados de escrita por segundo" deixa de empilhar as séries. Empilhado, a linha de cima era a soma de todos os resultados e parecia ser só throttling.
    - `task diag` imprime, por célula, entrada, ACK, pending, vazão e latência do apply, atraso, commit não entregue, tick e fsync P99, trocas de líder e contrapressão por causa.
 
@@ -65,16 +65,16 @@ O ponto central não é da POC. Em produção, um DynamoDB lento ou com throttli
 - **Memória:** as entradas não consumidas ficam no `MemoryStorage`. Na POC isso já acontecia, porque a compactação está desligada. Em produção a memória do Raft é limitada pela compactação até o `DurableIndex` e pelo teto de disco ([ADR-041](ADR-041-disco-do-log-teto-de-70-por-cento-sem-s3-na-v1.md)).
 - **O timeout de eleição maior aumenta o RTO** na queda da líder: de 1 a 2 s para 3 a 6 s na POC.
 - **A causa `nao_lider` continua possível** numa janela curta depois de uma troca de líder, porque `n.lead` ainda é atualizado pelo laço. Com o laço sem bloqueio a janela fica do tamanho de um `Ready`, e a métrica mostra quando acontece.
-- **`STORE=memory` não prova nada sobre o banco.** Serve para medir o DataReplication (Raft, fsync, gate, filas) isolado. O teto real do apply sai do `task bench-localstack` e, em produção, do spike S5.
+- **O teste local com TPS baixo não exercita os itens 1 e 2.** Eles ficam provados pelos testes de unidade (laço com consumidores parados, admissão) e, de verdade, no teste na AWS. O teto do apply local sai do `task bench-localstack` e, em produção, do spike S5.
 
 ## Código
 
 - `DataReplicationApp/internal/adapter/out/etcdraft/node.go`: publicação do commit, `CommitIndex`, `CommitChanged`, `CommittedEntries`, `FirstIndex`, causa do descarte, `ElectionTicks`, `Applied` na partida, métricas do laço e do tick.
 - `DataReplicationApp/internal/usecase/replicate.go`: `CommitPump` por faixa, goroutine do gate, `ResumeFrom`, `Delivered`.
 - `DataReplicationApp/internal/usecase/write.go`: admissão (`MaxApplyLag`) e `BackpressureError` com a causa.
-- `DataReplicationApp/internal/adapter/out/memstore`, `cmd/benchstore`, `internal/platform/config` (`APPLY_LAG_MAX`, `ELECTION_TICKS`, `STORE`, `MEMSTORE_LATENCY`), `internal/adapter/in/dynamohttp/handler.go` (métricas HTTP), `internal/adapter/out/prommetrics`, `observability/grafana/dashboards/datareplication-v2.json` e `taskfile.yaml` (`bench-localstack`, `diag`, `start STORE=...`).
-- Testes: laço do Raft com consumidores parados (3.000 propostas de 64 clientes, sem eleição), causa `nao_lider`, gate da POC acompanhando o commit com o applier parado, retomada, admissão, banco em memória, configuração e métricas.
-- Spec da POC: RT-04, RT-06, RT-07, RT-09, RT-13, AP-01, AP-12 a AP-15, O-15, CA-17 e CA-18, SG-17, risco 3 fechado, em [SPEC_POC_LOCAL.md](../../spec/SPEC_POC_LOCAL.md). Prompt do SPDD: passos O-27 (laço, admissão, retomada, banco em memória) e O-28 (métricas HTTP, dashboard e tasks).
+- `DataReplicationApp/cmd/benchstore`, `internal/platform/config` (`APPLY_LAG_MAX`, `ELECTION_TICKS`), `internal/adapter/in/dynamohttp/handler.go` (métricas HTTP), `internal/adapter/out/prommetrics`, `observability/grafana/dashboards/datareplication-v2.json` e `taskfile.yaml` (`bench-localstack`, `diag`, `start APPLY_LAG_MAX=...`).
+- Testes: laço do Raft com consumidores parados (3.000 propostas de 64 clientes, sem eleição), causa `nao_lider`, gate da POC acompanhando o commit com o applier parado, retomada, admissão, configuração e métricas.
+- Spec da POC: RT-04, RT-06, RT-07, RT-09, RT-13, AP-01, AP-12, AP-13, AP-15, O-15, CA-17 e CA-18, SG-17, risco 3 fechado, em [SPEC_POC_LOCAL.md](../../spec/SPEC_POC_LOCAL.md). Prompt do SPDD: passos O-27 (laço, admissão, retomada) e O-28 (métricas HTTP, dashboard e tasks).
 
 ## Onde está o detalhe
 

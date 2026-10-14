@@ -26,10 +26,9 @@ tasks:
     aliases: [subir]
     desc: Start Compose, create tables, and wait for all three cells (CA-01)
     vars:
-      STORE: '{{.STORE | default "dynamodb"}}'                # ADR-060: memory = banco em memória (teste de carga)
-      MEMSTORE_LATENCY: '{{.MEMSTORE_LATENCY | default "0s"}}' # latência simulada por item com STORE=memory
+      APPLY_LAG_MAX: '{{.APPLY_LAG_MAX | default ""}}' # ADR-060: vazio = padrão; baixo exercita a admissão
     cmds:
-      - STORE={{.STORE}} MEMSTORE_LATENCY={{.MEMSTORE_LATENCY}} docker compose up -d --build
+      - APPLY_LAG_MAX={{.APPLY_LAG_MAX}} docker compose up -d --build
       - task: create-tables
       - |
         for N in {{.CELLS}}; do

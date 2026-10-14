@@ -82,7 +82,7 @@ Cenário oculto: o atraso do apply das followers entra no RTO. Uma follower que 
 
 - Começar de volumes limpos (`task clean`). O atraso de 207K contaminou o teste.
 - Medir o teto do LocalStack sozinho: k6 direto no LocalStack com PutItem condicional nas três tabelas. Ver `docker stats` do LocalStack e a variável `DYNAMODB_HEAP_SIZE`. O DynamoDB Local roda em Java com SQLite, e com centenas de milhares de itens um heap pequeno pode provocar GC contínuo (hipótese a confirmar).
-- Criar na POC um banco em memória (por exemplo `STORE=memory`) só para teste de carga. Assim se mede o DataReplication sem o LocalStack.
+- ~~Criar na POC um banco em memória (por exemplo `STORE=memory`) só para teste de carga.~~ **Descartado pelo Bruno (14/10):** ele aceita o limite do LocalStack, testa localmente com TPS baixo (por exemplo 10 TPS) e depois na AWS.
 - Rodar o k6 em outra máquina, ou fixar CPUs com `cpuset` para separar o k6 das células.
 - Medir o disco antes: `fio --rw=write --ioengine=sync --fdatasync=1 --size=22m --bs=2300 --name=wal` no diretório dos volumes do Docker.
 

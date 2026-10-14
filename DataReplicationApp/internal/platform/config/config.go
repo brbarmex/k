@@ -47,13 +47,6 @@ type Config struct {
 	// Padrão 10 (1 s). Na POC em notebook o compose usa 30 (3 s). Entra no RTO.
 	ElectionTicks int
 
-	// Store (STORE) é o banco da célula: dynamodb (padrão) ou memory. memory é SÓ DA POC,
-	// para teste de carga sem o LocalStack (ADR-060, item 4); os dados somem no reinício.
-	Store string
-	// MemStoreLatency (MEMSTORE_LATENCY) é a espera por item no banco em memória, para
-	// simular a latência de um PutItem real (ex.: 5ms). Padrão 0.
-	MemStoreLatency time.Duration
-
 	// Modo degradado (ADR-044 e ADR-045). DEGRADED_POLICY é OBRIGATÓRIA e sem valor
 	// padrão. DEGRADED_LEASE (D) também não tem padrão e é obrigatória só com
 	// DEGRADED_POLICY=accept; com reject é ignorada, sem erro (nunca há lease). O valor de
@@ -83,12 +76,6 @@ const MaxApplyLagMax = 10_000_000
 const (
 	MinElectionTicks = 3
 	MaxElectionTicks = 100
-)
-
-// Bancos aceitos em STORE.
-const (
-	StoreDynamoDB = "dynamodb"
-	StoreMemory   = "memory"
 )
 
 // MinIdleTimeout é o maior idle de SDK conhecido (Go, 90 s). O servidor precisa ficar
@@ -169,23 +156,6 @@ func LoadFrom(getenv func(string) string) (Config, error) {
 			errs = append(errs, fmt.Errorf("ELECTION_TICKS inválida %q: inteiro de %d a %d", s, MinElectionTicks, MaxElectionTicks))
 		} else {
 			c.ElectionTicks = n
-		}
-	}
-	c.Store = orDefault(getenv("STORE"), StoreDynamoDB)
-	switch c.Store {
-	case StoreDynamoDB:
-	case StoreMemory:
-		if !c.POCNoAzure { // SÓ DA POC: nunca um banco que some no reinício em produção
-			errs = append(errs, errors.New("STORE=memory só é aceito na POC (POC_SEM_AZURE=true)"))
-		}
-	default:
-		errs = append(errs, fmt.Errorf("STORE inválida %q: use dynamodb ou memory", c.Store))
-	}
-	if s := getenv("MEMSTORE_LATENCY"); s != "" {
-		if d, err := time.ParseDuration(s); err != nil || d < 0 {
-			errs = append(errs, fmt.Errorf("MEMSTORE_LATENCY inválida %q: duração >= 0 (ex.: 5ms)", s))
-		} else {
-			c.MemStoreLatency = d
 		}
 	}
 
