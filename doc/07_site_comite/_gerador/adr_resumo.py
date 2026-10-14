@@ -54,4 +54,5 @@ RESUMO = {
     "057": "Um único modo, strong consistency, na escrita, na replicação e no Raft; leitura sempre forte; sem variável de modo.",
     "058": "Apply paralelo por chave depois do gate: APPLY_WORKERS workers por shard, a mesma chave na ordem do log; applied = marca d'água contígua.",
     "059": "Fsync do checkpoint do log de replicação fora da trava do Append; Append em goroutine própria com fila limitada; o checkpoint não atrasa o gate.",
+    "060": "O laço do Raft nunca espera o apply: commit como sinal e CommitPump lendo por faixa; admissão por atraso do apply (APPLY_LAG_MAX); ELECTION_TICKS configurável; partida sem reaplicar o log; métricas de causa e de entrada HTTP.",
 }

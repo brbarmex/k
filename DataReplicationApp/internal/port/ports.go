@@ -45,11 +45,19 @@ type ConsensusEngine interface {
 	ReadIndex(ctx context.Context) (domain.Index, error)
 	Leader() (LeaderInfo, bool)
 	TransferLeadership(ctx context.Context, to string) error
-	// Propose devolve usecase.ErrBackpressure quando o buffer não persistido do shard está
-	// cheio (ADR-056). Nenhuma resposta do Raft sai antes do fsync do lote.
-	// Committed entrega entradas já commitadas, da memória, e já estáveis no disco da
-	// própria líder (ADR-056: no modo síncrono, pela ordem Save e depois Advance).
-	Committed() <-chan CommitBatch
+	// Propose devolve usecase.ErrBackpressure (com a causa) quando o Raft descarta a
+	// proposta (ADR-056). Nenhuma resposta do Raft sai antes do fsync do lote.
+	//
+	// O commit é um SINAL, não uma fila (ADR-060): o laço do Raft só publica o índice e
+	// nunca espera quem consome. CommitIndex é o último commitado; CommitChanged devolve um
+	// canal fechado no próximo avanço (pegar o canal ANTES de ler o índice);
+	// CommittedEntries lê da memória as entradas commitadas de lo a hi (inclusive), até
+	// maxBytes, já estáveis no disco da própria célula; FirstIndex é o primeiro índice
+	// ainda guardado.
+	CommitIndex() domain.Index
+	CommitChanged() <-chan struct{}
+	CommittedEntries(lo, hi domain.Index, maxBytes uint64) ([]domain.Entry, error)
+	FirstIndex() domain.Index
 	// Term é o termo atual da líder local (ADR-046: o gate só adota progresso desse termo).
 	Term() domain.Term
 	// LearnerEvents entrega CADA resposta de AppendEntries dos learners da Azure, no
@@ -70,11 +78,6 @@ type LearnerProgress struct {
 	// learner confirmou, heartbeat ou AppendEntries. Alimenta t_c, o último contato com a
 	// maioria Azure, de onde o lease do modo degradado conta (ADR-044).
 	SentAt time.Time
-}
-
-// CommitBatch é um lote de entradas commitadas pelo Raft, em ordem.
-type CommitBatch struct {
-	Entries []domain.Entry
 }
 
 type LeaderInfo struct {
@@ -166,6 +169,8 @@ type Forwarder interface {
 // O ACK de uma escrita só sai depois disso na célula da líder (6.9, item 4).
 type AppliedWaiter interface {
 	WaitApplied(ctx context.Context, idx domain.Index) error
+	// Applied é a marca d'água atual (admissão por atraso do apply, ADR-060).
+	Applied() domain.Index
 }
 
 // ---- Portas de entrada (driving): o adaptador chama, o núcleo implementa ----

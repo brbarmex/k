@@ -1,6 +1,6 @@
 # Índice de ADRs
 
-Um arquivo por decisão. ADR-001 a 015 são herdados das versões anteriores da documentação (revisados); ADR-016 a 059 registram as decisões da v1 do DataReplication (12 a 14/10/2026; os ADRs 044 a 054 vêm da revisão crítica de 13/10; o ADR-055, do log de replicação segmentado; o ADR-056, do group commit e do `AsyncStorageWrites`; o ADR-057, do modo único strong; os ADRs 058 e 059, da revisão do apply e do checkpoint em 14/10). Os números 009, 012, 023, 040 e 053 ficaram vagos: tratavam do modo Eventual, removido pelo ADR-057. O status **Provisório** indica pendência aberta.
+Um arquivo por decisão. ADR-001 a 015 são herdados das versões anteriores da documentação (revisados); ADR-016 a 060 registram as decisões da v1 do DataReplication (12 a 14/10/2026; os ADRs 044 a 054 vêm da revisão crítica de 13/10; o ADR-055, do log de replicação segmentado; o ADR-056, do group commit e do `AsyncStorageWrites`; o ADR-057, do modo único strong; os ADRs 058 e 059, da revisão do apply e do checkpoint em 14/10; o ADR-060, do teste de carga da POC em 14/10). Os números 009, 012, 023, 040 e 053 ficaram vagos: tratavam do modo Eventual, removido pelo ADR-057. O status **Provisório** indica pendência aberta.
 
 | ADR | Título | Status |
 |---|---|---|
@@ -54,7 +54,8 @@ Um arquivo por decisão. ADR-001 a 015 são herdados das versões anteriores da 
 | [ADR-052](ADR-052-autorizacao-por-aplicacao-com-mtls.md) | Autorização por aplicação com mTLS | Decidido (Bruno) |
 | [ADR-054](ADR-054-banco-por-celula-mantido.md) | Um banco por célula mantido, com o trade-off registrado | Decidido (Bruno) |
 | [ADR-055](ADR-055-log-de-replicacao-segmentado-derivado-do-raft.md) | Log de replicação segmentado, derivado do Raft, sem fsync no caminho do ACK e em volume separado | Decidido (Bruno, 1a 2b 3b e opção a: sem Pebble); checkpoint precisado pelo ADR-059 |
-| [ADR-056](ADR-056-group-commit-por-shard-e-nada-sai-antes-do-fsync.md) | Group commit por shard, nada sai antes do fsync e `AsyncStorageWrites` decidido por spike | Decidido (Bruno, 1a 2a 3b 4a 5a 6a) |
+| [ADR-056](ADR-056-group-commit-por-shard-e-nada-sai-antes-do-fsync.md) | Group commit por shard, nada sai antes do fsync e `AsyncStorageWrites` decidido por spike | Decidido (Bruno, 1a 2a 3b 4a 5a 6a); risco 35 atenuado pelo ADR-060 (heartbeat não espera mais o apply; fsync ainda no laço) |
 | [ADR-057](ADR-057-um-unico-modo-strong-consistency.md) | Um único modo: strong consistency; leitura sempre forte, apply depois do gate | Decidido (Bruno); "serial" esclarecido pelo ADR-058 |
 | [ADR-058](ADR-058-apply-paralelo-por-chave-com-marca-dagua.md) | Apply paralelo por chave, com a marca d'água contígua como `applied` | Decidido (Bruno, 1a) |
-| [ADR-059](ADR-059-checkpoint-do-log-de-replicacao-sem-trava-no-append.md) | Checkpoint do log de replicação sem trava no `Append`, e `Append` fora da goroutine do gate | Decidido (Bruno, 2a) |
+| [ADR-059](ADR-059-checkpoint-do-log-de-replicacao-sem-trava-no-append.md) | Checkpoint do log de replicação sem trava no `Append`, e `Append` fora da goroutine do gate | Decidido (Bruno, 2a); risco 3 da POC fechado pelo ADR-060 |
+| [ADR-060](ADR-060-laco-do-raft-nunca-espera-o-apply-e-admissao-por-atraso.md) | O laço do Raft nunca espera o apply (commit como sinal), admissão por atraso do apply, `ELECTION_TICKS`, partida sem reaplicar o log e métricas de causa | Decidido (Bruno, 1a 2a 3a 4a 5a 6a) |

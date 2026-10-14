@@ -28,6 +28,10 @@ var (
 	WriteResults = []string{"ok", "no_leader", "pending", "throttling", "lease_expired", "recusada", "erro"}
 	ReadOps      = []string{"get", "scan"}
 	ReadResults  = []string{"ok", "no_leader", "gate_not_ready", "read_timeout", "recusada", "erro"}
+	// ThrottleCauses são as causas da contrapressão (O-27, ADR-060).
+	ThrottleCauses = []string{"buffer_cheio", "nao_lider", "transferencia", "atraso_apply"}
+	// HTTPOps são as operações pré-inicializadas na porta de API (O-28).
+	HTTPOps = []string{"PutItem", "GetItem", "Scan"}
 )
 
 // Recorder implementa port.Metrics. Os métodos só fazem incrementos atômicos e medições:
@@ -49,6 +53,12 @@ type Recorder struct {
 	readBarrier   prometheus.Histogram
 	applyItem     prometheus.Histogram
 	replogSync    prometheus.Histogram
+	raftLoop      prometheus.Histogram
+	raftTickGap   prometheus.Histogram
+	throttled     *prometheus.CounterVec
+	httpRequests  *prometheus.CounterVec
+	httpDuration  *prometheus.HistogramVec
+	httpInFlight  prometheus.Gauge
 }
 
 var _ port.Metrics = (*Recorder)(nil)
@@ -105,6 +115,37 @@ func NewRecorder(celula string, source StatusSource) *Recorder {
 		Buckets: prometheus.ExponentialBucketsRange(0.0005, 5, 14),
 	})).(prometheus.Histogram)
 
+	r.raftLoop = f(prometheus.NewHistogram(prometheus.HistogramOpts{
+		Name: "dr_raft_loop_duration_seconds", Help: "Duração de cada Ready no laço do Raft (fsync, envio, publicação do commit). Acima do tick, o heartbeat atrasa (ADR-060).",
+		Buckets: prometheus.ExponentialBucketsRange(0.0001, 5, 16),
+	})).(prometheus.Histogram)
+	r.raftTickGap = f(prometheus.NewHistogram(prometheus.HistogramOpts{
+		Name: "dr_raft_tick_gap_seconds", Help: "Intervalo real entre dois ticks do Raft (o esperado é 0,1 s). Perto do timeout de eleição, a célula some para as outras.",
+		Buckets: []float64{0.11, 0.15, 0.2, 0.3, 0.5, 1, 2, 3, 5, 10},
+	})).(prometheus.Histogram)
+	r.throttled = f(prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "dr_throttled_total", Help: "Escritas recusadas com ThrottlingException, por causa, na célula onde a causa nasceu (ADR-060).",
+	}, []string{"causa"})).(*prometheus.CounterVec)
+	r.httpRequests = f(prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "dr_http_requests_total", Help: "Requisições terminadas na porta de API, por operação do DynamoDB e código HTTP. rate() dá o TPS de entrada da célula.",
+	}, []string{"op", "codigo"})).(*prometheus.CounterVec)
+	r.httpDuration = f(prometheus.NewHistogramVec(prometheus.HistogramOpts{
+		Name: "dr_http_request_duration_seconds", Help: "Latência de toda requisição na porta de API, da chegada à resposta, com qualquer resultado.",
+		Buckets: prometheus.ExponentialBucketsRange(0.0005, 10, 16),
+	}, []string{"op"})).(*prometheus.HistogramVec)
+	r.httpInFlight = f(prometheus.NewGauge(prometheus.GaugeOpts{
+		Name: "dr_http_inflight", Help: "Requisições em andamento na porta de API.",
+	})).(prometheus.Gauge)
+
+	for _, c := range ThrottleCauses {
+		r.throttled.WithLabelValues(c)
+	}
+	for _, op := range HTTPOps {
+		r.httpDuration.WithLabelValues(op)
+		for _, code := range []string{"200", "400", "503"} {
+			r.httpRequests.WithLabelValues(op, code)
+		}
+	}
 	for _, t := range MsgTypes {
 		r.msgSent.WithLabelValues(t)
 		r.msgReceived.WithLabelValues(t)
@@ -146,6 +187,14 @@ func (r *Recorder) ReadDone(op, resultado string) { r.reads.WithLabelValues(op, 
 func (r *Recorder) ReadBarrier(d time.Duration)   { r.readBarrier.Observe(d.Seconds()) }
 func (r *Recorder) ApplyItem(d time.Duration)     { r.applyItem.Observe(d.Seconds()) }
 func (r *Recorder) ReplogSync(d time.Duration)    { r.replogSync.Observe(d.Seconds()) }
+func (r *Recorder) RaftLoop(d time.Duration)      { r.raftLoop.Observe(d.Seconds()) }
+func (r *Recorder) RaftTickGap(d time.Duration)   { r.raftTickGap.Observe(d.Seconds()) }
+func (r *Recorder) Throttled(causa string)        { r.throttled.WithLabelValues(causa).Inc() }
+func (r *Recorder) HTTPRequest(op string, status int, d time.Duration) {
+	r.httpRequests.WithLabelValues(op, strconv.Itoa(status)).Inc()
+	r.httpDuration.WithLabelValues(op).Observe(d.Seconds())
+}
+func (r *Recorder) HTTPInFlight(delta int) { r.httpInFlight.Add(float64(delta)) }
 
 // RegisterState registra o coletor de estado. Existe porque a fonte (StatusReporter)
 // depende do nó Raft, que por sua vez recebe este Recorder: o bootstrap liga a fonte

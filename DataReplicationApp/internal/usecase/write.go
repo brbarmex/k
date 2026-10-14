@@ -20,18 +20,41 @@ var (
 	// ErrBackpressure: o buffer de entradas ainda não persistidas do shard está cheio
 	// (MaxUncommittedEntriesSize, ADR-056). Nada entrou no log; vira ThrottlingException
 	// e o SDK repete com backoff. O adaptador etcdraft traduz raft.ErrProposalDropped.
-	ErrBackpressure = errors.New("buffer de entradas não persistidas cheio")
+	ErrBackpressure = errors.New("escrita recusada por contrapressão")
 )
 
+// Causas da contrapressão (rótulo `causa` de dr_throttled_total, O-27). Todas viram
+// ThrottlingException e em todas nada entrou no log.
+const (
+	CauseBufferFull = "buffer_cheio"  // MaxUncommittedEntriesSize do Raft (ADR-056)
+	CauseNotLeader  = "nao_lider"     // a célula deixou de ser líder e ainda não viu a troca
+	CauseTransfer   = "transferencia" // transferência de liderança em curso (ADR-013)
+	CauseApplyLag   = "atraso_apply"  // gate - aplicado acima de APPLY_LAG_MAX (ADR-060)
+)
+
+// BackpressureError é ErrBackpressure com a causa. errors.Is(err, ErrBackpressure) vale.
+type BackpressureError struct{ Cause string }
+
+func (e *BackpressureError) Error() string        { return ErrBackpressure.Error() + ": " + e.Cause }
+func (e *BackpressureError) Is(target error) bool { return target == ErrBackpressure }
+
 // WriteService é o caso de uso "escrever": acha a líder, propõe, espera o gate, espera
-// o apply local, confere o lease e responde. O apply é sempre serial e depois do gate
-// (ADR-057); o ACK é sempre depois do gate E do apply.
+// o apply local, confere o lease e responde. O apply é sempre depois do gate (ADR-057);
+// o ACK é sempre depois do gate E do apply. Antes de propor, a líder recusa a escrita se
+// o apply local está atrasado demais (admissão, ADR-060).
 type WriteService struct {
 	Consensus port.ConsensusEngine
 	Forward   port.Forwarder
 	Gate      *domain.Gate
 	Applied   port.AppliedWaiter
-	Degrade   Degrader // estado real do shard; nil = nunca degradado
+	Degrade   Degrader     // estado real do shard; nil = nunca degradado
+	Metrics   port.Metrics // opcional: causa da contrapressão (O-27)
+
+	// MaxApplyLag (APPLY_LAG_MAX) é quantas entradas o apply local pode estar atrás do
+	// gate antes de a líder recusar escritas novas com ThrottlingException. 0 = sem
+	// admissão (só testes). O ACK espera o apply: uma escrita aceita com o apply muito
+	// atrasado só venceria o prazo (PENDING), depois de entrar no log.
+	MaxApplyLag domain.Index
 
 	WaitLeader       time.Duration // WAIT_LEADER (1 s); 0 = não espera
 	LeaderPoll       time.Duration // intervalo de consulta da líder; padrão 10 ms
@@ -58,6 +81,10 @@ func (s *WriteService) Write(ctx context.Context, r port.WriteRequest) (port.Wri
 	if err := s.checkLease(); err != nil {
 		return port.WriteResult{}, err
 	}
+	// Admissão por atraso do apply (ADR-060): recusa cedo, sem gastar índice do log.
+	if err := s.admit(); err != nil {
+		return port.WriteResult{}, err
+	}
 
 	e := domain.Entry{Kind: domain.KindWrite, Ops: r.Ops, ClientID: r.ClientID}
 	idx, err := s.Consensus.Propose(ctx, e) // commit Raft: 2/3 AWS com fsync
@@ -78,6 +105,21 @@ func (s *WriteService) Write(ctx context.Context, r port.WriteRequest) (port.Wri
 		return port.WriteResult{}, err
 	}
 	return port.WriteResult{Index: idx, Degraded: s.degraded()}, nil
+}
+
+// admit recusa a escrita quando gate - aplicado passa de MaxApplyLag. Mede contra o gate,
+// não contra o commit: entradas que esperam a Azure não são atraso do apply, e o caminho
+// delas é o modo degradado (ADR-044), não a contrapressão.
+func (s *WriteService) admit() error {
+	if s.MaxApplyLag == 0 {
+		return nil
+	}
+	gate, applied := s.Gate.Index(), s.Applied.Applied()
+	if gate > applied && gate-applied > s.MaxApplyLag {
+		port.MetricsOrNop(s.Metrics).Throttled(CauseApplyLag)
+		return &BackpressureError{Cause: CauseApplyLag}
+	}
+	return nil
 }
 
 func (s *WriteService) degraded() bool { return s.Degrade != nil && s.Degrade.Active() }

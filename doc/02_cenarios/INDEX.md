@@ -46,6 +46,7 @@ Todo cenário tem um diagrama Mermaid, as etapas e as falhas com a tratativa. Os
 | [C32](atualizados/C32-particao-e-lease-do-modo-degradado.md) | Partição entre AWS e Azure: lease do modo degradado e promoção da Azure | `DEGRADE` com validade D, `503 LEASE_EXPIRED`, `ForcePromote` só depois de D + M, RTO >= D + M (ADR-044, ADR-045) |
 | [C33](atualizados/C33-reconstrucao-em-tabela-sombra.md) | Reconstrução do banco de uma célula em tabela sombra | Índice F, cópia difusa, replay, cutover com geração do nome lógico, checksum por faixa (ADR-047) |
 | [C34](atualizados/C34-autorizacao-por-aplicacao.md) | Autorização por aplicação: mTLS e lista de permissões por identidade | mTLS por aplicação, lista identidade → tabelas e operações, `403`; "só trocar o endpoint" deixa de valer (ADR-052) |
+| [C35](atualizados/C35-banco-lento-nao-derruba-a-lideranca.md) | Banco lento numa célula não derruba a liderança | Commit como sinal, `CommitPump` por faixa, admissão por atraso do apply (`atraso_apply`), métricas do laço do Raft (ADR-060) |
 
 ## Complexos (detalhamento)
 
@@ -83,7 +84,7 @@ Todo cenário tem um diagrama Mermaid, as etapas e as falhas com a tratativa. Os
 
 ```mermaid
 flowchart LR
-    C["C01 a C34: atualizados"] -->|"detalham em"| X["X01 a X08: complexos"]
+    C["C01 a C35: atualizados"] -->|"detalham em"| X["X01 a X08: complexos"]
     C -->|"pontos em aberto apontam para"| R["R03 a R23: a rever"]
     X -->|"pontos em aberto apontam para"| R
     R -->|"quando decidido, vira"| A["ADR novo e cenário atualizado"]

@@ -33,7 +33,7 @@ Gerado em 14/10/2026 a partir do pacote DataReplication_Versao_1.
 <li><a href="../success-path/C23-batchwriteitem-lote-uma-entrada.html"><b>C23</b> BatchWriteItem: o lote é uma entrada e o apply é por item (antes R15)</a></li>
 <li><a href="../success-path/C31-implantacao-por-cliente-e-identidade.html"><b>C31</b> Uma instalação por cliente e identificação na API (antes R19)</a></li>
 </ul></details>
-<details class="grupo" open><summary>Fail path <span class="qtd">23</span></summary><ul>
+<details class="grupo" open><summary>Fail path <span class="qtd">24</span></summary><ul>
 <li><a class="idx" href="index.html">Índice da seção</a></li>
 <li><a href="C07-timeout-depois-do-commit.html"><b>C07</b> Prazo estoura depois do commit, antes do ACK (retry do SDK)</a></li>
 <li><a href="C08-queda-de-celula-lider-ou-az-aws.html"><b>C08</b> Queda da célula líder ou de uma AZ na AWS</a></li>
@@ -58,6 +58,7 @@ Gerado em 14/10/2026 a partir do pacote DataReplication_Versao_1.
 <li><a href="C32-particao-e-lease-do-modo-degradado.html"><b>C32</b> Partição entre AWS e Azure: lease do modo degradado e promoção da Azure</a></li>
 <li><a href="C33-reconstrucao-em-tabela-sombra.html"><b>C33</b> Reconstrução do banco de uma célula em tabela sombra</a></li>
 <li><a href="C34-autorizacao-por-aplicacao.html"><b>C34</b> Autorização por aplicação: mTLS e lista de permissões por identidade</a></li>
+<li><a href="C35-banco-lento-nao-derruba-a-lideranca.html"><b>C35</b> Banco lento numa célula não derruba a liderança</a></li>
 </ul></details>
 <details class="grupo"><summary>Complex path <span class="qtd">8</span></summary><ul>
 <li><a class="idx" href="../complex-path/index.html">Índice da seção</a></li>
@@ -109,17 +110,20 @@ Gerado em 14/10/2026 a partir do pacote DataReplication_Versao_1.
     I --&gt; J[&quot;Banco da célula refeito em tabela sombra: F, cópia difusa, replay, cutover e checksum, ver C33&quot;]</pre></div>
 <h3>Arquitetura geral relacionada: <a href="../../04_diagramas/D04-dois-logs-e-commitpump.md">D04 — Os dois logs e o CommitPump</a></h3><p class="nota">Diagrama de <code>04_diagramas/</code> escolhido pelo site como contexto; o cenário fonte não faz essa associação.</p>
 <div class="diagrama"><pre class="mermaid">flowchart TD
-    W[&quot;WriteService: Propose&quot;] --&gt; RAFT[&quot;RaftNode&quot;]
+    W[&quot;WriteService: admissão e Propose&quot;] --&gt; RAFT[&quot;RaftNode&quot;]
+    W -.-&gt;|&quot;gate − aplicado &amp;gt; APPLY_LAG_MAX (ADR-060)&quot;| THR
     RAFT -.-&gt;|&quot;buffer cheio: 32 MiB por shard&quot;| THR[&quot;ThrottlingException, nada entra no log&quot;]
     RAFT --&gt;|&quot;lote do Ready&quot;| WR[&quot;raftstore.Writer&lt;br/&gt;junta os pendentes, teto 1 MiB, sem espera fixa&quot;]
     WR --&gt;|&quot;um Save, um fdatasync&quot;| RLOG[(&quot;log do Raft: wal do etcd&lt;br/&gt;vida curta, volume do Raft&quot;)]
     WR --&gt;|&quot;depois do fsync: MsgAppResp, votos, auto-ACK, Advance&quot;| RAFT
     RAFT --&gt;|&quot;MsgApp da líder antes do fsync, F3&quot;| PARES[&quot;Seguidores AWS e learners Azure&quot;]
-    RAFT --&gt;|&quot;commit&quot;| PUMP[&quot;CommitPump&quot;]
+    RAFT --&gt;|&quot;commit publicado como sinal: atômico + aviso, nunca espera (ADR-060)&quot;| SIG[&quot;Sinal de commit&quot;]
+    SIG --&gt; PUMP[&quot;CommitPump&quot;]
+    RAFT -.-&gt;|&quot;entradas lidas por faixa da memória do Raft&quot;| PUMP
     PARES --&gt;|&quot;respondem só depois do próprio fsync&quot;| AZ[&quot;Respostas do AppendEntries&lt;br/&gt;dos learners Azure: termo, índice, identidade&quot;]
     AZ --&gt;|&quot;por evento, só termo atual&quot;| GATE[&quot;Gate&quot;]
-    PUMP --&gt;|&quot;índice de commit&quot;| GATE
-    PUMP --&gt;|&quot;entradas pela memória&quot;| APPL[&quot;Applier&quot;]
+    PUMP --&gt;|&quot;índice de commit, goroutine própria&quot;| GATE
+    PUMP --&gt;|&quot;entradas pela memória, fila de 64 lotes&quot;| APPL[&quot;Applier&quot;]
     PUMP --&gt;|&quot;fila limitada, goroutine própria, sem fsync, uma escrita por lote (ADR-059)&quot;| REP[(&quot;log de replicação segmentado&lt;br/&gt;vida longa, volume próprio&quot;)]
     GATE --&gt;|&quot;libera ACK&quot;| W
     GATE --&gt;|&quot;libera o apply até o gate&quot;| APPL

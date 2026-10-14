@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"path/filepath"
+	"strconv"
 	"sync"
 	"testing"
 	"time"
@@ -14,6 +15,7 @@ import (
 
 	"example.com/datareplication/internal/domain"
 	"example.com/datareplication/internal/port"
+	"example.com/datareplication/internal/usecase"
 )
 
 // memNet entrega as mensagens entre nós em memória, por goroutine, como o transporte real.
@@ -51,10 +53,17 @@ type cluster struct {
 	m      map[uint64]*recMetrics
 }
 
-// collector consome Committed() como o CommitPump faria.
+// collector lê as entradas commitadas por faixa, como o CommitPump faria.
 type collector struct {
 	mu      sync.Mutex
 	entries []domain.Entry
+	paused  bool // simula um CommitPump parado (applier ou banco lento)
+}
+
+func (c *collector) pause(p bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.paused = p
 }
 
 func (c *collector) all() []domain.Entry {
@@ -102,15 +111,30 @@ func (c *cluster) start(ctx context.Context, id uint64, voters []uint64) {
 	col := &collector{}
 	c.got[id] = col
 	go func() { done <- n.Run(nctx) }()
-	go func() {
+	go func() { // lê por faixa, como o CommitPump (ADR-060)
+		next := n.FirstIndex()
 		for {
+			changed := n.CommitChanged()
+			col.mu.Lock()
+			paused := col.paused
+			col.mu.Unlock()
+			if ci := n.CommitIndex(); next <= ci && !paused {
+				ents, err := n.CommittedEntries(next, ci, 1<<20)
+				if err != nil {
+					c.t.Errorf("CommittedEntries(%d, %d): %v", next, ci, err)
+					return
+				}
+				col.mu.Lock()
+				col.entries = append(col.entries, ents...)
+				col.mu.Unlock()
+				next = ents[len(ents)-1].Index + 1
+				continue
+			}
 			select {
 			case <-nctx.Done():
 				return
-			case b := <-n.Committed():
-				col.mu.Lock()
-				col.entries = append(col.entries, b.Entries...)
-				col.mu.Unlock()
+			case <-changed:
+			case <-time.After(10 * time.Millisecond): // volta a olhar a pausa
 			}
 		}
 	}()
@@ -314,6 +338,116 @@ func TestToDomain(t *testing.T) {
 	e, err = toDomain(&raftpb.Entry{Index: proto.Uint64(6), Term: proto.Uint64(2), Type: raftpb.EntryNormal.Enum(), Data: []byte(`{"Kind":1,"ProposalID":9}`)})
 	if err != nil || e.Kind != domain.KindWrite || e.Index != 6 || e.Term != 2 || e.ProposalID != 9 {
 		t.Fatalf("normal → %+v %v", e, err)
+	}
+}
+
+// ADR-060: com NINGUÉM consumindo os commits (applier parado em todas as células), o laço
+// do Raft segue: as propostas commitam, não há eleição e o commit publicado avança. Antes,
+// o canal de commits enchia e o laço parava (teste de carga de 14/10).
+func TestRaftLoopNeverWaitsForConsumers(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	c := newCluster(t, ctx)
+	defer func() {
+		for id := range c.dirs {
+			c.stop(id)
+		}
+	}()
+	l := c.leader(5 * time.Second)
+	for _, col := range c.got {
+		col.pause(true)
+	}
+	before := c.m[l.cfg.ID].n("leader")
+	const n = 3000     // mais que os 1024 lotes do canal antigo
+	const clients = 64 // clientes concorrentes, como o k6; 3000 de uma vez só mede o -race
+	var wg sync.WaitGroup
+	errs := make(chan error, n)
+	next := make(chan int, n)
+	for i := 0; i < n; i++ {
+		next <- i
+	}
+	close(next)
+	for w := 0; w < clients; w++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for i := range next {
+				pctx, pc := context.WithTimeout(ctx, 10*time.Second)
+				_, err := l.Propose(pctx, put("k"+strconv.Itoa(i)))
+				pc()
+				if err != nil {
+					errs <- err
+					return
+				}
+			}
+		}()
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		t.Fatalf("Propose falhou com os consumidores parados: %v", err)
+	}
+	if got := c.m[l.cfg.ID].n("leader"); got != before {
+		t.Fatalf("houve troca de líder com os consumidores parados (%d → %d)", before, got)
+	}
+	if l.CommitIndex() < n {
+		t.Fatalf("commit publicado = %d, quer >= %d", l.CommitIndex(), n)
+	}
+	for _, col := range c.got { // ao voltar, o consumidor lê tudo da memória do Raft, em ordem
+		col.pause(false)
+	}
+	for id, col := range c.got {
+		waitFor(t, 10*time.Second, func() bool {
+			es := col.all()
+			return len(es) > 0 && es[len(es)-1].Index >= l.CommitIndex()
+		}, "o consumidor não alcançou o commit depois de voltar")
+		for i, e := range col.all() {
+			if e.Index != domain.Index(i+2) {
+				t.Fatalf("nó %d: índices não contíguos na posição %d: %d", id, i, e.Index)
+			}
+		}
+	}
+}
+
+// O-27: proposta numa follower é descartada pelo Raft com a causa nao_lider.
+func TestDropCauseOnFollower(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	c := newCluster(t, ctx)
+	defer func() {
+		for id := range c.dirs {
+			c.stop(id)
+		}
+	}()
+	l := c.leader(5 * time.Second)
+	var f *Node
+	for id, n := range c.net.nodes {
+		if id != l.cfg.ID {
+			f = n
+			break
+		}
+	}
+	waitFor(t, 3*time.Second, func() bool { li, ok := f.Leader(); return ok && !li.Local }, "a follower não viu a líder")
+	pctx, pc := context.WithTimeout(ctx, time.Second)
+	defer pc()
+	_, err := f.Propose(pctx, put("x"))
+	var bp *usecase.BackpressureError
+	if !errors.As(err, &bp) || bp.Cause != usecase.CauseNotLeader || !errors.Is(err, usecase.ErrBackpressure) {
+		t.Fatalf("erro = %v, quer contrapressão nao_lider", err)
+	}
+	if c.m[f.cfg.ID].n("throttled:nao_lider") != 1 {
+		t.Fatal("a causa não foi registrada na métrica")
+	}
+}
+
+// ADR-060, item 5: o Applied da partida fica entre o snapshot e o commit gravado.
+func TestRestartApplied(t *testing.T) {
+	for _, tc := range []struct{ snap, commit, want, got uint64 }{
+		{1, 100, 0, 1}, {1, 100, 50, 50}, {1, 100, 500, 100}, {10, 100, 5, 10},
+	} {
+		if g := restartApplied(tc.snap, tc.commit, tc.want); g != tc.got {
+			t.Fatalf("restartApplied(%d, %d, %d) = %d, quer %d", tc.snap, tc.commit, tc.want, g, tc.got)
+		}
 	}
 }
 

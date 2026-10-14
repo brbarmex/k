@@ -65,6 +65,10 @@ O dashboard reúne:
 - **Cluster e liderança:** líder conhecida, termo, votantes ativos, quórum, células prontas e papel de cada célula.
 - **Escritas e leituras:** ACKs por resultado, latência, encaminhamentos e barreiras de leitura forte.
 - **Replicação e Raft:** índices de commit, gate e apply, atraso entre células, mensagens/heartbeats, fsync do WAL e saúde do log.
+- **08 · Entrada HTTP e contrapressão (ADR-060):** TPS de entrada por célula e por operação, respostas por código HTTP, latência de todas as respostas, requisições em andamento e contrapressão por causa.
+- **09 · Apply e laço do Raft (ADR-060):** atraso do apply contra o teto `APPLY_LAG_MAX`, commit ainda não entregue ao applier, fila do applier, vazão e latência do apply, duração de cada `Ready` e intervalo real entre ticks.
+
+O painel "Resultados de escrita por segundo" não empilha mais as séries: empilhado, a linha de cima era a soma de todos os resultados e parecia ser só throttling.
 
 State panels are useful even without load; run `task load` to see write activity.
 
@@ -104,6 +108,17 @@ O adaptador `prometheus/client_golang` fica isolado em `internal/adapter/out/pro
 | `dr_apply_inflight` | gauge | Itens despachados ao banco e ainda não concluídos pelo applier. |
 | `dr_apply_item_duration_seconds` | histograma | Duração da gravação de um item no banco pelo applier, com as repetições. |
 | `dr_replog_sync_duration_seconds` | histograma | Duração do fsync do checkpoint do log de replicação (fora da trava do `Append`). |
+| `dr_http_requests_total` | contador, `op`, `codigo` | Toda requisição da porta de API, por operação e código HTTP: é o TPS de entrada por célula (ADR-060). Operação desconhecida conta como `outra`. |
+| `dr_http_request_duration_seconds` | histograma, `op` | Latência de todas as respostas da porta de API, inclusive recusas e erros. |
+| `dr_http_inflight` | gauge | Requisições em andamento na porta de API. |
+| `dr_throttled_total` | contador, `causa` | Escritas recusadas com `ThrottlingException`, pela causa: `buffer_cheio`, `nao_lider`, `transferencia` ou `atraso_apply`, na célula onde a causa nasceu. |
+| `dr_raft_loop_duration_seconds` | histograma | Duração de cada `Ready` do laço do Raft (inclui o fsync). |
+| `dr_raft_tick_gap_seconds` | histograma | Intervalo real entre dois ticks. Perto de `ELECTION_TICKS × 100 ms`, a célula some para as outras. |
+| `dr_apply_lag` | gauge | Gate menos aplicado: o que a admissão compara com `APPLY_LAG_MAX`. |
+| `dr_apply_lag_max` | gauge | Teto da admissão (`APPLY_LAG_MAX`). |
+| `dr_apply_inbox_batches` | gauge | Lotes na fila entre o `CommitPump` e o applier (teto 64). |
+| `dr_commit_undelivered` | gauge | Commit menos o último índice que o `CommitPump` entregou: entradas que esperam na memória do Raft. |
+| `dr_election_ticks` | gauge | `ELECTION_TICKS` em uso. |
 
 ## Roteiros manuais
 
@@ -125,6 +140,8 @@ O adaptador `prometheus/client_golang` fica isolado em `internal/adapter/out/pro
 - **Laço do Ready síncrono.** O `etcdraft` segue a RT-04 literalmente (só o `MsgApp` da líder sai antes do `wal.Save`; o resto depois do fsync). O escritor `internal/adapter/out/raftstore` do esboço foi copiado sem mudanças e não é ligado.
 - **gRPC sem `.proto`.** `api/peerv1` declara o serviço à mão com um codec JSON (N-03).
 - **Apply paralelo por chave (ADR-058).** O applier grava até `APPLY_WORKERS` itens ao mesmo tempo (padrão 16). Cada item vai para o worker escolhido pelo hash de (tabela, chave), então a mesma chave é sempre gravada na ordem do log. O `aplicado` é a marca d'água: o maior índice que, com todos os anteriores, está no banco; é ele que o ACK da líder e a leitura forte esperam, e é ele que vai para o arquivo `progress`. O `/status` mostra `apply.workers` e `apply.emVoo`. `APPLY_WORKERS=1` volta ao comportamento de um item por vez, útil para comparar.
+- **O laço do Raft nunca espera o apply (ADR-060).** O laço do `Ready` só publica o índice commitado e chama `Advance`; o `CommitPump` lê as entradas por faixa da memória do Raft quando o applier tem espaço, e o gate segue o commit numa goroutine própria. Na líder, quando `gate − aplicado` passa de `APPLY_LAG_MAX` (padrão `APPLY_WORKERS × 256`), a escrita é recusada com `ThrottlingException` (causa `atraso_apply`) antes do `Propose`. `ELECTION_TICKS` é configurável (30 no compose). Na partida, o nó retoma em `min(último do log de replicação + 1, progresso do applier)` em vez de reaplicar o log inteiro.
+- **Banco em memória (`STORE=memory`).** Só para teste de carga, com `POC_SEM_AZURE=true`: troca o LocalStack por um banco em memória com o mesmo contrato e latência opcional (`MEMSTORE_LATENCY`). Mede o DR isolado; não prova nada sobre o banco.
 - **Applier estacionado.** Erro permanente do banco para o applier daquela célula sem pular o item e sem derrubar o processo; o `/readyz` cai e o `/status` mostra `erroApply`. Com workers em paralelo, os itens anteriores ao venenoso terminam, o despacho para, e a marca d'água fica logo antes dele. Erro transitório é repetido com backoff de 100 ms a 5 s.
 - **Checkpoint do log de replicação sem trava (ADR-059).** O `Append` roda numa goroutine própria do `CommitPump`, com fila de 1024 lotes, e grava cada lote com uma escrita só. O fsync do checkpoint (`REPLOG_SYNC_INTERVAL`) roda fora da trava do `Append`, então nem o gate nem o ACK param durante o checkpoint. O `Append` só espera o disco na rotação de segmento (a cada 64 MiB).
 - **`x-dr-index`.** AWS CLI does not print response headers; `task write` reads the index from `--debug` output.
@@ -142,7 +159,7 @@ As da N-01: `fasthttp`, `net/http`, `zerolog`, `viper`, `fx`, `google.golang.org
 
 1. Sem Azure, o gate de ponta a ponta com learners não é exercitado; só os testes de unidade cobrem.
 2. O modo sem Azure não pode escapar para produção (SG-12).
-3. Applier lento ou estacionado enche a fila e pode segurar o laço do Ready. Com o apply paralelo (ADR-058) o applier lento fica menos provável; o estacionado continua.
+3. ~~Applier lento ou estacionado segura o laço do Ready.~~ Fechado pelo ADR-060: aconteceu no teste de carga de 14/10 e gerou eleições em série. Agora o laço não espera o apply; o que sobra é a líder recusar escrita com `atraso_apply` enquanto o banco estiver lento e a memória do Raft crescer com o apply parado (`dr_commit_undelivered`).
 4. Sem dedupe de retry: uma escrita `PENDING` repetida vira outra entrada (as tasks usam `AWS_MAX_ATTEMPTS=1`).
 5. Um único LocalStack para as três células: sem isolamento de falha entre bancos.
 6. `inspecionar` logo depois do ACK pode mostrar o item em só 1 ou 2 tabelas.

@@ -8,8 +8,9 @@
 - **Entregar um ambiente operável por tarefas**: imagem única, `docker-compose.yml` com LocalStack fixado e seis volumes, `taskfile.yaml` com as tarefas da S.5 e um roteiro `e2e` que verifica CA-03 a CA-05.
 - **Tornar o comportamento do cluster visível em tempo real**: cada célula expõe métricas Prometheus; o compose sobe Prometheus e Grafana, e o Grafana já abre com o dashboard "DataReplication" importado por provisioning, mostrando a célula líder, o quórum, as trocas de liderança, os ACKs, a replicação, o heartbeat do Raft, a durabilidade, as leituras fortes e a saúde de cada célula. Os cenários de falha do HOW_TO_RUN passam a ser observáveis no dashboard.
 - **Aplicar no banco sem virar gargalo e sem travar o ACK no checkpoint** (ADR-058, ADR-059): o applier grava itens de chaves diferentes em paralelo (`APPLY_WORKERS`, padrão 16), mantendo a ordem do log por chave e o `aplicado` como marca d'água contígua; o fsync do checkpoint do log de replicação roda fora da trava do `Append`, e o `Append` roda fora da goroutine que avança o gate.
+- **O laço do Raft nunca espera o apply** (ADR-060, depois do teste de carga de 14/10): o commit é publicado como sinal e o `CommitPump` lê as entradas por faixa da memória do Raft; a líder recusa escrita quando `gate − aplicado` passa de `APPLY_LAG_MAX`; `ELECTION_TICKS` configurável (30 no compose); a partida retoma em `min(log de replicação + 1, progresso)`; `STORE=memory` e `benchstore` para teste de carga; métricas de causa da contrapressão, do laço do Raft e da porta de API (TPS de entrada por célula). Passos O-27 e O-28.
 - **Limites**: um shard; só `PutItem`, `GetItem` e `Scan` da tabela base; sem Azure, dedupe, mTLS, modo degradado ativo, compactação/snapshot do Raft, truncamento do log de replicação, TTL, GSI, alertas do Prometheus. `DeleteItem` e `BatchWriteItem` ficam para a fase 2 e são recusados.
-- **Pronto quando**: partindo de volumes vazios, os critérios CA-01 a CA-14 passam, `go test -race ./...` passa no container de teste e os critérios de observabilidade abaixo passam.
+- **Pronto quando**: partindo de volumes vazios, os critérios CA-01 a CA-18 passam, `go test -race ./...` passa no container de teste e os critérios de observabilidade abaixo passam.
 - **Critérios de observabilidade**:
   - **OB-01**: com `task subir`, `GET http://localhost:909N/metrics` responde 200 nas três células com as séries `dr_*` listadas na O-15.
   - **OB-02**: o Prometheus em `http://localhost:9095` mostra os três alvos `cell-1`, `cell-2`, `cell-3` como `up`, coletados a cada 1 s.
@@ -369,7 +370,7 @@ DataReplicationApp/
 
 ## Operations
 
-> Ordem obrigatória: O-01 → O-26 (O-14 a O-21 são a observabilidade, feitas depois da POC base; O-22 a O-26 são o apply paralelo e o checkpoint sem trava, ADR-058 e ADR-059), com uma exceção de dependência: as portas de O-07a e os erros novos do usecase (`ErrNotLeader`, `ErrGateNotReady`, `ErrReadTimeout`, em `read.go`) entram **antes** de O-03, porque o `etcdraft` os usa. Cada passo termina com `go build ./...` e `go test -race ./...` verdes (no container de teste) antes do seguinte. Comentários e mensagens de log em português.
+> Ordem obrigatória: O-01 → O-28 (O-14 a O-21 são a observabilidade, feitas depois da POC base; O-22 a O-26 são o apply paralelo e o checkpoint sem trava, ADR-058 e ADR-059; O-27 e O-28 são o laço do Raft sem espera, a admissão e as métricas novas, ADR-060), com uma exceção de dependência: as portas de O-07a e os erros novos do usecase (`ErrNotLeader`, `ErrGateNotReady`, `ErrReadTimeout`, em `read.go`) entram **antes** de O-03, porque o `etcdraft` os usa. Cada passo termina com `go build ./...` e `go test -race ./...` verdes (no container de teste) antes do seguinte. Comentários e mensagens de log em português.
 
 ### O-01 Criar a base - `DataReplicationApp/`
 1. Responsabilidade: copiar o esboço e atualizar dependências.
@@ -427,13 +428,13 @@ DataReplicationApp/
 
 ### O-03 Implement Adapter - `adapter/out/etcdraft`
 1. Responsabilidade: `port.ConsensusEngine` real (RT-01 a RT-11), único importador de `raft` e `wal`.
-2. Atributos de `Node`: `id uint64`, `voters []uint64`, `learners []uint64`, `dir string`, `node raft.Node`, `storage *raft.MemoryStorage`, `wal *wal.WAL`, `send Sender`, `committed chan port.CommitBatch` (buffer 1024), `events chan port.LearnerProgress` (buffer 1024, bloqueante), `lead atomic.Uint64`, `term atomic.Uint64`, `commit atomic.Uint64`, `pending map[uint64]chan domain.Index` + mutex, `reads map[string]chan domain.Index` + mutex, `nextProposal atomic.Uint64` (semente `uint64(time.Now().UnixNano())`), `log zerolog.Logger`.
+2. Atributos de `Node`: `id uint64`, `voters []uint64`, `learners []uint64`, `dir string`, `node raft.Node`, `storage *raft.MemoryStorage`, `wal *wal.WAL`, `send Sender`, ~~`committed chan port.CommitBatch` (buffer 1024)~~ (substituído na O-27 por `commitMu` e `commitCh chan struct{}`, ADR-060), `events chan port.LearnerProgress` (buffer 1024, bloqueante), `lead atomic.Uint64`, `term atomic.Uint64`, `commit atomic.Uint64`, `pending map[uint64]chan domain.Index` + mutex, `reads map[string]chan domain.Index` + mutex, `nextProposal atomic.Uint64` (semente `uint64(time.Now().UnixNano())`), `log zerolog.Logger`.
 3. `Sender` interface (no próprio pacote): `Send(to uint64, msg []byte) bool` (false = descartado).
 4. `Open(cfg Config, send Sender, log zerolog.Logger) (*Node, error)`:
    - `cfg`: `ID`, `Voters`, `Learners`, `Dir`, `TickInterval` (100 ms).
    - Se `!wal.Exist(dir)`: `wal.Create(zap.NewNop(), dir, metadata(id))`; `ConfState{Voters, Learners}`; `w.SaveSnapshot(walpb.Snapshot{Index:1, Term:1, ConfState:&cs})`; `w.Save(HardState{Term:1, Commit:1}, nil)`; `storage.ApplySnapshot(raftpb.Snapshot{Metadata:{Index:1, Term:1, ConfState:cs}})`; `storage.SetHardState`.
    - Senão: `wal.ValidSnapshotEntries` → último snapshot; `wal.Open` nele; `ReadAll` → metadata, HardState, entradas. Conferir metadata = `id`. Conferir `ConfState` do snapshot × configuração (conjuntos ordenados); diferença → erro `"PEERS/LEARNERS diferem do que está gravado no WAL (votantes X, learners Y); rode task limpar"` (RT-10, CA-12). Aplicar snapshot, HardState e entradas ao `MemoryStorage`.
-   - `raft.Config{ID, ElectionTick:10, HeartbeatTick:1, Storage, Applied:1, MaxSizePerMsg:1<<20, MaxInflightMsgs:256, MaxUncommittedEntriesSize:32<<20, CheckQuorum:true, PreVote:true, DisableProposalForwarding:true, Logger: adaptador zerolog}`; `raft.RestartNode(cfg)`.
+   - `raft.Config{ID, ElectionTick:cfg.ElectionTicks (O-27; antes 10), HeartbeatTick:1, Storage, Applied:restartApplied(...) (O-27; antes 1), MaxSizePerMsg:1<<20, MaxInflightMsgs:256, MaxUncommittedEntriesSize:32<<20, CheckQuorum:true, PreVote:true, DisableProposalForwarding:true, Logger: adaptador zerolog}`; `raft.RestartNode(cfg)`.
 5. `Run(ctx) error` (laço único):
    - ticker de `TickInterval` → `node.Tick()`.
    - `rd := <-node.Ready()`:
@@ -444,7 +445,7 @@ DataReplicationApp/
      5. `storage.Append(rd.Entries)`; `HardState` não vazio → `storage.SetHardState`, atualizar `term`.
      6. enviar `after` (`MsgSnap` em `after` → logar erro e não enviar).
      7. `rd.ReadStates` → entregar cada `Index` ao waiter de `reads[string(RequestCtx)]`.
-     8. `rd.CommittedEntries` → converter (passo 6) num `CommitBatch`; atualizar `commit`; entregar índice aos waiters `pending[ProposalID]` cuja entrada é `KindWrite`; `committed <- batch` (bloqueante, risco 3; com `ctx.Done`).
+     8. `rd.CommittedEntries` → converter (passo 6) num `CommitBatch`; atualizar `commit`; entregar índice aos waiters `pending[ProposalID]` cuja entrada é `KindWrite`; ~~`committed <- batch` (bloqueante, risco 3; com `ctx.Done`)~~ **substituído na O-27:** publicar o último índice como sinal (atômico + fechar e recriar `commitCh`), sem esperar ninguém (ADR-060).
      9. `node.Advance()`.
    - `send(m)`: `data, _ := m.Marshal()`; `if !s.Send(m.To, data) { node.ReportUnreachable(m.To) }`.
    - `kindOf(m)`: mapear `raftpb.MsgApp`→`domain.MsgApp`, `MsgAppResp`→`MsgAppResp`, votos, pré-votos, heartbeat, `MsgSnap`; resto → `MsgOther`.
@@ -772,6 +773,33 @@ DataReplicationApp/
 2. `go test -run '^$' -bench Applier ./internal/usecase`: com 16 workers, pelo menos 10 vezes os itens/s de 1 worker.
 3. No Docker: `task carga` com `APPLY_WORKERS=1` e depois com `16`; com 16, `dr_apply_inflight` passa de 1 sob carga e `dr_applied_index` acompanha o `dr_commit_index`; `dr_replog_sync_duration_seconds` registra os checkpoints sem pico correspondente em `dr_write_duration_seconds`.
 
+### O-27 Update Raft, CommitPump, Write, Config e Bootstrap - laço do Raft sem espera e admissão (ADR-060)
+1. `port.ConsensusEngine`: trocar `Committed() <-chan CommitBatch` por `CommitIndex() domain.Index`, `CommitChanged() <-chan struct{}` (fechado a cada avanço do commit), `CommittedEntries(lo, hi domain.Index, maxBytes uint64) ([]domain.Entry, error)` e `FirstIndex() domain.Index`. Remover `CommitBatch`. `port.AppliedWaiter` ganha `Applied() domain.Index`.
+2. `etcdraft.Node`:
+   - `Config` ganha `ElectionTicks int` (padrão 10) e `Applied uint64`. Na reabertura, `Applied = restartApplied(snap, commit gravado, cfg.Applied) = max(snap, min(want, commit))`.
+   - No `Ready`, o passo 8 da O-03 passa a ser: entregar os índices aos waiters de propostas **só se houver proposta pendente** (só então decodificar as entradas), e publicar o último índice commitado (`publishCommit`: guarda no atômico, fecha `commitCh` e cria um novo sob `commitMu`). Nunca enviar a um consumidor.
+   - `CommittedEntries` lê `storage.Entries(lo, hi+1, maxBytes)` e converte cada entrada como no passo 6 da O-03 (vazias e `ConfChange` viram `Noop`).
+   - Métricas: `RaftLoop(d)` com a duração de cada `Ready`; `RaftTickGap(d)` com o intervalo real entre ticks.
+   - `ErrProposalDropped` → `&usecase.BackpressureError{Cause}` com a causa de `dropCause()` (por `node.Status()`: não líder → `nao_lider`; `LeadTransferee` ≠ 0 → `transferencia`; senão `buffer_cheio`), e `Metrics.Throttled(causa)`.
+3. `usecase.CommitPump`: campos `From domain.Index`, `ReadBytes uint64` (padrão 1 MiB) e `delivered atomic.Uint64` com `Delivered()`. Quatro goroutines: progresso (como hoje), **gate** (espera `CommitChanged()`, chama `SetTerm` e `SetRaftCommit(CommitIndex())`), commits e `runAppend`. Commits: cursor `next = max(From, FirstIndex(), 1)`; lê `CommittedEntries(next, CommitIndex(), ReadBytes)`, confere índices contíguos (buraco é erro), envia ao `Applier` (fila de 64 lotes) e à fila do log; espera `CommitChanged()` quando alcança o commit. `ResumeFrom(últimoDoLog, progresso)`: `from = último + 1`; se `0 < progresso < from`, usa o progresso; nunca 0.
+4. `usecase.WriteService`: campos `Metrics` e `MaxApplyLag`. `admit()` roda depois da checagem do lease e antes do `Propose`: se `gate > aplicado` e `gate − aplicado > MaxApplyLag` → `Metrics.Throttled("atraso_apply")` e `BackpressureError{Cause: "atraso_apply"}`. `BackpressureError.Is(ErrBackpressure)` é verdadeiro (o mapeamento HTTP não muda).
+5. `config`: `APPLY_LAG_MAX` (padrão `APPLY_WORKERS × 256`, de 1 a 10.000.000), `ELECTION_TICKS` (padrão 10, de 3 a 100), `STORE` (`dynamodb` ou `memory`; `memory` exige `POC_SEM_AZURE=true`), `MEMSTORE_LATENCY` (duração ≥ 0).
+6. `adapter/out/memstore`: banco em memória com o contrato do `StateStore` (put condicional por `_dr_v`, `GetItem`, `Scan` ordenado e paginado, `KeySchema` com `pk` String, `LoadCatalog` sem efeito com aviso, latência que respeita o contexto e devolve erro transitório no cancelamento).
+7. `cmd/benchstore`: mede o `PutItem` condicional direto no LocalStack (flags `-endpoint`, `-region`, `-tables`, `-workers`, `-duration`); imprime vazão e p50, p95 e p99. Copiado na imagem como `/usr/local/bin/benchstore`.
+8. `bootstrap`: `applierQueue = 64`; `newStore` escolhe `memstore` ou `dynamodb`; ponto de retomada por `ResumeFrom(log.LastIndex(), progresso)`; `Raft.Applied = retomada − 1`; `ElectionTicks` da configuração; `CommitPump` com `From`; `WriteService` com `Metrics` e `MaxApplyLag`; `StatusReporter` com `Pump`, `ApplyInbox`, `ApplyLagMax`, `ElectionTicks` e `Store`; log "célula iniciada" com os valores novos.
+9. `/status`: `apply.atraso`, `apply.atrasoMax`, `apply.fila`, `commitNaoEntregue`, `electionTicks`, `banco`.
+10. `docker-compose.yml`: `ELECTION_TICKS: "30"`, `STORE: "${STORE:-dynamodb}"`, `MEMSTORE_LATENCY: "${MEMSTORE_LATENCY:-0s}"`; LocalStack com `DYNAMODB_HEAP_SIZE: "${DYNAMODB_HEAP_SIZE:-1G}"`.
+11. Testes (`-race`): 3.000 propostas de 64 clientes com os consumidores parados, sem troca de líder e com `CommitIndex() ≥ 3000`, e depois leitura contígua de tudo; proposta numa follower com causa `nao_lider`; `restartApplied`; gate acompanhando o commit com o applier parado; pump começando em `From`; `ResumeFrom`; sinal sem commit novo inofensivo; canal de eventos fechado devolve erro; admissão recusando e aceitando; `memstore`; configuração; `/status` com os campos novos.
+
+### O-28 Update Metrics, Handler, Dashboard e Taskfile - métricas de causa e de entrada (ADR-060)
+1. `port.Metrics` ganha `RaftLoop(d)`, `RaftTickGap(d)`, `Throttled(causa)`, `HTTPRequest(op, status, d)` e `HTTPInFlight(delta)` (e `NopMetrics`).
+2. `dynamohttp`: `handle` envolve o atendimento: `HTTPInFlight(+1)` na entrada e `(-1)` na saída; `HTTPRequest(httpOp(alvo), código, duração)` em **toda** resposta, inclusive recusas. `httpOp` devolve um rótulo limitado: as operações conhecidas ou `outra`.
+3. `prommetrics`: `dr_raft_loop_duration_seconds`, `dr_raft_tick_gap_seconds`, `dr_throttled_total{causa}`, `dr_http_requests_total{op,codigo}`, `dr_http_request_duration_seconds{op}`, `dr_http_inflight`; gauges coletados `dr_apply_lag`, `dr_apply_lag_max`, `dr_apply_inbox_batches`, `dr_commit_undelivered`, `dr_election_ticks`. Rótulos pré-inicializados (causas e operações conhecidas). Novo rótulo permitido pela norma 10: `causa` e `codigo`.
+4. Dashboard v2: seção 08 "Entrada HTTP e contrapressão" (TPS por célula e por operação, códigos, latência, em andamento, contrapressão por causa) e seção 09 "Apply e laço do Raft" (atraso contra o teto, commit não entregue, fila do applier, vazão e latência do apply, duração do `Ready`, intervalo entre ticks). "Resultados de escrita por segundo" sem empilhamento. O teste de contrato inclui as séries novas.
+5. Taskfile: `bench-localstack` (`WORKERS`, `DURATION`), `diag` (`WINDOW`; tabela por célula consultando o Prometheus) e `start` aceitando `STORE` e `MEMSTORE_LATENCY`. As esperas por líder nova sobem para cerca de 20 s (eleição de 3 a 6 s).
+6. `README.md` e `HOW_TO_RUN.md`: séries novas, decisão "laço do Raft nunca espera o apply", seção de teste de carga (limpar volumes, `fio`, `bench-localstack`, `STORE=memory`, `diag`), risco 3 fechado.
+7. Pronto quando: CA-17 e CA-18 da spec.
+
 ## Norms
 
 1. **Arquitetura e dependências**: `adapter → usecase → domain` e `adapter → port`; `domain` só com biblioteca padrão; só `etcdraft` importa `go.etcd.io/raft/v3` e o `wal`; só `bootstrap` e `cmd` importam `fx`; bibliotecas limitadas à N-01 (mais `smithy-go`, `zap`, `protobuf` e `aws-sdk-go-v2/credentials`, exigidas pelas outras, e `prometheus/client_golang` para as métricas, todas justificadas no README); só `adapter/out/prommetrics` importa o Prometheus.
@@ -790,7 +818,7 @@ DataReplicationApp/
 9. **fasthttp**: nada que aponte para o buffer da requisição sobrevive ao handler (N-06).
 10. **Métricas**:
    - Nomes com prefixo `dr_`, em snake_case, unidade base no nome (`_seconds`, `_index`), contadores com sufixo `_total`.
-   - Rótulos em português e de baixa cardinalidade: `celula`, `par`, `tipo`, `resultado`, `op`. Nunca `pk`, nome de tabela física, mensagem de erro ou qualquer valor vindo do cliente.
+   - Rótulos em português e de baixa cardinalidade: `celula`, `par`, `tipo`, `resultado`, `op`, `causa`, `codigo` (o `op` da porta de API é limitado às operações conhecidas mais `outra`). Nunca `pk`, nome de tabela física, mensagem de erro ou qualquer valor vindo do cliente.
    - Evento por `port.Metrics`; estado por coleta (`StateCollector`). Nenhum componente mantém gauge de estado à mão.
    - Toda série tem `Help` em português explicando o que mede.
    - Dashboard e configurações do Prometheus e do Grafana são arquivos versionados em `observability/`; nada é criado pela interface do Grafana. Mudou métrica → mudou o dashboard no mesmo commit (o teste de contrato garante).
@@ -807,9 +835,10 @@ DataReplicationApp/
    - Nenhuma resposta de leitura contém `_dr_v`.
 2. **Restrições de desempenho e tempo**:
    - `/readyz` das três células em até 60 s depois de `task subir` com a imagem já construída (CA-01).
-   - Nova líder em até 5 s após parar a líder (CA-09), com `ElectionTick` 10 × 100 ms.
+   - Nova líder em até 10 s após parar a líder (CA-09), com `ELECTION_TICKS` 30 × 100 ms no compose (eleição de 3 a 6 s; ADR-060).
    - Item nas três tabelas físicas em até 2 s após o ACK (CA-03).
    - O fsync do checkpoint do log de replicação nunca roda sob a trava do `Append`, e o `Append` nunca roda na goroutine que avança o gate (ADR-059).
+   - **Laço do Ready nunca espera o apply nem o log de replicação** (SG-17, ADR-060): nenhum envio bloqueante a consumidores dentro do laço; o commit é só um sinal.
    - Laço do Ready nunca bloqueia em rede (filas por par que descartam, SG-10); o envio de `GateUpdate` nunca bloqueia e nunca perde o valor mais recente.
    - **Métrica nunca bloqueia nem atrasa o laço do Ready do Raft**: dentro do `Run`, `handleReady`, `sendAll` e `Step` só há incrementos atômicos e medições de tempo locais; proibido mutex compartilhado com o scrape, canal, chamada de rede, alocação por mensagem além do incremento e qualquer chamada a `node.Status()` vinda de código de métrica dentro do laço.
    - A coleta (`/metrics`) roda na goroutine do servidor de administração e deve responder em menos de 100 ms com o cluster saudável; uma coleta lenta ou o Prometheus fora do ar nunca afeta escrita, leitura, eleição ou o `/readyz`.

@@ -32,7 +32,7 @@ flowchart LR
 
 ## Falhas e tratativas
 
-- **Etapas sem teste hoje.** Tempo de eleição com `ElectionTick` real, replay do log do Raft, reconstrução do gate (D9), reconstrução da tabela de dedupe ([R22](R22-memoria-da-janela-de-dedupe.md)), tempo para o `appliedIndex` alcançar o ponto anterior (guardado em arquivo local) e drenagem de backlog do Cosmos na promoção ([R03](R03-backlog-de-apply-no-cosmos.md)).
+- **Etapas sem teste hoje.** Tempo de eleição com `ElectionTick` real, replay do log do Raft, reconstrução do gate (D9), reconstrução da tabela de dedupe ([R22](R22-memoria-da-janela-de-dedupe.md)), tempo para o `appliedIndex` alcançar o ponto anterior (guardado em arquivo local), tempo para a nova líder baixar o atraso do apply abaixo de `APPLY_LAG_MAX` e voltar a aceitar escrita ([ADR-060](../../03_adr/ADR-060-laco-do-raft-nunca-espera-o-apply-e-admissao-por-atraso.md), [C35](../atualizados/C35-banco-lento-nao-derruba-a-lideranca.md)) e drenagem de backlog do Cosmos na promoção ([R03](R03-backlog-de-apply-no-cosmos.md)).
 - **EBS preso à AZ.** Se a AZ inteira cai, o volume do log da célula fica indisponível; a recuperação vem das outras células, não do volume.
 - **Poucas amostras.** Uma distribuição com poucos exercícios engana; registrar o número de execuções e repetir depois de cada mudança relevante.
 

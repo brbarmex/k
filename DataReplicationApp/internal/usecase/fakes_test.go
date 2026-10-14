@@ -20,15 +20,64 @@ type fakeConsensus struct {
 	onPropose  func(domain.Entry) // gancho executado dentro do Propose (sem o mutex)
 	proposeErr error
 
-	committed chan port.CommitBatch
-	events    chan port.LearnerProgress
+	events chan port.LearnerProgress
+
+	// Memória do Raft e commit publicado (ADR-060): log[i-1] é a entrada de índice i.
+	cmu       sync.Mutex
+	log       []domain.Entry
+	commitIdx domain.Index
+	changed   chan struct{}
 }
 
 func newFakeConsensus() *fakeConsensus {
 	return &fakeConsensus{
 		hasLeader: true, leader: port.LeaderInfo{NodeID: "n1", Local: true}, term: 1, next: 4,
-		committed: make(chan port.CommitBatch), events: make(chan port.LearnerProgress),
+		events: make(chan port.LearnerProgress), changed: make(chan struct{}),
 	}
+}
+
+// commitEntries guarda as entradas na memória e publica o commit. Índices que faltam
+// antes de cada uma viram Noop, como a entrada da eleição.
+func (f *fakeConsensus) commitEntries(es ...domain.Entry) {
+	f.cmu.Lock()
+	defer f.cmu.Unlock()
+	for _, e := range es {
+		for domain.Index(len(f.log))+1 < e.Index {
+			f.log = append(f.log, domain.Entry{Index: domain.Index(len(f.log)) + 1, Kind: domain.KindNoop})
+		}
+		if domain.Index(len(f.log))+1 == e.Index {
+			f.log = append(f.log, e)
+		}
+	}
+	if n := domain.Index(len(f.log)); n > f.commitIdx {
+		f.commitIdx = n
+		close(f.changed)
+		f.changed = make(chan struct{})
+	}
+}
+
+func (f *fakeConsensus) CommitIndex() domain.Index {
+	f.cmu.Lock()
+	defer f.cmu.Unlock()
+	return f.commitIdx
+}
+
+func (f *fakeConsensus) CommitChanged() <-chan struct{} {
+	f.cmu.Lock()
+	defer f.cmu.Unlock()
+	return f.changed
+}
+
+func (f *fakeConsensus) FirstIndex() domain.Index { return 1 }
+
+func (f *fakeConsensus) CommittedEntries(lo, hi domain.Index, _ uint64) ([]domain.Entry, error) {
+	f.cmu.Lock()
+	defer f.cmu.Unlock()
+	hi = min(hi, f.commitIdx)
+	if lo > hi {
+		return nil, nil
+	}
+	return append([]domain.Entry(nil), f.log[lo-1:hi]...), nil
 }
 
 func (f *fakeConsensus) Propose(_ context.Context, e domain.Entry) (domain.Index, error) {
@@ -86,7 +135,6 @@ func (f *fakeConsensus) Leader() (port.LeaderInfo, bool) {
 	return f.leader, f.hasLeader
 }
 func (f *fakeConsensus) TransferLeadership(context.Context, string) error { return nil }
-func (f *fakeConsensus) Committed() <-chan port.CommitBatch               { return f.committed }
 func (f *fakeConsensus) LearnerEvents() <-chan port.LearnerProgress       { return f.events }
 func (f *fakeConsensus) LearnerDurable() []port.LearnerProgress           { return nil }
 func (f *fakeConsensus) Term() domain.Term {
@@ -102,9 +150,12 @@ func (f *fakeConsensus) setTerm(t domain.Term) {
 
 // fakeApplied: bloqueia até done fechar; onWait roda antes (simula pausa de processo).
 type fakeApplied struct {
-	done   chan struct{}
-	onWait func()
+	done    chan struct{}
+	onWait  func()
+	applied domain.Index // marca d'água devolvida por Applied (admissão, ADR-060)
 }
+
+func (f fakeApplied) Applied() domain.Index { return f.applied }
 
 func (f fakeApplied) WaitApplied(ctx context.Context, _ domain.Index) error {
 	if f.onWait != nil {

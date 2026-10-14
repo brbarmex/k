@@ -24,7 +24,7 @@
 | Pasta | O que tem |
 |---|---|
 | [`01_arquitetura/`](01_arquitetura/README.md) | Detalhe de arquitetura por assunto e o [glossário](01_arquitetura/00_glossario.md) |
-| [`02_cenarios/`](02_cenarios/INDEX.md) | `atualizados/` (C01–C34), `complexos/` (X01–X08) e `a_rever/` (14 cenários ainda sem decisão completa, R03 a R23) |
+| [`02_cenarios/`](02_cenarios/INDEX.md) | `atualizados/` (C01–C35), `complexos/` (X01–X08) e `a_rever/` (14 cenários ainda sem decisão completa, R03 a R23) |
 | [`03_adr/`](03_adr/INDEX.md) | 54 decisões de arquitetura, um arquivo por decisão |
 | [`04_diagramas/`](04_diagramas/INDEX.md) | Diagramas de arquitetura (D01–D08) e catálogo de todos os diagramas |
 | [`05_implementacao/`](05_implementacao/README.md) | Guia de código, exemplos compilados, structs, testes e spikes |

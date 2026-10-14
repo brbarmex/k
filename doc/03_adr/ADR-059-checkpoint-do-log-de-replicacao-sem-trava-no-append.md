@@ -34,7 +34,7 @@ Além disso, o `Append` fazia uma chamada de escrita por entrada, e não uma por
 - **A rotação ainda espera o disco:** o fsync do segmento que sai roda dentro do `Append`, a cada 64 MiB. Como o checkpoint periódico já sincronizou quase todo o segmento, o que sobra é pouco; pré-alocar segmentos ou rotacionar em segundo plano fica para quando a medição pedir.
 - **O log de replicação pode ficar até 1024 lotes atrás do commit.** O `DurableIndex` atrasa na mesma medida, e a compactação do Raft, que só vai até ele, retém um pouco mais em memória. Não muda o RPO: a entrada confirmada está no log do Raft com fsync.
 - **Na partida**, o que estava na fila e não foi gravado é refeito a partir do Raft, como qualquer trecho perdido do log de replicação.
-- **Um disco do log de replicação lento por muito tempo** enche a fila e volta a segurar a goroutine de commits; se isso durar, o canal de commits do Raft enche e o laço do `Ready` espera (risco 3 da spec da POC). É o comportamento desejado, porque nada pode ser descartado do log de replicação.
+- **Um disco do log de replicação lento por muito tempo** enche a fila e volta a segurar a goroutine de commits. É o comportamento desejado, porque nada pode ser descartado do log de replicação. **Atualizado pelo [ADR-060](ADR-060-laco-do-raft-nunca-espera-o-apply-e-admissao-por-atraso.md):** antes, se isso durasse, o canal de commits do Raft enchia e o laço do `Ready` esperava (risco 3 da spec da POC). Agora o commit é um sinal e o `CommitPump` lê por faixa da memória do Raft: quem espera é só o `CommitPump`, e o laço do Raft segue com tick e heartbeat.
 
 ## Código
 

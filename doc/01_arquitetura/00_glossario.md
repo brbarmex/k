@@ -14,7 +14,9 @@
 | **Agent** | Processo do control plane que pede ao Compass-Router para mudar o destino do tráfego. Fora do escopo |
 | **Cloud-Adapter** | Componente que traduz o formato do DynamoDB para o Cosmos DB (inclui expressão condicional e TTL). Outro componente, não faz parte do `DataReplication` |
 | **Applier** | Rotina que grava as entradas commitadas no banco da célula, com escrita condicional por versão, sempre depois do gate. Um por tabela por célula. Persiste o progresso **por item** `(índice, ordem)` no volume do log (ADR-048) |
-| **CommitPump** | Rotina que recebe as entradas commitadas e as distribui ao gate, ao applier e ao log de replicação |
+| **`APPLY_LAG_MAX` (admissão por atraso do apply)** | Teto de `gate − aplicado` na líder. Acima dele a escrita é recusada com `ThrottlingException` (causa `atraso_apply`) antes do `Propose`, sem entrar no log. Padrão `APPLY_WORKERS × 256` (ADR-060) |
+| **Commit como sinal** | O laço do Raft só publica o índice commitado (atômico mais aviso) e nunca espera o apply; o `CommitPump` lê as entradas por faixa da memória do Raft (ADR-060) |
+| **CommitPump** | Rotina que lê as entradas commitadas por faixa da memória do Raft (desde o ADR-060) e as distribui ao applier e ao log de replicação; o gate segue o commit numa goroutine própria |
 | **Link dedicado** | Conexão privada (cabo físico) entre AWS e Azure, sem internet |
 | **`drctl`** | CLI operacional: reconstruir réplica (`drctl rebuild`), transferir liderança, inspecionar, promover, extrair escritas órfãs |
 

@@ -416,3 +416,46 @@ func TestBackpressureFromProposeIsReturnedAsIs(t *testing.T) {
 		t.Fatalf("%d escritas propostas", n)
 	}
 }
+
+// ADR-060: com o apply local mais de MaxApplyLag atrás do gate, a líder recusa a escrita
+// ANTES de propor (nada entra no log), com a causa atraso_apply.
+func TestAdmissionRefusesWhenApplyLags(t *testing.T) {
+	m := &recMetrics{}
+	r := newRig(fakeApplied{done: make(chan struct{}), applied: 10}, domain.PolicyReject)
+	r.svc.MaxApplyLag, r.svc.Metrics = 100, m
+	r.g.SetAzureOff(true)
+	r.g.SetRaftCommit(500) // gate 500, aplicado 10: atraso 490
+	_, err := r.svc.Write(context.Background(), port.WriteRequest{})
+	var bp *BackpressureError
+	if !errors.As(err, &bp) || bp.Cause != CauseApplyLag || !errors.Is(err, ErrBackpressure) {
+		t.Fatalf("esperado contrapressão atraso_apply, veio %v", err)
+	}
+	if r.cons.total() != 0 {
+		t.Fatal("a escrita recusada não pode gastar índice do log")
+	}
+	if m.n("throttled:atraso_apply") != 1 {
+		t.Fatal("a causa não foi registrada")
+	}
+}
+
+// No limite (atraso igual a MaxApplyLag) a escrita entra; a admissão mede contra o gate,
+// não contra o commit (entradas esperando a Azure não são atraso do apply).
+func TestAdmissionAllowsUpToLimitAndIgnoresAzureWait(t *testing.T) {
+	r := newRig(appliedOK(), domain.PolicyReject)
+	r.svc.Applied = fakeApplied{done: appliedOK().done, applied: 400}
+	r.svc.MaxApplyLag = 100
+	r.g.SetAzureOff(true)
+	r.g.SetRaftCommit(500)
+	if _, err := r.svc.Write(context.Background(), port.WriteRequest{}); err != nil {
+		t.Fatalf("atraso no limite devia passar: %v", err)
+	}
+
+	r2 := newRig(fakeApplied{done: make(chan struct{}), applied: 0}, domain.PolicyReject)
+	r2.svc.MaxApplyLag = 100
+	r2.g.SetRaftCommit(10_000) // commit muito à frente, mas a Azure não confirmou: gate 0
+	ctx, cancel := timeout(30 * time.Millisecond)
+	defer cancel()
+	if _, err := r2.svc.Write(ctx, port.WriteRequest{}); errors.Is(err, ErrBackpressure) {
+		t.Fatal("espera da Azure não é atraso do apply")
+	}
+}

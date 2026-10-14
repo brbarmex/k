@@ -36,7 +36,14 @@ type Config struct {
 	Learners     []uint64 // vazio na POC (G-08)
 	Dir          string   // diretório do WAL; um subdiretório do volume (C-04)
 	TickInterval time.Duration
-	Metrics      port.Metrics // eventos do Raft (O-16); nulo = sem métricas
+	// ElectionTicks é o timeout de eleição em ticks (ELECTION_TICKS, ADR-060). O heartbeat
+	// é sempre 1 tick. 0 = 10 (1 s com tick de 100 ms).
+	ElectionTicks int
+	// Applied é o índice até onde o Raft NÃO reentrega as entradas commitadas na partida
+	// (ADR-060, item 5): min(último do log de replicação, progresso do applier - 1). É
+	// limitado ao commit gravado e nunca fica abaixo do snapshot.
+	Applied uint64
+	Metrics port.Metrics // eventos do Raft (O-16); nulo = sem métricas
 }
 
 // Node é o motor de consenso real. Implementa port.ConsensusEngine, port.RaftCompactor,
@@ -51,8 +58,13 @@ type Node struct {
 	metrics  port.Metrics
 	learners map[uint64]bool
 
-	committed chan port.CommitBatch
-	events    chan port.LearnerProgress
+	events chan port.LearnerProgress
+
+	// O commit é um SINAL, não uma fila (ADR-060): o laço do Ready publica o índice e
+	// fecha commitCh; quem consome lê as entradas por faixa do MemoryStorage. O laço nunca
+	// espera o CommitPump, o gate ou o applier.
+	commitMu sync.Mutex
+	commitCh chan struct{}
 
 	lead    atomic.Uint64
 	term    atomic.Uint64
@@ -85,11 +97,11 @@ func Open(cfg Config, send Sender, log zerolog.Logger) (*Node, error) {
 	}
 	n := &Node{
 		cfg: cfg, storage: ms, wal: w, send: send, log: log, metrics: port.MetricsOrNop(cfg.Metrics),
-		learners:  make(map[uint64]bool, len(cfg.Learners)),
-		committed: make(chan port.CommitBatch, 1024),
-		events:    make(chan port.LearnerProgress, 1024),
-		pending:   make(map[uint64]chan domain.Index),
-		reads:     make(map[string]chan domain.Index),
+		learners: make(map[uint64]bool, len(cfg.Learners)),
+		events:   make(chan port.LearnerProgress, 1024),
+		commitCh: make(chan struct{}),
+		pending:  make(map[uint64]chan domain.Index),
+		reads:    make(map[string]chan domain.Index),
 	}
 	for _, l := range cfg.Learners {
 		n.learners[l] = true
@@ -104,12 +116,16 @@ func Open(cfg Config, send Sender, log zerolog.Logger) (*Node, error) {
 		_ = w.Close()
 		return nil, err
 	}
+	if cfg.ElectionTicks <= 0 {
+		cfg.ElectionTicks = 10
+		n.cfg.ElectionTicks = 10
+	}
 	n.node = raft.RestartNode(&raft.Config{
 		ID:                        cfg.ID,
-		ElectionTick:              10,
+		ElectionTick:              cfg.ElectionTicks,
 		HeartbeatTick:             1,
 		Storage:                   ms,
-		Applied:                   snap.GetMetadata().GetIndex(), // RT-09: o applier pula pelo progresso salvo
+		Applied:                   restartApplied(snap.GetMetadata().GetIndex(), n.commit.Load(), cfg.Applied),
 		MaxSizePerMsg:             1 << 20,
 		MaxInflightMsgs:           256,
 		MaxUncommittedEntriesSize: 32 << 20,
@@ -121,6 +137,12 @@ func Open(cfg Config, send Sender, log zerolog.Logger) (*Node, error) {
 	return n, nil
 }
 
+// restartApplied limita o Applied da partida: nunca abaixo do snapshot nem acima do commit
+// gravado (o Raft entra em pânico com Applied > commit).
+func restartApplied(snap, commit, want uint64) uint64 {
+	return max(snap, min(want, commit))
+}
+
 // Run é o laço do Ready no modo síncrono com F3 (RT-04, ADR-056). Devolve erro só em
 // falha fatal (fsync, snapshot recebido, entrada ilegível); o chamador derruba o processo.
 func (n *Node) Run(ctx context.Context) error {
@@ -128,11 +150,16 @@ func (n *Node) Run(ctx context.Context) error {
 	defer n.running.Store(false)
 	tick := time.NewTicker(n.cfg.TickInterval)
 	defer tick.Stop()
+	lastTick := time.Now()
 	for {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
-		case <-tick.C:
+		case now := <-tick.C:
+			// Intervalo real entre ticks (O-27): bem acima do TickInterval quer dizer laço
+			// preso (fsync lento), e cada tick perdido atrasa heartbeat e eleição.
+			n.metrics.RaftTickGap(now.Sub(lastTick))
+			lastTick = now
 			n.node.Tick()
 		case rd := <-n.node.Ready():
 			if err := n.handleReady(ctx, rd); err != nil {
@@ -144,6 +171,7 @@ func (n *Node) Run(ctx context.Context) error {
 }
 
 func (n *Node) handleReady(ctx context.Context, rd raft.Ready) error {
+	start := time.Now()
 	if rd.SoftState != nil {
 		if old := n.lead.Swap(rd.SoftState.Lead); old != rd.SoftState.Lead {
 			n.log.Info().Uint64("lider", rd.SoftState.Lead).Uint64("termo", n.term.Load()).Msg("mudança de líder")
@@ -183,24 +211,27 @@ func (n *Node) handleReady(ctx context.Context, rd raft.Ready) error {
 			}
 		}
 	}
-	if len(rd.CommittedEntries) > 0 { // (5) ao CommitPump
-		batch := port.CommitBatch{Entries: make([]domain.Entry, 0, len(rd.CommittedEntries))}
-		for _, e := range rd.CommittedEntries {
-			de, err := toDomain(e)
-			if err != nil {
-				return err
-			}
-			batch.Entries = append(batch.Entries, de)
+	if len(rd.CommittedEntries) > 0 { // (5) publica o commit: sinal, nunca fila (ADR-060)
+		if err := n.notifyProposals(rd.CommittedEntries); err != nil {
+			return err
 		}
-		n.commit.Store(rd.CommittedEntries[len(rd.CommittedEntries)-1].GetIndex())
-		n.notifyProposals(batch.Entries)
-		select {
-		case n.committed <- batch: // bloqueante: applier lento segura o laço (risco 3)
-		case <-ctx.Done():
-			return ctx.Err()
-		}
+		n.publishCommit(rd.CommittedEntries[len(rd.CommittedEntries)-1].GetIndex())
 	}
-	return nil // (6) Advance é chamado por Run
+	n.metrics.RaftLoop(time.Since(start)) // fsync, envio e publicação: o Ready inteiro
+	return nil                            // (6) Advance é chamado por Run, sem esperar ninguém
+}
+
+// publishCommit avança o commit publicado e acorda quem espera. As entradas até ele já
+// estão no MemoryStorage (passo 3), então quem lê por faixa sempre as encontra.
+func (n *Node) publishCommit(idx uint64) {
+	n.commitMu.Lock()
+	defer n.commitMu.Unlock()
+	if idx <= n.commit.Load() {
+		return
+	}
+	n.commit.Store(idx)
+	close(n.commitCh)
+	n.commitCh = make(chan struct{})
 }
 
 func (n *Node) sendAll(msgs []*raftpb.Message) {
@@ -222,20 +253,30 @@ func (n *Node) sendAll(msgs []*raftpb.Message) {
 	}
 }
 
-func (n *Node) notifyProposals(entries []domain.Entry) {
+// notifyProposals acorda os Propose desta célula pelo ProposalID. Só decodifica quando há
+// alguém esperando (só na líder): a follower não paga o JSON dentro do laço.
+func (n *Node) notifyProposals(ents []*raftpb.Entry) error {
 	n.mu.Lock()
 	defer n.mu.Unlock()
-	for _, e := range entries {
-		if e.ProposalID == 0 {
+	if len(n.pending) == 0 {
+		return nil
+	}
+	for _, e := range ents {
+		de, err := toDomain(e)
+		if err != nil {
+			return err
+		}
+		if de.ProposalID == 0 {
 			continue
 		}
-		if ch := n.pending[e.ProposalID]; ch != nil {
+		if ch := n.pending[de.ProposalID]; ch != nil {
 			select {
-			case ch <- e.Index:
+			case ch <- de.Index:
 			default:
 			}
 		}
 	}
+	return nil
 }
 
 // Propose propõe a entrada e devolve o índice quando ela é commitada, casando pelo
@@ -258,7 +299,9 @@ func (n *Node) Propose(ctx context.Context, e domain.Entry) (domain.Index, error
 	}
 	if err := n.node.Propose(ctx, data); err != nil {
 		if errors.Is(err, raft.ErrProposalDropped) {
-			return 0, usecase.ErrBackpressure
+			cause := n.dropCause()
+			n.metrics.Throttled(cause)
+			return 0, &usecase.BackpressureError{Cause: cause}
 		}
 		return 0, usecase.ErrPending
 	}
@@ -267,6 +310,21 @@ func (n *Node) Propose(ctx context.Context, e domain.Entry) (domain.Index, error
 		return idx, nil
 	case <-ctx.Done():
 		return 0, usecase.ErrPending
+	}
+}
+
+// dropCause diz por que o Raft descartou a proposta (O-27): a célula não é mais a líder
+// (n.lead ainda não viu a troca), há transferência de liderança em curso, ou o buffer de
+// entradas não commitadas (MaxUncommittedEntriesSize) está cheio.
+func (n *Node) dropCause() string {
+	st := n.node.Status()
+	switch {
+	case st.RaftState != raft.StateLeader:
+		return usecase.CauseNotLeader
+	case st.LeadTransferee != raft.None:
+		return usecase.CauseTransfer
+	default:
+		return usecase.CauseBufferFull
 	}
 }
 
@@ -345,7 +403,50 @@ func (n *Node) TransferLeadership(ctx context.Context, to string) error {
 	return nil
 }
 
-func (n *Node) Committed() <-chan port.CommitBatch         { return n.committed }
+// CommitIndex é o último índice commitado publicado pelo laço (ADR-060).
+func (n *Node) CommitIndex() domain.Index { return domain.Index(n.commit.Load()) }
+
+// CommitChanged devolve um canal fechado no próximo avanço do commit. Pegue o canal ANTES
+// de ler CommitIndex, para não perder um avanço.
+func (n *Node) CommitChanged() <-chan struct{} {
+	n.commitMu.Lock()
+	defer n.commitMu.Unlock()
+	return n.commitCh
+}
+
+// FirstIndex é o primeiro índice ainda no MemoryStorage (o snapshot de partida fica antes).
+func (n *Node) FirstIndex() domain.Index {
+	fi, err := n.storage.FirstIndex()
+	if err != nil {
+		return 1
+	}
+	return domain.Index(fi)
+}
+
+// CommittedEntries lê do MemoryStorage as entradas commitadas de lo a hi, inclusive, até
+// maxBytes (pelo menos uma). Roda fora do laço do Ready: o MemoryStorage tem trava própria.
+func (n *Node) CommittedEntries(lo, hi domain.Index, maxBytes uint64) ([]domain.Entry, error) {
+	if c := n.CommitIndex(); hi > c {
+		hi = c
+	}
+	if lo > hi {
+		return nil, nil
+	}
+	ents, err := n.storage.Entries(uint64(lo), uint64(hi)+1, maxBytes)
+	if err != nil {
+		return nil, fmt.Errorf("etcdraft: ler entradas [%d, %d]: %w", lo, hi, err)
+	}
+	out := make([]domain.Entry, 0, len(ents))
+	for _, e := range ents {
+		de, err := toDomain(e)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, de)
+	}
+	return out, nil
+}
+
 func (n *Node) Term() domain.Term                          { return domain.Term(n.term.Load()) }
 func (n *Node) LearnerEvents() <-chan port.LearnerProgress { return n.events }
 

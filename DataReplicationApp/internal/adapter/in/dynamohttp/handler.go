@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/valyala/fasthttp"
@@ -77,8 +78,35 @@ func ValidateIndex(indexName string, isGlobal bool) error {
 	return nil
 }
 
+// handle mede toda requisição da porta de API (O-28): em andamento, operação, código HTTP
+// e latência, qualquer que seja o resultado. rate(dr_http_requests_total) é o TPS de
+// entrada da célula, que o k6 e o Grafana comparam com o que vira ACK.
 func (s *Server) handle(c *fasthttp.RequestCtx) {
 	start := time.Now()
+	s.metrics.HTTPInFlight(1)
+	defer func() {
+		s.metrics.HTTPInFlight(-1)
+		s.metrics.HTTPRequest(httpOp(c.Request.Header.Peek("X-Amz-Target")), c.Response.StatusCode(), time.Since(start))
+	}()
+	s.serve(c, start)
+}
+
+// httpOp é o rótulo `op`: a operação do DynamoDB, ou "outra" fora da lista conhecida
+// (o rótulo não pode crescer sem limite com o que o cliente manda).
+func httpOp(target []byte) string {
+	op, ok := strings.CutPrefix(string(target), targetPrefix)
+	if !ok {
+		return "outra"
+	}
+	switch op {
+	case OpPutItem, OpGetItem, OpScan, "BatchWriteItem", "DeleteItem", "UpdateItem", "Query",
+		"TransactWriteItems", "BatchGetItem", "DescribeTable":
+		return op
+	}
+	return "outra"
+}
+
+func (s *Server) serve(c *fasthttp.RequestCtx, start time.Time) {
 	target := string(c.Request.Header.Peek("X-Amz-Target")) // ex.: DynamoDB_20120810.PutItem
 	// ATENÇÃO: o body pertence ao fasthttp e é reutilizado depois do handler.
 	// O parser copia tudo o que guarda antes de retornar (N-06).

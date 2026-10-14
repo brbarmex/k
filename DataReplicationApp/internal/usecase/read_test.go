@@ -26,6 +26,12 @@ type recApplied struct {
 	applied domain.Index
 }
 
+func (a *recApplied) Applied() domain.Index {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.applied
+}
+
 func (a *recApplied) WaitApplied(ctx context.Context, idx domain.Index) error {
 	a.mu.Lock()
 	a.asked = idx

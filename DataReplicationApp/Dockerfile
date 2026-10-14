@@ -10,7 +10,8 @@ COPY api ./api
 COPY cmd ./cmd
 COPY internal ./internal
 RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build \
-    CGO_ENABLED=0 go build -trimpath -o /out/datareplication ./cmd/datareplication
+    CGO_ENABLED=0 go build -trimpath -o /out/datareplication ./cmd/datareplication \
+    && CGO_ENABLED=0 go build -trimpath -o /out/benchstore ./cmd/benchstore
 
 # ---- test: go test -race (CA-14). O -race exige CGO e glibc, por isso Debian. ----
 FROM golang:1.27 AS test
@@ -30,6 +31,8 @@ RUN adduser -D -u 10001 dr \
     && mkdir -p /var/lib/dr/raft /var/lib/dr/replog \
     && chown -R 10001:10001 /var/lib/dr
 COPY --from=build /out/datareplication /usr/local/bin/datareplication
+# benchstore: mede o teto do banco sozinho (task bench-localstack, ADR-060)
+COPY --from=build /out/benchstore /usr/local/bin/benchstore
 USER 10001
 EXPOSE 8000 7000 9090
 HEALTHCHECK --interval=5s --timeout=2s --retries=3 CMD wget -qO- http://127.0.0.1:9090/livez || exit 1

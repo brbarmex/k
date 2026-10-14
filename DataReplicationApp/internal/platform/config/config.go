@@ -39,6 +39,20 @@ type Config struct {
 	// ApplyWorkers (APPLY_WORKERS) é quantos itens o applier grava em paralelo no banco da
 	// célula, com a ordem garantida por chave (ADR-058). Padrão 16; 1 = um item por vez.
 	ApplyWorkers int
+	// ApplyLagMax (APPLY_LAG_MAX) é quantas entradas o apply local pode ficar atrás do gate
+	// antes de a líder recusar escritas novas com ThrottlingException (ADR-060). Padrão
+	// APPLY_WORKERS x 256 (o que cabe nas filas dos workers).
+	ApplyLagMax uint64
+	// ElectionTicks (ELECTION_TICKS) é o timeout de eleição em ticks de 100 ms (ADR-060).
+	// Padrão 10 (1 s). Na POC em notebook o compose usa 30 (3 s). Entra no RTO.
+	ElectionTicks int
+
+	// Store (STORE) é o banco da célula: dynamodb (padrão) ou memory. memory é SÓ DA POC,
+	// para teste de carga sem o LocalStack (ADR-060, item 4); os dados somem no reinício.
+	Store string
+	// MemStoreLatency (MEMSTORE_LATENCY) é a espera por item no banco em memória, para
+	// simular a latência de um PutItem real (ex.: 5ms). Padrão 0.
+	MemStoreLatency time.Duration
 
 	// Modo degradado (ADR-044 e ADR-045). DEGRADED_POLICY é OBRIGATÓRIA e sem valor
 	// padrão. DEGRADED_LEASE (D) também não tem padrão e é obrigatória só com
@@ -61,6 +75,21 @@ var RemovedModeVars = []string{"READ_MODE_DEFAULT", "WRITE_MODE", "MAX_STALENESS
 
 // MaxApplyWorkers limita APPLY_WORKERS: cada worker é uma conexão ao banco (ADR-058).
 const MaxApplyWorkers = 256
+
+// MaxApplyLagMax limita APPLY_LAG_MAX: acima disso a admissão não protege nada.
+const MaxApplyLagMax = 10_000_000
+
+// MinElectionTicks e MaxElectionTicks limitam ELECTION_TICKS (o heartbeat é 1 tick).
+const (
+	MinElectionTicks = 3
+	MaxElectionTicks = 100
+)
+
+// Bancos aceitos em STORE.
+const (
+	StoreDynamoDB = "dynamodb"
+	StoreMemory   = "memory"
+)
 
 // MinIdleTimeout é o maior idle de SDK conhecido (Go, 90 s). O servidor precisa ficar
 // acima, senão o SDK reusa uma conexão que o servidor já fechou.
@@ -123,6 +152,40 @@ func LoadFrom(getenv func(string) string) (Config, error) {
 			errs = append(errs, fmt.Errorf("APPLY_WORKERS inválida %q: inteiro de 1 a %d", s, MaxApplyWorkers))
 		} else {
 			c.ApplyWorkers = n
+		}
+	}
+
+	c.ApplyLagMax = uint64(c.ApplyWorkers) * 256
+	if s := getenv("APPLY_LAG_MAX"); s != "" {
+		if n, err := strconv.ParseUint(s, 10, 64); err != nil || n < 1 || n > MaxApplyLagMax {
+			errs = append(errs, fmt.Errorf("APPLY_LAG_MAX inválida %q: inteiro de 1 a %d", s, MaxApplyLagMax))
+		} else {
+			c.ApplyLagMax = n
+		}
+	}
+	c.ElectionTicks = 10
+	if s := getenv("ELECTION_TICKS"); s != "" {
+		if n, err := strconv.Atoi(s); err != nil || n < MinElectionTicks || n > MaxElectionTicks {
+			errs = append(errs, fmt.Errorf("ELECTION_TICKS inválida %q: inteiro de %d a %d", s, MinElectionTicks, MaxElectionTicks))
+		} else {
+			c.ElectionTicks = n
+		}
+	}
+	c.Store = orDefault(getenv("STORE"), StoreDynamoDB)
+	switch c.Store {
+	case StoreDynamoDB:
+	case StoreMemory:
+		if !c.POCNoAzure { // SÓ DA POC: nunca um banco que some no reinício em produção
+			errs = append(errs, errors.New("STORE=memory só é aceito na POC (POC_SEM_AZURE=true)"))
+		}
+	default:
+		errs = append(errs, fmt.Errorf("STORE inválida %q: use dynamodb ou memory", c.Store))
+	}
+	if s := getenv("MEMSTORE_LATENCY"); s != "" {
+		if d, err := time.ParseDuration(s); err != nil || d < 0 {
+			errs = append(errs, fmt.Errorf("MEMSTORE_LATENCY inválida %q: duração >= 0 (ex.: 5ms)", s))
+		} else {
+			c.MemStoreLatency = d
 		}
 	}
 

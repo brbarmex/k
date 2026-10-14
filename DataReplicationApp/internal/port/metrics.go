@@ -35,6 +35,22 @@ type Metrics interface {
 	ApplyItem(d time.Duration)
 	// ReplogSync: duração do fsync do checkpoint do log de replicação (ADR-059).
 	ReplogSync(d time.Duration)
+
+	// RaftLoop: duração de um Ready inteiro no laço do Raft (fsync, envio, publicação do
+	// commit). Laço lento = heartbeat atrasado (ADR-060, O-27).
+	RaftLoop(d time.Duration)
+	// RaftTickGap: intervalo real entre dois ticks do Raft. Acima do TickInterval, o laço
+	// esteve preso e a célula ficou sem heartbeat nem contagem de eleição.
+	RaftTickGap(d time.Duration)
+	// Throttled: escrita recusada por contrapressão, por causa: buffer_cheio, nao_lider,
+	// transferencia, atraso_apply. Registrada na célula onde a causa nasceu.
+	Throttled(causa string)
+	// HTTPRequest: requisição terminada na porta de API (O-28). op é a operação do
+	// DynamoDB (PutItem, GetItem, Scan, ...; "outra" se desconhecida) e status o código
+	// HTTP devolvido. Dá o TPS de entrada por célula.
+	HTTPRequest(op string, status int, d time.Duration)
+	// HTTPInFlight: requisições em andamento na porta de API (+1 na chegada, -1 na saída).
+	HTTPInFlight(delta int)
 }
 
 // NopMetrics não faz nada: usada nos testes e quando nenhuma métrica é injetada.
@@ -42,18 +58,23 @@ type NopMetrics struct{}
 
 var _ Metrics = NopMetrics{}
 
-func (NopMetrics) LeaderChanged(uint64)            {}
-func (NopMetrics) RaftMessageSent(string)          {}
-func (NopMetrics) RaftMessageReceived(string)      {}
-func (NopMetrics) HeartbeatSeen()                  {}
-func (NopMetrics) WALFsync(time.Duration)          {}
-func (NopMetrics) PeerSendDropped(uint64)          {}
-func (NopMetrics) Forwarded()                      {}
-func (NopMetrics) WriteDone(string, time.Duration) {}
-func (NopMetrics) ReadDone(string, string)         {}
-func (NopMetrics) ReadBarrier(time.Duration)       {}
-func (NopMetrics) ApplyItem(time.Duration)         {}
-func (NopMetrics) ReplogSync(time.Duration)        {}
+func (NopMetrics) LeaderChanged(uint64)                   {}
+func (NopMetrics) RaftMessageSent(string)                 {}
+func (NopMetrics) RaftMessageReceived(string)             {}
+func (NopMetrics) HeartbeatSeen()                         {}
+func (NopMetrics) WALFsync(time.Duration)                 {}
+func (NopMetrics) PeerSendDropped(uint64)                 {}
+func (NopMetrics) Forwarded()                             {}
+func (NopMetrics) WriteDone(string, time.Duration)        {}
+func (NopMetrics) ReadDone(string, string)                {}
+func (NopMetrics) ReadBarrier(time.Duration)              {}
+func (NopMetrics) ApplyItem(time.Duration)                {}
+func (NopMetrics) ReplogSync(time.Duration)               {}
+func (NopMetrics) RaftLoop(time.Duration)                 {}
+func (NopMetrics) RaftTickGap(time.Duration)              {}
+func (NopMetrics) Throttled(string)                       {}
+func (NopMetrics) HTTPRequest(string, int, time.Duration) {}
+func (NopMetrics) HTTPInFlight(int)                       {}
 
 // MetricsOrNop devolve m, ou NopMetrics quando m é nulo.
 func MetricsOrNop(m Metrics) Metrics {

@@ -9,21 +9,26 @@ import (
 
 // CellStatus é o retrato da célula para o /status (S.7).
 type CellStatus struct {
-	Celula     string            `json:"celula"`
-	No         uint64            `json:"no"`
-	Papel      string            `json:"papel"`
-	Lider      uint64            `json:"lider"`
-	Termo      domain.Term       `json:"termo"`
-	Commit     domain.Index      `json:"commit"`
-	Gate       domain.Index      `json:"gate"`
-	GatePronto bool              `json:"gatePronto"`
-	Aplicado   domain.Index      `json:"aplicado"`
-	Apply      ApplyStatus       `json:"apply"`
-	Azure      string            `json:"azure"`
-	Replog     ReplogStatus      `json:"replog"`
-	ErroApply  string            `json:"erroApply,omitempty"`
-	Match      map[string]uint64 `json:"match,omitempty"`
-	Quorum     *QuorumStatus     `json:"quorum,omitempty"` // só na líder
+	Celula     string       `json:"celula"`
+	No         uint64       `json:"no"`
+	Papel      string       `json:"papel"`
+	Lider      uint64       `json:"lider"`
+	Termo      domain.Term  `json:"termo"`
+	Commit     domain.Index `json:"commit"`
+	Gate       domain.Index `json:"gate"`
+	GatePronto bool         `json:"gatePronto"`
+	Aplicado   domain.Index `json:"aplicado"`
+	Apply      ApplyStatus  `json:"apply"`
+	// CommitNaoEntregue: entradas commitadas que o CommitPump ainda não entregou ao
+	// applier (ADR-060). Ficam na memória do Raft; o laço do Raft não espera por elas.
+	CommitNaoEntregue uint64            `json:"commitNaoEntregue"`
+	ElectionTicks     int               `json:"electionTicks"`
+	Banco             string            `json:"banco"`
+	Azure             string            `json:"azure"`
+	Replog            ReplogStatus      `json:"replog"`
+	ErroApply         string            `json:"erroApply,omitempty"`
+	Match             map[string]uint64 `json:"match,omitempty"`
+	Quorum            *QuorumStatus     `json:"quorum,omitempty"` // só na líder
 }
 
 // QuorumStatus é o quórum visto pela líder: votantes ativos recentemente (contando ela).
@@ -38,6 +43,12 @@ type QuorumStatus struct {
 type ApplyStatus struct {
 	Workers int `json:"workers"`
 	EmVoo   int `json:"emVoo"`
+	// Atraso = gate - aplicado; acima de AtrasoMax (APPLY_LAG_MAX) a líder recusa escritas
+	// novas com ThrottlingException (ADR-060).
+	Atraso    uint64 `json:"atraso"`
+	AtrasoMax uint64 `json:"atrasoMax"`
+	// Fila: lotes entregues pelo CommitPump e ainda não despachados pelo applier.
+	Fila int `json:"fila"`
 }
 
 // ReplogStatus é o estado do log de replicação.
@@ -56,6 +67,14 @@ type StatusReporter struct {
 	Log      port.ReplicationLog
 	Catalog  port.Catalog
 	AzureOff bool
+
+	// Opcionais (ADR-060): o CommitPump (commit não entregue), o tamanho da fila do
+	// applier e a configuração mostrada no /status.
+	Pump          *CommitPump
+	ApplyInbox    func() int
+	ApplyLagMax   uint64
+	ElectionTicks int
+	Store         string
 }
 
 func (r *StatusReporter) Status() CellStatus {
@@ -70,6 +89,19 @@ func (r *StatusReporter) Status() CellStatus {
 	if r.AzureOff {
 		st.Azure = "off"
 	}
+	st.Apply.AtrasoMax = r.ApplyLagMax
+	if st.Gate > st.Aplicado {
+		st.Apply.Atraso = uint64(st.Gate - st.Aplicado)
+	}
+	if r.ApplyInbox != nil {
+		st.Apply.Fila = r.ApplyInbox()
+	}
+	if r.Pump != nil {
+		if d := r.Pump.Delivered(); st.Commit > d {
+			st.CommitNaoEntregue = uint64(st.Commit - d)
+		}
+	}
+	st.ElectionTicks, st.Banco = r.ElectionTicks, r.Store
 	if ri.Lead != 0 && ri.Lead == r.NodeID {
 		st.Papel = "lider"
 		st.Match = make(map[string]uint64, len(ri.Match))

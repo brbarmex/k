@@ -48,6 +48,13 @@ func TestRecorderEvents(t *testing.T) {
 	r.WriteDone("no_leader", time.Second)
 	r.ReadDone("get", "ok")
 	r.ReadBarrier(time.Millisecond)
+	r.Throttled("atraso_apply")
+	r.Throttled("atraso_apply")
+	r.HTTPRequest("PutItem", 400, time.Millisecond)
+	r.HTTPRequest("PutItem", 200, time.Millisecond)
+	r.HTTPInFlight(1)
+	r.HTTPInFlight(1)
+	r.HTTPInFlight(-1)
 
 	checks := []struct {
 		name      string
@@ -62,6 +69,11 @@ func TestRecorderEvents(t *testing.T) {
 		{"escritas no_leader", testutil.ToFloat64(r.writes.WithLabelValues("no_leader")), 1},
 		{"escritas pending", testutil.ToFloat64(r.writes.WithLabelValues("pending")), 0},
 		{"leituras get ok", testutil.ToFloat64(r.reads.WithLabelValues("get", "ok")), 1},
+		{"contrapressão por atraso do apply", testutil.ToFloat64(r.throttled.WithLabelValues("atraso_apply")), 2},
+		{"contrapressão por buffer cheio", testutil.ToFloat64(r.throttled.WithLabelValues("buffer_cheio")), 0},
+		{"HTTP PutItem 400", testutil.ToFloat64(r.httpRequests.WithLabelValues("PutItem", "400")), 1},
+		{"HTTP PutItem 200", testutil.ToFloat64(r.httpRequests.WithLabelValues("PutItem", "200")), 1},
+		{"HTTP em andamento", testutil.ToFloat64(r.httpInFlight), 1},
 	}
 	for _, c := range checks {
 		if c.got != c.want {
@@ -150,6 +162,10 @@ func TestAllSeriesRegistered(t *testing.T) {
 		"dr_quorum_active", "dr_quorum_voters", "dr_quorum_ok", "dr_peer_match_index", "dr_peer_lag",
 		"dr_applier_stopped", "dr_ready", "dr_azure_off", "dr_apply_workers", "dr_apply_inflight",
 		"dr_apply_item_duration_seconds", "dr_replog_sync_duration_seconds",
+		// ADR-060 (O-27, O-28)
+		"dr_raft_loop_duration_seconds", "dr_raft_tick_gap_seconds", "dr_throttled_total",
+		"dr_http_requests_total", "dr_http_request_duration_seconds", "dr_http_inflight",
+		"dr_apply_lag", "dr_apply_lag_max", "dr_apply_inbox_batches", "dr_commit_undelivered", "dr_election_ticks",
 	} {
 		if !names[n] {
 			t.Errorf("série %s não registrada", n)

@@ -16,6 +16,13 @@ x-dr-env: &dr-env
   GATE_PUBLISH_INTERVAL: "100ms"
   REPLOG_SYNC_INTERVAL: "1s"
   APPLY_WORKERS: "16"
+  # ADR-060: timeout de eleição de 3 s (30 ticks de 100 ms) no notebook: o fsync tem picos
+  # de 1 a 2 s com tudo no mesmo SSD. APPLY_LAG_MAX fica no padrão (APPLY_WORKERS x 256).
+  ELECTION_TICKS: "30"
+  # ADR-060: STORE=memory troca o LocalStack por um banco em memória, só para teste de
+  # carga (task start STORE=memory). MEMSTORE_LATENCY simula a latência por item.
+  STORE: "${STORE:-dynamodb}"
+  MEMSTORE_LATENCY: "${MEMSTORE_LATENCY:-0s}"
   RAFT_DIR: "/var/lib/dr/raft/wal"
   REPLOG_DIR: "/var/lib/dr/replog"
 
@@ -32,6 +39,9 @@ services:
     image: localstack/localstack:4.14.0 # versão fixa (SG-14)
     environment:
       SERVICES: dynamodb
+      # ADR-060: o DynamoDB Local roda em Java; o heap padrão (256m) é pequeno para
+      # centenas de milhares de itens e pode virar coleta de lixo contínua.
+      DYNAMODB_HEAP_SIZE: "${DYNAMODB_HEAP_SIZE:-1G}"
     ports:
       - "4566:4566"
     healthcheck:

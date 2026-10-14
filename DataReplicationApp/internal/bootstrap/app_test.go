@@ -36,10 +36,15 @@ func (*stubConsensus) Leader() (port.LeaderInfo, bool) {
 	return port.LeaderInfo{NodeID: "n1", Local: true}, true
 }
 func (*stubConsensus) TransferLeadership(context.Context, string) error { return nil }
-func (*stubConsensus) Committed() <-chan port.CommitBatch               { return nil }
-func (*stubConsensus) Term() domain.Term                                { return 1 }
-func (*stubConsensus) LearnerEvents() <-chan port.LearnerProgress       { return nil }
-func (*stubConsensus) LearnerDurable() []port.LearnerProgress           { return nil }
+func (*stubConsensus) CommitIndex() domain.Index                        { return 0 }
+func (*stubConsensus) CommitChanged() <-chan struct{}                   { return nil }
+func (*stubConsensus) FirstIndex() domain.Index                         { return 1 }
+func (*stubConsensus) CommittedEntries(domain.Index, domain.Index, uint64) ([]domain.Entry, error) {
+	return nil, nil
+}
+func (*stubConsensus) Term() domain.Term                          { return 1 }
+func (*stubConsensus) LearnerEvents() <-chan port.LearnerProgress { return nil }
+func (*stubConsensus) LearnerDurable() []port.LearnerProgress     { return nil }
 
 type stubForwarder struct{}
 
@@ -57,6 +62,7 @@ func (stubReader) Scan(context.Context, domain.LogicalTable, int, []byte) (port.
 type stubApplied struct{}
 
 func (stubApplied) WaitApplied(context.Context, domain.Index) error { return nil }
+func (stubApplied) Applied() domain.Index                           { return 0 }
 
 func setEnv(t *testing.T, policy string) {
 	t.Setenv("CELL_ID", "a")

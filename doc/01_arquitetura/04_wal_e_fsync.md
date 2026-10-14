@@ -219,7 +219,7 @@ No Raft comum, o snapshot é uma cópia da máquina de estados. Aqui o estado vi
 
 **IOPS e o plano B entre shards.** Com agrupamento natural, um log faz cerca de `λ / (1 + λ·t)` fsyncs por segundo (`λ` = escritas por segundo naquele log, `t` = duração do fsync). A 3.000 TPS e fsync de 1,5 ms: ~545 fsyncs/s com um WAL compartilhado, ~1.900 com 8 shards, ~2.300 com 16. Por isso o volume do Raft tem IOPS provisionadas e há teto de shards por nó. **Gatilho do WAL compartilhado (W2):** no S1, na carga de 2x, fsync P99 acima do orçamento da seção 7 **ou** IOPS de escrita acima de 70% do provisionado. Se disparar, a volta do W2 é uma decisão nova, com a bateria completa de testes da seção 13.
 
-**Contrapressão:** `MaxUncommittedEntriesSize` 32 MiB por shard e `MaxInflightBytes`; acima disso, `ThrottlingException` (os SDKs repetem; o dedupe de 5 min cobre).
+**Contrapressão:** `MaxUncommittedEntriesSize` 32 MiB por shard e `MaxInflightBytes`; acima disso, `ThrottlingException` (os SDKs repetem; o dedupe de 5 min cobre). A líder também recusa antes do `Propose` quando o apply está atrasado demais (`gate − aplicado > APPLY_LAG_MAX`, [ADR-060](../03_adr/ADR-060-laco-do-raft-nunca-espera-o-apply-e-admissao-por-atraso.md)), e o laço do Raft não espera mais o apply: o commit é publicado como sinal e o `CommitPump` lê por faixa.
 
 **Métricas:** `raft_fsync_seconds`, `raft_fsync_per_second`, `raft_batch_entries`, `raft_batch_bytes`, `raft_unpersisted_bytes`, `raft_throttled_total`, `raft_elections_total`.
 

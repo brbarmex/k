@@ -25,8 +25,11 @@ tasks:
   start:
     aliases: [subir]
     desc: Start Compose, create tables, and wait for all three cells (CA-01)
+    vars:
+      STORE: '{{.STORE | default "dynamodb"}}'                # ADR-060: memory = banco em memória (teste de carga)
+      MEMSTORE_LATENCY: '{{.MEMSTORE_LATENCY | default "0s"}}' # latência simulada por item com STORE=memory
     cmds:
-      - docker compose up -d --build
+      - STORE={{.STORE}} MEMSTORE_LATENCY={{.MEMSTORE_LATENCY}} docker compose up -d --build
       - task: create-tables
       - |
         for N in {{.CELLS}}; do
@@ -140,6 +143,65 @@ tasks:
         if command -v open >/dev/null 2>&1; then open "$URL"
         elif command -v xdg-open >/dev/null 2>&1; then xdg-open "$URL" >/dev/null 2>&1
         fi
+
+  bench-localstack:
+    desc: Measure the LocalStack ceiling alone with conditional PutItem (ADR-060), WORKERS per table for DURATION
+    vars:
+      WORKERS: '{{.WORKERS | default "16"}}'
+      DURATION: '{{.DURATION | default "30s"}}'
+    cmds:
+      - |
+        echo "Measuring LocalStack alone: conditional PutItem, {{.WORKERS}} workers per table, {{.DURATION}}"
+        echo "Stop any load first: the cells and k6 share the same LocalStack."
+        docker compose run --rm --no-deps --entrypoint /usr/local/bin/benchstore cell-1 \
+          -endpoint http://localstack:4566 -workers {{.WORKERS}} -duration {{.DURATION}}
+
+  diag:
+    desc: Print per-cell input TPS, ACKs, throttling by cause, apply lag and Raft loop health from Prometheus (ADR-060)
+    vars:
+      WINDOW: '{{.WINDOW | default "1m"}}'
+    cmds:
+      - |
+        python3 - "{{.WINDOW}}" <<'PY'
+        import json, sys, urllib.parse, urllib.request
+        w = sys.argv[1]
+        def q(expr):
+            url = "http://localhost:9095/api/v1/query?query=" + urllib.parse.quote(expr)
+            try:
+                res = json.load(urllib.request.urlopen(url, timeout=5))["data"]["result"]
+            except Exception as e:
+                sys.exit(f"Prometheus unavailable: {e}")
+            return res
+        def by_cell(expr, key=None):
+            out = {}
+            for r in q(expr):
+                cell = r["metric"].get("celula", "?")
+                k = r["metric"].get(key) if key else None
+                out.setdefault(cell, {})[k] = float(r["value"][1])
+            return out
+        rows = [
+            ("input PutItem/s", by_cell('sum by (celula) (rate(dr_http_requests_total{op="PutItem"}[' + w + ']))')),
+            ("ACK ok/s", by_cell('sum by (celula) (rate(dr_writes_total{resultado="ok"}[' + w + ']))')),
+            ("pending/s", by_cell('sum by (celula) (rate(dr_writes_total{resultado="pending"}[' + w + ']))')),
+            ("apply items/s", by_cell(f'sum by (celula) (rate(dr_apply_item_duration_seconds_count[{w}]))')),
+            ("apply item p50 (s)", by_cell(f'histogram_quantile(0.5, sum by (celula, le) (rate(dr_apply_item_duration_seconds_bucket[{w}])))')),
+            ("apply lag (entries)", by_cell('max by (celula) (dr_apply_lag)')),
+            ("APPLY_LAG_MAX", by_cell('max by (celula) (dr_apply_lag_max)')),
+            ("commit undelivered", by_cell('max by (celula) (dr_commit_undelivered)')),
+            ("Raft tick gap p99 (s)", by_cell(f'histogram_quantile(0.99, sum by (celula, le) (rate(dr_raft_tick_gap_seconds_bucket[{w}])))')),
+            ("Raft loop p99 (s)", by_cell(f'histogram_quantile(0.99, sum by (celula, le) (rate(dr_raft_loop_duration_seconds_bucket[{w}])))')),
+            ("WAL fsync p99 (s)", by_cell(f'histogram_quantile(0.99, sum by (celula, le) (rate(dr_wal_fsync_duration_seconds_bucket[{w}])))')),
+            ("leader changes", by_cell(f'sum by (celula) (increase(dr_leader_changes_total[{w}]))')),
+        ]
+        cells = sorted({c for _, d in rows for c in d})
+        print(f"window {w}".ljust(24) + "".join(f"cell-{c}".rjust(14) for c in cells))
+        for name, d in rows:
+            print(name.ljust(24) + "".join(f"{d.get(c, {}).get(None, float('nan')):14.3f}" for c in cells))
+        thr = by_cell(f'sum by (celula, causa) (rate(dr_throttled_total[{w}]))', "causa")
+        causes = sorted({k for d in thr.values() for k in d})
+        for k in causes:
+            print(f"throttled/s {k}".ljust(24) + "".join(f"{thr.get(c, {}).get(k, 0):14.3f}" for c in cells))
+        PY
 
   load:
     aliases: [carga]
@@ -318,7 +380,7 @@ tasks:
         trap restore_leader EXIT
         NEW_LEADER=""
         T=0
-        while [ $T -lt 20 ]; do
+        while [ $T -lt 40 ]; do # até ~20 s: ELECTION_TICKS=30 dá eleição de 3 a 6 s (ADR-060)
           for N in {{.CELLS}}; do
             [ "$N" = "$LEADER" ] && continue
             STATUS=$(curl -fsS http://localhost:909$N/status || true)

@@ -83,6 +83,42 @@ To view write and read rates, run `task load` in another terminal. It alternates
 
 To exercise these signals, run `task test-leader-failover` or `task test-no-quorum` with the dashboard open. Run `task load` in a separate terminal for live traffic and stop it with Ctrl+C afterward. `PENDING` means the result is unknown, not definitively rejected.
 
+## 4.1 Teste de carga
+
+Num notebook, o teste de carga mede o notebook tanto quanto o DR: os três WALs, os três logs de replicação, o LocalStack, o Prometheus e o gerador de carga dividem o mesmo disco e as mesmas CPUs. Antes de tirar conclusão:
+
+1. **Comece de volumes limpos.** `task clean` e depois `task start`. Volumes de testes anteriores deixam o apply com atraso desde o início (no teste de 14/10 eram cerca de 210 mil entradas).
+2. **Meça o disco** no diretório dos volumes do Docker: `fio --rw=write --ioengine=sync --fdatasync=1 --size=22m --bs=2300 --name=wal`. O P99 do fdatasync dá a ordem de grandeza do `ELECTION_TICKS` necessário.
+3. **Meça o LocalStack sozinho**, com o mesmo `PutItem` condicional do applier:
+
+   ```bash
+   task bench-localstack                         # 16 workers por tabela, 30 s
+   task bench-localstack WORKERS=32 DURATION=60s
+   ```
+
+   A vazão impressa é o teto do apply na sua máquina. Se o gerador de carga passar disso, o atraso do apply cresce e a líder passa a recusar com `atraso_apply`. É o comportamento esperado, não defeito. O LocalStack sobe com `DYNAMODB_HEAP_SIZE=1G`; mude a variável de ambiente para testar outro valor.
+4. **Isole o DR do banco**, se quiser medir só Raft, fsync, gate e filas:
+
+   ```bash
+   task clean
+   task start STORE=memory                        # banco em memória, sem latência
+   task start STORE=memory MEMSTORE_LATENCY=5ms   # simula o DynamoDB real
+   task start STORE=memory MEMSTORE_LATENCY=1s    # simula o LocalStack lento: não deve haver eleição
+   ```
+
+   Com `STORE=memory`, `task inspect` não mostra nada (o LocalStack não é usado); use `task scan` e `task read`.
+5. **Rode a carga e leia o diagnóstico:**
+
+   ```bash
+   task load                 # ou o seu k6
+   task diag                 # tabela por célula, janela de 1 min
+   task diag WINDOW=5m
+   ```
+
+   O `task diag` imprime, por célula: entrada HTTP, ACK, pending, vazão e latência do apply, atraso, commit não entregue, tick e fsync P99, trocas de líder e contrapressão por causa.
+
+**O que olhar no dashboard:** seção **08** (TPS de entrada por célula, códigos HTTP, contrapressão por causa) e seção **09** (atraso do apply contra o teto, commit não entregue, fila do applier, duração do `Ready`, intervalo entre ticks). Sinal de saúde: o termo não muda durante a carga e o intervalo entre ticks fica perto de 100 ms. Se aparecer contrapressão, a causa diz o motivo: `atraso_apply` (banco lento), `buffer_cheio` (Raft sem conseguir commitar), `nao_lider` (logo depois de uma troca de líder) ou `transferencia`.
+
 ## 5. Teste automático
 
 ```bash
@@ -234,3 +270,5 @@ task clean  # docker compose down -v; remove named volumes
 | `write` returns `NO_LEADER` | Election in progress or quorum unavailable | Wait 1-2 seconds and check `task status` |
 | `/readyz` reports a stopped applier | Database rejected an item after commit (poison entry) | Check `erroApply` in `task status`; recovery requires operator action (ADR-038) |
 | Tables are empty after `stop` and `start` | LocalStack is not persistent | Use `task clean` then `task start` to reset coherently |
+| Muita `ThrottlingException` com causa `atraso_apply` | O apply não acompanha a carga (banco lento) | Compare com `task bench-localstack`; reduza a carga, aumente `APPLY_WORKERS` ou use `STORE=memory` para medir só o DR |
+| Trocas de líder durante a carga | Laço do Raft lento: fsync com picos acima do timeout de eleição | Veja `dr_raft_loop_duration_seconds`, `dr_raft_tick_gap_seconds` e o fsync P99 no `task diag`; meça o disco com `fio`; `ELECTION_TICKS` já é 30 no compose |

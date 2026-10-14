@@ -1,0 +1,33 @@
+{
+ "id": "C35",
+ "pontos": [
+  {
+   "titulo": "Follower atrasada que vira líder",
+   "origem": "Falhas e tratativas",
+   "contexto": "A admissão só olha a líder. Uma follower com o apply muito atrás que assume a liderança recusa escritas com `atraso_apply` até o atraso cair abaixo de `APPLY_LAG_MAX`.",
+   "na_fonte": "A fonte registra o efeito como risco 42 e manda o tempo para o RTO (R18), com alerta em `dr_apply_lag` das followers.",
+   "sugestao": "Na transferência planejada, preferir a célula com menor atraso do apply e medir esse tempo nos exercícios de falha."
+  },
+  {
+   "titulo": "Valor de APPLY_LAG_MAX",
+   "origem": "Etapas",
+   "contexto": "Baixo demais, a admissão recusa em rajadas normais; alto demais, as escritas aceitas vencem o prazo de 7,5 s e viram PENDING.",
+   "na_fonte": "A fonte adota `APPLY_WORKERS × 256` (4.096 com 16 workers), de 1 a 2 s de apply com o DynamoDB real.",
+   "sugestao": "Calibrar com a vazão do apply medida no spike S5 e acompanhar `dr_throttled_total{causa=\"atraso_apply\"}`."
+  },
+  {
+   "titulo": "Memória do Raft com o apply parado",
+   "origem": "Falhas e tratativas",
+   "contexto": "As entradas commitadas e não consumidas ficam no `MemoryStorage` até o `CommitPump` lê-las. Com o banco parado por muito tempo, a memória cresce.",
+   "na_fonte": "A fonte limita pela compactação até o `DurableIndex` e pelo teto de disco (ADR-041), com alerta em `dr_commit_undelivered`.",
+   "sugestao": "Definir o alerta de `dr_commit_undelivered` junto com o teto de memória do pod."
+  },
+  {
+   "titulo": "Fsync ainda dentro do laço",
+   "origem": "Falhas e tratativas",
+   "contexto": "O ADR-060 tirou o apply do laço do Raft, mas o fsync continua lá. Picos de fsync acima do timeout de eleição ainda geram eleição.",
+   "na_fonte": "A fonte mantém `ELECTION_TICKS` acima do P99.9 do fsync e o spike S1b (`AsyncStorageWrites`).",
+   "sugestao": "Repetir o teste de carga e olhar `dr_raft_tick_gap_seconds` antes de decidir o S1b."
+  }
+ ]
+}

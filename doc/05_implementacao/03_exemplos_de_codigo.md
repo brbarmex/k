@@ -6,6 +6,8 @@
 
 > Os trechos 7.1 a 7.8 estão na pasta [`codigo_exemplo/`](codigo_exemplo/) e foram compilados (`go build`, `go vet`, Go 1.26.0, com `fx`, `fasthttp` e `zerolog` reais); os testes passam com `go test -race`. O de 7.9 e o `main` são ilustrativos. Tudo é **esboço para fixar o desenho**, não o código final: faltam o log, o Raft, o parser e os provedores que o `bootstrap` espera (`ConsensusEngine`, `Forwarder`, `AppliedWaiter` e o parser entram por módulos de adaptador). O Go 1.27 não existia neste ambiente; reconfirmar a compatibilidade no primeiro build.
 
+> **Atualizado em 14/10/2026 ([ADR-060](../03_adr/ADR-060-laco-do-raft-nunca-espera-o-apply-e-admissao-por-atraso.md)):** o `Committed() <-chan CommitBatch` deste esboço foi trocado no código da POC (`DataReplicationApp/`) por `CommitIndex()`, `CommitChanged()`, `CommittedEntries(lo, hi, maxBytes)` e `FirstIndex()`: o laço do Raft só publica o commit e o `CommitPump` lê por faixa. O canal bloqueante deste esboço é justamente o que parou o laço do Raft no teste de carga. Os trechos abaixo ficam como registro do desenho anterior.
+
 ### 7.0 O que mudou na revisão crítica de 13/10/2026
 
 O esboço original tinha oito defeitos, confirmados na [revisão](../06_pendencias_e_riscos/analise_do_arquiteto_13_10.md) (seção 2.14). Todos foram corrigidos e cada um tem teste de concorrência (`-race`).

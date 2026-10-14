@@ -18,6 +18,7 @@ import (
 	"example.com/datareplication/internal/adapter/in/peergrpc"
 	"example.com/datareplication/internal/adapter/out/dynamodb"
 	"example.com/datareplication/internal/adapter/out/etcdraft"
+	"example.com/datareplication/internal/adapter/out/memstore"
 	"example.com/datareplication/internal/adapter/out/peerclient"
 	"example.com/datareplication/internal/adapter/out/prommetrics"
 	"example.com/datareplication/internal/adapter/out/replog"
@@ -34,8 +35,9 @@ const maxWaitingLeader = 1000
 // replogSegment é o tamanho de cada segmento do log de replicação.
 const replogSegment = 64 << 20
 
-// applierQueue é a fila em memória entre o CommitPump e o Applier (risco 3: generosa na POC).
-const applierQueue = 4096
+// applierQueue é a fila em memória entre o CommitPump e o Applier, em lotes lidos por faixa
+// (até 1 MiB cada). Cheia, quem espera é o CommitPump, nunca o laço do Raft (ADR-060).
+const applierQueue = 64
 
 // replogQueue é a fila de lotes entre o CommitPump e o Append do log de replicação (ADR-059).
 const replogQueue = 1024
@@ -103,12 +105,25 @@ func newDegradeService(cfg config.Config, c port.ConsensusEngine, g *domain.Gate
 	return &usecase.DegradeService{Policy: policy, LeaseDuration: cfg.DegradedLease, Consensus: c, Gate: g, Lease: l, Clock: clk}, nil
 }
 
+// writeServiceIn: as métricas são opcionais no núcleo; o Runtime as provê (O-27).
+type writeServiceIn struct {
+	fx.In
+	Cfg     config.Config
+	C       port.ConsensusEngine
+	F       port.Forwarder
+	A       port.AppliedWaiter
+	G       *domain.Gate
+	D       usecase.Degrader
+	Metrics port.Metrics `optional:"true"`
+}
+
 // newWriteService: o header x-dr-mode vem do estado REAL do shard (o Degrader consulta o
-// lease), não de uma função fixa.
-func newWriteService(cfg config.Config, c port.ConsensusEngine, f port.Forwarder, a port.AppliedWaiter, g *domain.Gate, d usecase.Degrader) *usecase.WriteService {
+// lease), não de uma função fixa. A admissão por atraso do apply usa APPLY_LAG_MAX (ADR-060).
+func newWriteService(in writeServiceIn) *usecase.WriteService {
 	return &usecase.WriteService{
-		Consensus: c, Forward: f, Gate: g, Applied: a, Degrade: d,
-		WaitLeader: cfg.WaitLeader, DegradeAfter: cfg.DegradeAfter, MaxWaitingLeader: maxWaitingLeader,
+		Consensus: in.C, Forward: in.F, Gate: in.G, Applied: in.A, Degrade: in.D, Metrics: in.Metrics,
+		MaxApplyLag: domain.Index(in.Cfg.ApplyLagMax),
+		WaitLeader:  in.Cfg.WaitLeader, DegradeAfter: in.Cfg.DegradeAfter, MaxWaitingLeader: maxWaitingLeader,
 	}
 }
 
@@ -139,9 +154,10 @@ func Runtime() fx.Option {
 			func(l *replog.Log) port.ReplicationLog { return l },
 			func(l *replog.Log) port.ApplyProgress { return l },
 			newStore,
-			func(s *dynamodb.Store) port.StateStore { return s },
-			func(s *dynamodb.Store) port.Scanner { return s },
-			func(s *dynamodb.Store) port.Catalog { return s },
+			func(s CellStore) port.StateStore { return s },
+			func(s CellStore) port.Scanner { return s },
+			func(s CellStore) port.Catalog { return s },
+			newResume,
 			newPeerClient,
 			func(c *peerclient.Client) port.Forwarder { return c },
 			func(c *peerclient.Client) port.BarrierClient { return c },
@@ -154,6 +170,7 @@ func Runtime() fx.Option {
 			func() chan []domain.Entry { return make(chan []domain.Entry, applierQueue) },
 			newApplier,
 			func(a *usecase.Applier) port.AppliedWaiter { return a },
+			newCommitPump,
 			newReadService,
 			func(r *usecase.ReadService) port.Reader { return r },
 			newGateSync,
@@ -175,8 +192,35 @@ func newReplog(lc fx.Lifecycle, cfg config.Config) (*replog.Log, error) {
 	return l, nil
 }
 
-func newStore(cfg config.Config, tm domain.TableMap) (*dynamodb.Store, error) {
+// CellStore é o banco da célula com o catálogo conferido na partida: DynamoDB (padrão) ou,
+// SÓ NA POC, o banco em memória para teste de carga (STORE=memory, ADR-060).
+type CellStore interface {
+	port.StateStore
+	port.Scanner
+	port.Catalog
+	LoadCatalog(ctx context.Context, wait time.Duration, log zerolog.Logger) error
+}
+
+func newStore(cfg config.Config, tm domain.TableMap) (CellStore, error) {
+	if cfg.Store == config.StoreMemory {
+		return memstore.New(tm, cfg.MemStoreLatency), nil
+	}
 	return dynamodb.New(context.Background(), cfg.DynamoEndpoint, cfg.AWSRegion, tm, cfg.ApplyWorkers)
+}
+
+// Resume é onde a partida retoma a entrega das entradas commitadas (ADR-060, item 5).
+type Resume struct {
+	From domain.Index // primeiro índice que o CommitPump entrega
+}
+
+// newResume calcula o ponto de retomada a partir do log de replicação e do progresso do
+// applier, para o Raft não reentregar o log inteiro a cada partida.
+func newResume(l port.ReplicationLog, p port.ApplyProgress) (Resume, error) {
+	idx, _, err := p.LoadProgress()
+	if err != nil {
+		return Resume{}, err
+	}
+	return Resume{From: usecase.ResumeFrom(l.LastIndex(), idx)}, nil
 }
 
 func newPeerClient(lc fx.Lifecycle, cfg config.Config, log zerolog.Logger, m port.Metrics) (*peerclient.Client, error) {
@@ -196,13 +240,14 @@ func newPeerClient(lc fx.Lifecycle, cfg config.Config, log zerolog.Logger, m por
 	return c, nil
 }
 
-func newRaft(lc fx.Lifecycle, cfg config.Config, send *peerclient.Client, log zerolog.Logger, m port.Metrics) (*etcdraft.Node, error) {
+func newRaft(lc fx.Lifecycle, cfg config.Config, send *peerclient.Client, log zerolog.Logger, m port.Metrics, r Resume) (*etcdraft.Node, error) {
 	if err := os.MkdirAll(filepath.Dir(cfg.RaftDir), 0o755); err != nil {
 		return nil, err
 	}
 	n, err := etcdraft.Open(etcdraft.Config{
 		ID: cfg.NodeID, Voters: config.IDs(cfg.Peers), Learners: config.IDs(cfg.Learners),
-		Dir: cfg.RaftDir, TickInterval: 100 * time.Millisecond, Metrics: m,
+		Dir: cfg.RaftDir, TickInterval: 100 * time.Millisecond, ElectionTicks: cfg.ElectionTicks,
+		Applied: uint64(r.From) - 1, Metrics: m,
 	}, send, log)
 	if err != nil {
 		return nil, err
@@ -224,8 +269,15 @@ func newGateSync(cfg config.Config, c port.ConsensusEngine, g *domain.Gate, p po
 	return &usecase.GateSync{Consensus: c, Gate: g, Publisher: p, Interval: cfg.GatePublishInterval, Log: log}
 }
 
-func newStatus(cfg config.Config, r port.RaftStatus, g *domain.Gate, a *usecase.Applier, l port.ReplicationLog, cat port.Catalog) *usecase.StatusReporter {
-	return &usecase.StatusReporter{CellID: cfg.CellID, NodeID: cfg.NodeID, Raft: r, Gate: g, Applier: a, Log: l, Catalog: cat, AzureOff: len(cfg.Learners) == 0}
+func newCommitPump(n *etcdraft.Node, l port.ReplicationLog, g *domain.Gate, lease *domain.Lease, to chan []domain.Entry, r Resume) *usecase.CommitPump {
+	return &usecase.CommitPump{Consensus: n, Log: l, Gate: g, Lease: lease, ToApplier: to, LogQueue: replogQueue, From: r.From}
+}
+
+func newStatus(cfg config.Config, r port.RaftStatus, g *domain.Gate, a *usecase.Applier, l port.ReplicationLog, cat port.Catalog,
+	p *usecase.CommitPump, inbox chan []domain.Entry) *usecase.StatusReporter {
+	return &usecase.StatusReporter{CellID: cfg.CellID, NodeID: cfg.NodeID, Raft: r, Gate: g, Applier: a, Log: l, Catalog: cat,
+		AzureOff: len(cfg.Learners) == 0, Pump: p, ApplyInbox: func() int { return len(inbox) },
+		ApplyLagMax: cfg.ApplyLagMax, ElectionTicks: cfg.ElectionTicks, Store: cfg.Store}
 }
 
 // runAdmin abre a administração primeiro: o /livez responde enquanto as tabelas são
@@ -251,7 +303,8 @@ type runtimeDeps struct {
 	Lc       fx.Lifecycle
 	Cfg      config.Config
 	Log      zerolog.Logger
-	Store    *dynamodb.Store
+	Store    CellStore
+	Pump     *usecase.CommitPump
 	Node     *etcdraft.Node
 	Gate     *domain.Gate
 	Lease    *domain.Lease
@@ -294,14 +347,16 @@ func runRuntime(d runtimeDeps) {
 					d.Log.Fatal().Err(err).Msg("gRPC entre células caiu")
 				}
 			}()
-			pump := &usecase.CommitPump{Consensus: d.Node, Log: d.Replog, Gate: d.Gate, Lease: d.Lease, ToApplier: d.ToApply, LogQueue: replogQueue}
+			pump := d.Pump
 			ckpt := &usecase.Checkpointer{Log: d.Replog, Raft: d.Node, Interval: d.Cfg.ReplogSyncInterval, Metrics: d.Metrics}
 			fatal("raft", d.Node.Run)
 			fatal("commitpump", pump.Run)
 			fatal("applier", d.Applier.Run)
 			fatal("checkpoint", ckpt.Run)
 			fatal("gatesync", d.GateSync.Run)
-			d.Log.Info().Str("peer", d.Cfg.PeerAddr).Int("applyWorkers", d.Applier.WorkerCount()).Msg("célula iniciada")
+			d.Log.Info().Str("peer", d.Cfg.PeerAddr).Int("applyWorkers", d.Applier.WorkerCount()).
+				Uint64("applyLagMax", d.Cfg.ApplyLagMax).Int("electionTicks", d.Cfg.ElectionTicks).
+				Str("store", d.Cfg.Store).Uint64("retomaEm", uint64(d.Pump.From)).Msg("célula iniciada")
 			return nil
 		},
 		OnStop: func(stopCtx context.Context) error {

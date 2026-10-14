@@ -178,11 +178,32 @@ func TestHandlerRecordsMetrics(t *testing.T) {
 	}
 	m.mu.Lock()
 	total := 0
-	for _, v := range m.calls {
-		total += v
+	for k, v := range m.calls {
+		if strings.HasPrefix(k, "write:") || strings.HasPrefix(k, "read:") {
+			total += v
+		}
 	}
 	m.mu.Unlock()
 	if total != 5 {
-		t.Errorf("total de eventos = %d, quer 5 (UpdateItem não conta)", total)
+		t.Errorf("total de resultados = %d, quer 5 (UpdateItem não conta)", total)
+	}
+	// O-28: TODA requisição conta na porta de API, inclusive a fora do escopo, com op e
+	// código HTTP; o em andamento sobe e desce o mesmo número de vezes.
+	for k, want := range map[string]int{"http:PutItem:200": 1, "http:PutItem:503": 1, "http:PutItem:400": 1,
+		"http:GetItem:200": 1, "http:Scan:503": 1, "http:UpdateItem:400": 1, "inflight:1": 6, "inflight:-1": 6} {
+		if got := m.n(k); got != want {
+			t.Errorf("%s = %d, quer %d", k, got, want)
+		}
+	}
+}
+
+func TestHTTPOpLabelIsBounded(t *testing.T) {
+	for in, want := range map[string]string{
+		"DynamoDB_20120810.PutItem": "PutItem", "DynamoDB_20120810.Query": "Query",
+		"DynamoDB_20120810.Inventada": "outra", "": "outra", "x.PutItem": "outra",
+	} {
+		if got := httpOp([]byte(in)); got != want {
+			t.Errorf("httpOp(%q) = %q, quer %q", in, got, want)
+		}
 	}
 }
