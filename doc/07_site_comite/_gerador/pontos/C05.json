@@ -49,6 +49,13 @@
       "contexto": "No modo degradado as células da Azure deixam de alcançar a líder AWS. Como só existe leitura forte, elas não conseguem obter `ReadIndex` e gate e recusam a leitura com `503`; a aplicação que lê pela Azure fica sem leitura até o link voltar ou a Azure ser promovida.",
       "na_fonte": "Modo único strong (ADR-057): sem líder alcançável, a célula da Azure recusa com `503` e nunca devolve dado defasado.",
       "sugestao": "Confirmar com o roteamento (Compass-Router) que, em regime normal, as leituras vão para células AWS, de modo que a recusa na Azure só afete quem já estava lá. Cobrir com teste de caos com o link cortado."
+    },
+    {
+      "titulo": "Líder recém-eleita com a Azure fora",
+      "origem": "Falhas e tratativas",
+      "contexto": "Depois de uma troca de líder com o link caído, o gate não fica pronto e toda leitura forte do shard responde `503 GATE_NOT_READY` até o link voltar (T7 de X08).",
+      "na_fonte": "Não decidido na fonte. Pergunta 3 do X08.",
+      "sugestao": "Aceitar na v1 e proibir manutenção de célula AWS e transferência planejada de liderança enquanto o link estiver fora."
     }
   ]
 }

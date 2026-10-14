@@ -11,7 +11,7 @@
 Fonte(s) usada(s) nesta página (rastreabilidade), relativas à raiz do pacote:
   02_cenarios/atualizados/C05-leitura-strong.md
   04_diagramas/D05-gate-e-quorum.md
-Gerado em 13/10/2026 a partir do pacote DataReplication_Versao_1.
+Gerado em 14/10/2026 a partir do pacote DataReplication_Versao_1.
 -->
 <header class="topo">
 <button class="menu" type="button" aria-label="Abrir navegação" onclick="document.body.classList.toggle('nav-aberta')">☰</button>
@@ -59,7 +59,7 @@ Gerado em 13/10/2026 a partir do pacote DataReplication_Versao_1.
 <li><a href="../fail-path/C33-reconstrucao-em-tabela-sombra.html"><b>C33</b> Reconstrução do banco de uma célula em tabela sombra</a></li>
 <li><a href="../fail-path/C34-autorizacao-por-aplicacao.html"><b>C34</b> Autorização por aplicação: mTLS e lista de permissões por identidade</a></li>
 </ul></details>
-<details class="grupo"><summary>Complex path <span class="qtd">6</span></summary><ul>
+<details class="grupo"><summary>Complex path <span class="qtd">8</span></summary><ul>
 <li><a class="idx" href="../complex-path/index.html">Índice da seção</a></li>
 <li><a href="../complex-path/X01-gate-e-troca-de-lider.html"><b>X01</b> Gate: definição, monotonicidade e troca de líder</a></li>
 <li><a href="../complex-path/X02-modo-degradado.html"><b>X02</b> Modo degradado: entrada, permanência, lease e saída</a></li>
@@ -67,6 +67,8 @@ Gerado em 13/10/2026 a partir do pacote DataReplication_Versao_1.
 <li><a href="../complex-path/X04-partida-recuperacao-e-dois-logs.html"><b>X04</b> Partida, recuperação e coerência entre os dois logs</a></li>
 <li><a href="../complex-path/X05-timeouts-e-idempotencia.html"><b>X05</b> Timeouts em cascata e idempotência do retry</a></li>
 <li><a href="../complex-path/X06-delete-ttl-gsi.html"><b>X06</b> DELETE, TTL, Scan e GSI</a></li>
+<li><a href="../complex-path/X07-gate-explicado-com-exemplos.html"><b>X07</b> O gate explicado com exemplos</a></li>
+<li><a href="../complex-path/X08-leitura-forte-com-exemplos.html"><b>X08</b> Leitura forte explicada com dados mock</a></li>
 </ul></details>
 <details class="grupo"><summary>Parking lot <span class="qtd">14</span></summary><ul>
 <li><a class="idx" href="../parking-lot/index.html">Índice da seção</a></li>
@@ -149,6 +151,7 @@ Gerado em 13/10/2026 a partir do pacote DataReplication_Versao_1.
 <li><strong>GSI:</strong> <code>Query</code> ou <code>Scan</code> com <code>IndexName</code> de GSI é recusado com <code>ValidationException</code> (400), com ou sem <code>ConsistentRead</code>.</li>
 <li><strong>Células da Azure antes da promoção:</strong> mesma regra de qualquer célula seguidora (ReadIndex e gate da líder AWS, espera o Cosmos alcançar a barreira). Sem líder alcançável, <code>503</code>.</li>
 <li><strong>Sem relógio:</strong> a leitura usa ReadIndex e gate e nunca lease (X11).</li>
+<li><strong>Exemplos com dados mock:</strong> cada passo acima com valores concretos (leitura na líder, célula atrasada, escrita em voo, ler o que acabei de escrever em outra célula, Azure fora) e o fluxograma da decisão da leitura estão em <a href="../complex-path/X08-leitura-forte-com-exemplos.html">X08</a>.</li>
 </ol></div>
 </section>
 <section id="pontos"><h2>4. Pontos que precisam ser avaliados</h2>
@@ -209,6 +212,14 @@ Gerado em 13/10/2026 a partir do pacote DataReplication_Versao_1.
 <dt class="sug">Sugestão de encaminhamento <small>(inferência, não decidida)</small></dt><dd class="sug">Confirmar com o roteamento (Compass-Router) que, em regime normal, as leituras vão para células AWS, de modo que a recusa na Azure só afete quem já estava lá. Cobrir com teste de caos com o link cortado.</dd>
 </dl>
 </article>
+<article class="ponto">
+<h3><span class="num">8</span>Líder recém-eleita com a Azure fora <span class="origem">Falhas e tratativas</span></h3>
+<dl>
+<dt>Contexto</dt><dd>Depois de uma troca de líder com o link caído, o gate não fica pronto e toda leitura forte do shard responde <code>503 GATE_NOT_READY</code> até o link voltar (T7 de <a href="../complex-path/X08-leitura-forte-com-exemplos.html">X08</a>).</dd>
+<dt>O que a fonte define</dt><dd class="nd-fonte">Não decidido na fonte. Pergunta 3 do <a href="../complex-path/X08-leitura-forte-com-exemplos.html">X08</a>.</dd>
+<dt class="sug">Sugestão de encaminhamento <small>(inferência, não decidida)</small></dt><dd class="sug">Aceitar na v1 e proibir manutenção de célula AWS e transferência planejada de liderança enquanto o link estiver fora.</dd>
+</dl>
+</article>
 </section>
 <section id="adrs"><h2>5. ADRs relacionados</h2>
 <div class="tabela"><table><thead><tr><th>ADR</th><th>Título</th><th>Decisão resumida</th><th>Arquivo</th></tr></thead><tbody>
@@ -229,13 +240,15 @@ Gerado em 13/10/2026 a partir do pacote DataReplication_Versao_1.
 <li><strong>Scan.</strong> A barreira vale antes de cada página, mas não há instantâneo entre páginas: dois Scans consecutivos podem divergir.</li>
 <li><strong>TTL.</strong> Cada célula expira por conta própria e com atraso; a aplicação filtra pelo atributo de TTL (<a href="../complex-path/X06-delete-ttl-gsi.html">X06</a>).</li>
 <li><strong>Prazo vence esperando o applier.</strong> Erro recuperável (o SDK retenta).</li>
+<li><strong>Líder recém-eleita com a Azure fora</strong> (cenário oculto, T7 de <a href="../complex-path/X08-leitura-forte-com-exemplos.html">X08</a>). A líder nova não fica com o gate pronto enquanto 2 learners Azure não confirmarem no termo dela: toda leitura forte do shard responde <code>503 GATE_NOT_READY</code> até o link voltar. Usar o gate recebido da líder antiga poderia esconder uma escrita já ACKada. Tratamento em avaliação (pergunta 3 de X08).</li>
 </ul></details>
 <details class="anexo"><summary>Pontos em aberto</summary><ul>
 <li>Leitura em células follower concentra ReadIndex na líder e soma ~1 RTT: <a href="../parking-lot/R16-leitura-forte-em-celulas-follower.html">R16</a>.</li>
+<li>Leitura forte indisponível numa líder nova enquanto a Azure está fora (T7 de <a href="../complex-path/X08-leitura-forte-com-exemplos.html">X08</a>): aceitar e bloquear manutenção com o link fora, ou só ACKar depois de o gate chegar a 2 de 3 células AWS.</li>
 </ul></details>
 </section>
 <footer class="rodape">
-Gerado em 13/10/2026 a partir de <code>DataReplication_Versao_1/</code>. O conteúdo vem dos arquivos .md citados no código-fonte desta página;
+Gerado em 14/10/2026 a partir de <code>DataReplication_Versao_1/</code>. O conteúdo vem dos arquivos .md citados no código-fonte desta página;
 textos marcados como <em>sugestão</em> são inferência do arquiteto e não decisões registradas.
 </footer>
 </main>

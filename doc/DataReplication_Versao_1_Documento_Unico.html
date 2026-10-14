@@ -47,11 +47,11 @@ footer{margin-top:60px;color:var(--mut);font-size:14px;border-top:1px solid var(
 <div class="wrap">
 <nav class="toc" aria-label="Sumário">
 <a class="t" href="#topo">DataReplication v1</a>
-<ul><li><details><summary><a href="#p-principal">Documento principal</a> <span class="qtd">1</span></summary><ul><li><a href="#d-datareplication-versao-1">DataReplication v1: documento principal</a></li></ul></details></li><li><details><summary><a href="#p-arquitetura">Arquitetura</a> <span class="qtd">11</span></summary><ul><li><a href="#d-01-arquitetura-00-glossario">Glossário e códigos de referência</a></li><li><a href="#d-01-arquitetura-01-forma-do-app-e-escopo">Forma do app, escopo, premissas e metas</a></li><li><a href="#d-01-arquitetura-02-comunicacao-grpc">Comunicação entre células: gRPC</a></li><li><a href="#d-01-arquitetura-03-consenso-raft-quorum-e-gate">Consenso: Raft, quórum Azure (learners + gate) e os dois logs</a></li><li><a href="#d-01-arquitetura-04-wal-e-fsync">WAL, retenção, reconstrução e fsync</a></li><li><a href="#d-01-arquitetura-05-dados-versao-delete-ttl-gsi-e-banco-por-celula">Dados: versão, DELETE, TTL, Scan, GSI e banco por célula</a></li><li><a href="#d-01-arquitetura-06-leitura-forte-escrita-serial-e-latencia">Orçamento de latência, escrita serial e leitura forte</a></li><li><a href="#d-01-arquitetura-07-go-memoria-cpu-e-disco">Go, memória, CPU e disco</a></li><li><a href="#d-01-arquitetura-08-resiliencia-autocura-e-timeouts">Resiliência, autocura e orçamento de tempo</a></li><li><a href="#d-01-arquitetura-09-12factors-cloud-native-e-sdks">12 Factors, cloud-native (AKS e EKS) e SDKs suportados</a></li><li><a href="#d-01-arquitetura-10-pontos-adicionais-e-metricas">Pontos adicionais (além da lista inicial) e métricas</a></li></ul></details></li><li><details><summary><a href="#p-cenarios">Cenários atualizados</a> <span class="qtd">33</span></summary><ul><li><a href="#d-02-cenarios-index">Índice dos cenários</a></li><li><a href="#d-02-cenarios-atualizados-c01-visao-geral">C01 — Visão geral da arquitetura</a></li><li><a href="#d-02-cenarios-atualizados-c02-dentro-da-celula">C02 — Dentro da célula: apps do cliente e DataReplication</a></li><li><a href="#d-02-cenarios-atualizados-c03-escrita-strong">C03 — Caminho feliz: escrita (apply serial depois do gate)</a></li><li><a href="#d-02-cenarios-atualizados-c05-leitura-strong">C05 — Caminho feliz: leitura strong</a></li><li><a href="#d-02-cenarios-atualizados-c06-follower-encaminha">C06 — Requisição chega numa célula que não é a líder</a></li><li><a href="#d-02-cenarios-atualizados-c07-timeout-depois-do-commit">C07 — Prazo estoura depois do commit, antes do ACK (retry do SDK)</a></li><li><a href="#d-02-cenarios-atualizados-c08-queda-de-celula-lider-ou-az-aws">C08 — Queda da célula líder ou de uma AZ na AWS</a></li><li><a href="#d-02-cenarios-atualizados-c09-queda-de-az-azure">C09 — Queda de uma AZ na Azure</a></li><li><a href="#d-02-cenarios-atualizados-c10-celulas-de-app-aws-fora">C10 — Apps da AWS fora, replicação viva: tráfego vai para a Azure</a></li><li><a href="#d-02-cenarios-atualizados-c11-transferencia-planejada">C11 — Transferência planejada de liderança (manutenção)</a></li><li><a href="#d-02-cenarios-atualizados-c12-modo-degradado">C12 — Link AWS↔Azure cai ou Azure cai: modo degradado com lease</a></li><li><a href="#d-02-cenarios-atualizados-c13-ressincronizacao-da-azure">C13 — Ressincronização da Azure</a></li><li><a href="#d-02-cenarios-atualizados-c14-aws-cai-sem-degradacao">C14 — AWS cai por inteiro sem degradação prévia</a></li><li><a href="#d-02-cenarios-atualizados-c15-aws-cai-em-degradacao">C15 — AWS cai durante o modo degradado</a></li><li><a href="#d-02-cenarios-atualizados-c16-aws-volta-apos-promocao">C16 — AWS volta depois da promoção da Azure</a></li><li><a href="#d-02-cenarios-atualizados-c17-maquina-de-estados">C17 — Máquina de estados dos modos de operação de um shard</a></li><li><a href="#d-02-cenarios-atualizados-c18-partida-e-recuperacao-do-no">C18 — Partida, recuperação e parada limpa do nó</a></li><li><a href="#d-02-cenarios-atualizados-c19-falha-do-datareplication">C19 — O DataReplication da célula cai ou reinicia</a></li><li><a href="#d-02-cenarios-atualizados-c20-bypass-de-escrita-direta">C20 — Aplicação escreve direto no banco (bypass)</a></li><li><a href="#d-02-cenarios-atualizados-c21-disco-fsync-e-reconstrucao">C21 — Falha de fsync, corrupção, disco lento e disco perdido</a></li><li><a href="#d-02-cenarios-atualizados-c22-cliente-com-sdk-nao-suportado">C22 — Cliente com SDK ou versão não suportada</a></li><li><a href="#d-02-cenarios-atualizados-c23-batchwriteitem-lote-uma-entrada">C23 — BatchWriteItem: o lote é uma entrada e o apply é por item (antes R15)</a></li><li><a href="#d-02-cenarios-atualizados-c24-orcamento-de-50ms-e-escrita-no-dynamodb">C24 — Orçamento de 50 ms e a escrita no DynamoDB dentro do ACK (antes R21)</a></li><li><a href="#d-02-cenarios-atualizados-c25-link-lento-faixa-cinzenta">C25 — Link lento ou saturado (faixa cinzenta): só alertar (antes R01)</a></li><li><a href="#d-02-cenarios-atualizados-c26-entrada-venenosa">C26 — Entrada venenosa: um item que o banco recusa para sempre (antes R02)</a></li><li><a href="#d-02-cenarios-atualizados-c27-encaminhamento-sem-lider-conhecida">C27 — Loop de encaminhamento e espera pela líder durante a eleição (antes R05)</a></li><li><a href="#d-02-cenarios-atualizados-c29-disco-do-log-em-degradacao-longa">C29 — Disco do log esgota durante uma degradação longa (antes R08)</a></li><li><a href="#d-02-cenarios-atualizados-c30-aws-que-volta-boot-cercado">C30 — Fencing: o DynamoDB e o applier da AWS que voltam depois da promoção (antes R14)</a></li><li><a href="#d-02-cenarios-atualizados-c31-implantacao-por-cliente-e-identidade">C31 — Uma instalação por cliente e identificação na API (antes R19)</a></li><li><a href="#d-02-cenarios-atualizados-c32-particao-e-lease-do-modo-degradado">C32 — Partição entre AWS e Azure: lease do modo degradado e promoção da Azure</a></li><li><a href="#d-02-cenarios-atualizados-c33-reconstrucao-em-tabela-sombra">C33 — Reconstrução do banco de uma célula em tabela sombra</a></li><li><a href="#d-02-cenarios-atualizados-c34-autorizacao-por-aplicacao">C34 — Autorização por aplicação: mTLS e lista de permissões por identidade</a></li></ul></details></li><li><details><summary><a href="#p-complexos">Cenários complexos</a> <span class="qtd">6</span></summary><ul><li><a href="#d-02-cenarios-complexos-x01-gate-e-troca-de-lider">X01 — Gate: definição, monotonicidade e troca de líder</a></li><li><a href="#d-02-cenarios-complexos-x02-modo-degradado">X02 — Modo degradado: entrada, permanência, lease e saída</a></li><li><a href="#d-02-cenarios-complexos-x03-desastre-e-promocao-da-azure">X03 — Desastre: promoção da Azure, fencing e reconciliação</a></li><li><a href="#d-02-cenarios-complexos-x04-partida-recuperacao-e-dois-logs">X04 — Partida, recuperação e coerência entre os dois logs</a></li><li><a href="#d-02-cenarios-complexos-x05-timeouts-e-idempotencia">X05 — Timeouts em cascata e idempotência do retry</a></li><li><a href="#d-02-cenarios-complexos-x06-delete-ttl-gsi">X06 — DELETE, TTL, Scan e GSI</a></li></ul></details></li><li><details><summary><a href="#p-rever">Cenários a rever</a> <span class="qtd">14</span></summary><ul><li><a href="#d-02-cenarios-a-rever-r03-backlog-de-apply-no-cosmos">R03 — Backlog de apply no Cosmos (429 e RU insuficiente)</a></li><li><a href="#d-02-cenarios-a-rever-r06-duas-azs-aws-caem">R06 — Duas AZs da AWS caem com a Azure saudável</a></li><li><a href="#d-02-cenarios-a-rever-r07-link-oscilando">R07 — Link oscilando (flapping)</a></li><li><a href="#d-02-cenarios-a-rever-r09-resincronizacao-lenta-ou-bloqueada">R09 — Ressincronização da Azure lenta ou que nunca termina</a></li><li><a href="#d-02-cenarios-a-rever-r10-operador-lento-no-desastre">R10 — Tempo de decisão humana no desastre</a></li><li><a href="#d-02-cenarios-a-rever-r11-api-de-promocao-depende-da-aws">R11 — A API de promoção depende de algo que estava na AWS</a></li><li><a href="#d-02-cenarios-a-rever-r12-promocao-com-aws-viva">R12 — Promoção da Azure com a AWS viva (split-brain, PEND-01)</a></li><li><a href="#d-02-cenarios-a-rever-r13-escritas-orfas-reconciliacao">R13 — Escritas órfãs: reconciliação depois da promoção (PEND-03)</a></li><li><a href="#d-02-cenarios-a-rever-r16-leitura-forte-em-celulas-follower">R16 — Leitura forte em células follower (ReadIndex e gate)</a></li><li><a href="#d-02-cenarios-a-rever-r17-atributo-de-versao-e-limite-400kb">R17 — Atributo de versão: limite de 400 KB e ausência nas respostas</a></li><li><a href="#d-02-cenarios-a-rever-r18-rto-nao-quantificado">R18 — RTO (Delta-T) ainda sem número</a></li><li><a href="#d-02-cenarios-a-rever-r20-custo-6x">R20 — Custo: cada escrita lógica vira seis gravações</a></li><li><a href="#d-02-cenarios-a-rever-r22-memoria-da-janela-de-dedupe">R22 — Memória da janela de dedupe</a></li><li><a href="#d-02-cenarios-a-rever-r23-hipoteses-gerais">R23 — Hipóteses gerais em aberto</a></li></ul></details></li><li><details><summary><a href="#p-adr">ADRs</a> <span class="qtd">52</span></summary><ul><li><a href="#d-03-adr-adr-001-camada-intermediaria-agnostica">ADR-001 — Camada intermediária agnóstica a cloud e a banco</a></li><li><a href="#d-03-adr-adr-002-shards-logicos-celulas-ativo-passivo">ADR-002 — Shards lógicos, células e ativo/passivo</a></li><li><a href="#d-03-adr-adr-003-aws-primaria-azure-failover">ADR-003 — AWS primária e Azure como failover, ambas só em São Paulo</a></li><li><a href="#d-03-adr-adr-004-dynamodb-primeiro-adaptador">ADR-004 — DynamoDB como primeiro adaptador; Cosmos pelo Cloud-Adapter</a></li><li><a href="#d-03-adr-adr-005-ack-exige-gate">ADR-005 — ACK só depois do gate (Raft AWS e maioria durável Azure)</a></li><li><a href="#d-03-adr-adr-006-consenso-por-shard-eleicao-na-aws">ADR-006 — Consenso por shard; eleição só na AWS</a></li><li><a href="#d-03-adr-adr-007-sidecar-e-coordenacao-compartilhada">ADR-007 — Sidecar com coordenação compartilhada</a></li><li><a href="#d-03-adr-adr-008-terceiro-dominio">ADR-008 — Terceiro domínio com WAL integral</a></li><li><a href="#d-03-adr-adr-010-follower-encaminha-para-lider">ADR-010 — Follower encaminha para a líder; a liderança muda só por eleição de saúde</a></li><li><a href="#d-03-adr-adr-011-witness-manifesto-snapshots">ADR-011 — Witness = manifesto assinado, snapshots e WAL</a></li><li><a href="#d-03-adr-adr-013-transferencia-planejada-de-lideranca">ADR-013 — Transferência planejada de liderança (sincronizar antes de promover)</a></li><li><a href="#d-03-adr-adr-014-modo-degradado-opcao-b">ADR-014 — Modo degradado: a AWS segue quando a Azure fica inalcançável (opção B)</a></li><li><a href="#d-03-adr-adr-015-wal-post-image-e-versao">ADR-015 — O log guarda a post-image e a versão do item</a></li><li><a href="#d-03-adr-adr-016-app-unico-por-celula-monolito-modular">ADR-016 — Um único app DataReplication por célula, monolito modular</a></li><li><a href="#d-03-adr-adr-017-azure-learners-e-gate">ADR-017 — Azure como learners, com gate</a></li><li><a href="#d-03-adr-adr-018-dois-logs-raft-e-replicacao">ADR-018 — Dois logs separados: o do Raft e o de replicação</a></li><li><a href="#d-03-adr-adr-019-wal-proprio-volume-dedicado">ADR-019 — Log do Raft em volume de bloco dedicado; sem ACK em memória</a></li><li><a href="#d-03-adr-adr-020-raft-etcd-io-camada-multigrupo">ADR-020 — Raft: etcd-io/raft com camada multi-grupo própria</a></li><li><a href="#d-03-adr-adr-021-grpc-entre-celulas">ADR-021 — gRPC entre as células</a></li><li><a href="#d-03-adr-adr-022-banco-por-celula-nome-logico">ADR-022 — Um banco por célula; nome lógico com {cell}</a></li><li><a href="#d-03-adr-adr-024-delete-real-ttl-local-gsi">ADR-024 — DELETE real com ordem por chave; TTL local; GSI</a></li><li><a href="#d-03-adr-adr-025-escopo-da-api-v1-e-sdks">ADR-025 — Escopo da API v1 e SDKs suportados</a></li><li><a href="#d-03-adr-adr-026-dedupe-de-retry-id-estavel">ADR-026 — Dedupe de retry na líder por identificador estável</a></li><li><a href="#d-03-adr-adr-027-sinalizacao-do-modo-degradado">ADR-027 — Modo degradado sinalizado por header e métrica</a></li><li><a href="#d-03-adr-adr-028-timeouts-em-cascata">ADR-028 — Prazos em cascata dentro do timeout do SDK</a></li><li><a href="#d-03-adr-adr-029-gate-monotonico-na-troca-de-lider">ADR-029 — O gate nunca recua; líder nova reconstrói antes de ACKar</a></li><li><a href="#d-03-adr-adr-030-verificacao-formal-tla">ADR-030 — Modelo TLA+ do gate antes do código do gate</a></li><li><a href="#d-03-adr-adr-031-hexagonal-e-bibliotecas">ADR-031 — Arquitetura hexagonal e bibliotecas</a></li><li><a href="#d-03-adr-adr-032-parse-json-completo-e-rust">ADR-032 — Parse completo do JSON na v1; Rust como alternativa registrada</a></li><li><a href="#d-03-adr-adr-033-promocao-da-azure-humana">ADR-033 — Promoção da Azure sempre humana, só depois de D + M</a></li><li><a href="#d-03-adr-adr-034-fsync-fatal-e-identidade-nova">ADR-034 — Falha de fsync é fatal; disco perdido volta com identidade nova</a></li><li><a href="#d-03-adr-adr-035-lote-batchwriteitem-uma-entrada-e-apply-condicional">ADR-035 — BatchWriteItem vira uma entrada; o apply é por item e condicional</a></li><li><a href="#d-03-adr-adr-036-slo-de-50ms-exclui-a-escrita-no-banco">ADR-036 — O SLO de 50 ms exclui a escrita no banco e é publicado como &quot;overhead + banco&quot;</a></li><li><a href="#d-03-adr-adr-037-faixa-cinzenta-do-link-so-alerta">ADR-037 — Link lento na faixa cinzenta: só alertar, RPO continua 0</a></li><li><a href="#d-03-adr-adr-038-skip-de-entrada-venenosa-sempre-humano">ADR-038 — O SKIP de uma entrada venenosa é sempre aprovado por uma pessoa</a></li><li><a href="#d-03-adr-adr-039-sem-lider-conhecida-espera-ate-1s-e-503">ADR-039 — Sem líder conhecida: esperar até 1 s no servidor e então 503</a></li><li><a href="#d-03-adr-adr-041-disco-do-log-teto-de-70-por-cento-sem-s3-na-v1">ADR-041 — Disco do log em degradação longa: teto de 70% e reconstrução completa; sem S3 na v1</a></li><li><a href="#d-03-adr-adr-042-aws-que-volta-boot-cercado-e-recriacao-da-celula">ADR-042 — AWS que volta depois da promoção: boot cercado, credenciais revogadas e célula recriada</a></li><li><a href="#d-03-adr-adr-043-uma-instalacao-por-cliente-identidade-por-configuracao">ADR-043 — Uma instalação por cliente; o cliente é conhecido na configuração</a></li><li><a href="#d-03-adr-adr-044-lease-do-modo-degradado-e-promocao-da-azure">ADR-044 — Modo degradado com lease: a AWS para sozinha e a Azure só promove depois de D mais margem</a></li><li><a href="#d-03-adr-adr-045-politica-de-degradacao-por-instalacao">ADR-045 — `DEGRADED_POLICY` obrigatória por instalação</a></li><li><a href="#d-03-adr-adr-046-gate-so-conta-progresso-validado-pelo-raft">ADR-046 — O gate só conta progresso validado pelo Raft no termo atual</a></li><li><a href="#d-03-adr-adr-047-delete-real-invariante-e-reconstrucao-em-tabela-sombra">ADR-047 — DELETE real com invariante formal; reconstrução em tabela sombra</a></li><li><a href="#d-03-adr-adr-048-skip-por-item">ADR-048 — O SKIP identifica o item: (índice, ordem)</a></li><li><a href="#d-03-adr-adr-049-barreira-da-leitura-forte-e-o-gate">ADR-049 — A leitura forte espera `min(ReadIndex, gate)`</a></li><li><a href="#d-03-adr-adr-050-query-em-gsi-recusada">ADR-050 — `Query` em GSI é recusada</a></li><li><a href="#d-03-adr-adr-051-compatibilidade-dynamodb-inventario-conformidade-e-idempotencia">ADR-051 — Compatibilidade com o DynamoDB: inventário, conformidade e limite da idempotência</a></li><li><a href="#d-03-adr-adr-052-autorizacao-por-aplicacao-com-mtls">ADR-052 — Autorização por aplicação com mTLS</a></li><li><a href="#d-03-adr-adr-054-banco-por-celula-mantido">ADR-054 — Um banco por célula mantido, com o trade-off registrado</a></li><li><a href="#d-03-adr-adr-055-log-de-replicacao-segmentado-derivado-do-raft">ADR-055 — Log de replicação segmentado, derivado do Raft, sem fsync no caminho do ACK e em volume separado</a></li><li><a href="#d-03-adr-adr-056-group-commit-por-shard-e-nada-sai-antes-do-fsync">ADR-056 — Group commit por shard, nada sai antes do fsync e `AsyncStorageWrites` decidido por spike</a></li><li><a href="#d-03-adr-adr-057-um-unico-modo-strong-consistency">ADR-057 — Um único modo: strong consistency</a></li></ul></details></li><li><details><summary><a href="#p-diagramas">Diagramas de arquitetura</a> <span class="qtd">8</span></summary><ul><li><a href="#d-04-diagramas-d01-visao-do-sistema">D01 — Visão do sistema numa página</a></li><li><a href="#d-04-diagramas-d02-implantacao-da-celula">D02 — Implantação de uma célula no Kubernetes</a></li><li><a href="#d-04-diagramas-d03-camadas-hexagonais">D03 — Camadas: ports and adapters</a></li><li><a href="#d-04-diagramas-d04-dois-logs-e-commitpump">D04 — Os dois logs e o CommitPump</a></li><li><a href="#d-04-diagramas-d05-gate-e-quorum">D05 — Quórum e gate</a></li><li><a href="#d-04-diagramas-d06-estados-do-shard-e-do-no">D06 — Estados do shard e do nó</a></li><li><a href="#d-04-diagramas-d07-prazos-em-cascata">D07 — Prazos em cascata dentro dos 30 s do SDK</a></li><li><a href="#d-04-diagramas-d08-uma-escrita-seis-bancos">D08 — Uma escrita lógica, seis bancos</a></li></ul></details></li><li><details><summary><a href="#p-implementacao">Implementação</a> <span class="qtd">7</span></summary><ul><li><a href="#d-05-implementacao-01-principios-bibliotecas-e-pastas">Princípios, bibliotecas e estrutura de pastas</a></li><li><a href="#d-05-implementacao-02-desenho-e-diagramas">Desenho da arquitetura e diagramas de processo e de fluxo</a></li><li><a href="#d-05-implementacao-03-exemplos-de-codigo">Exemplos de código</a></li><li><a href="#d-05-implementacao-04-tabela-de-structs">Tabela de structs</a></li><li><a href="#d-05-implementacao-05-testes-armadilhas-e-ordem">Testes por camada, armadilhas e ordem de implementação</a></li><li><a href="#d-05-implementacao-06-testes-e-spikes">Testes de sistema e plano de spikes</a></li><li><a href="#d-05-implementacao-07-fases-de-trabalho">As cinco fases de trabalho</a></li></ul></details></li><li><details><summary><a href="#p-pendencias">Pendências e riscos</a> <span class="qtd">7</span></summary><ul><li><a href="#d-06-pendencias-e-riscos-01-pendencias">Pendências</a></li><li><a href="#d-06-pendencias-e-riscos-02-riscos">Registro de riscos</a></li><li><a href="#d-06-pendencias-e-riscos-03-perguntas-para-o-bruno">Perguntas para o Bruno</a></li><li><a href="#d-06-pendencias-e-riscos-analise-do-arquiteto-13-10">Resposta à revisão crítica do DataReplication v1</a></li><li><a href="#d-06-pendencias-e-riscos-analise-group-commit-e-async-storage-13-10">Análise: group commit com buffer em memória e `AsyncStorageWrites`</a></li><li><a href="#d-06-pendencias-e-riscos-revisao-critica-12-10">Revisão crítica de 12/10/2026: achados e tratamento</a></li><li><a href="#d-06-pendencias-e-riscos-revisao-critica-13-10">Revisão crítica de 13/10/2026: achados e tratamento</a></li></ul></details></li></ul>
+<ul><li><details><summary><a href="#p-principal">Documento principal</a> <span class="qtd">1</span></summary><ul><li><a href="#d-datareplication-versao-1">DataReplication v1: documento principal</a></li></ul></details></li><li><details><summary><a href="#p-arquitetura">Arquitetura</a> <span class="qtd">11</span></summary><ul><li><a href="#d-01-arquitetura-00-glossario">Glossário e códigos de referência</a></li><li><a href="#d-01-arquitetura-01-forma-do-app-e-escopo">Forma do app, escopo, premissas e metas</a></li><li><a href="#d-01-arquitetura-02-comunicacao-grpc">Comunicação entre células: gRPC</a></li><li><a href="#d-01-arquitetura-03-consenso-raft-quorum-e-gate">Consenso: Raft, quórum Azure (learners + gate) e os dois logs</a></li><li><a href="#d-01-arquitetura-04-wal-e-fsync">WAL, retenção, reconstrução e fsync</a></li><li><a href="#d-01-arquitetura-05-dados-versao-delete-ttl-gsi-e-banco-por-celula">Dados: versão, DELETE, TTL, Scan, GSI e banco por célula</a></li><li><a href="#d-01-arquitetura-06-leitura-forte-escrita-serial-e-latencia">Orçamento de latência, escrita serial e leitura forte</a></li><li><a href="#d-01-arquitetura-07-go-memoria-cpu-e-disco">Go, memória, CPU e disco</a></li><li><a href="#d-01-arquitetura-08-resiliencia-autocura-e-timeouts">Resiliência, autocura e orçamento de tempo</a></li><li><a href="#d-01-arquitetura-09-12factors-cloud-native-e-sdks">12 Factors, cloud-native (AKS e EKS) e SDKs suportados</a></li><li><a href="#d-01-arquitetura-10-pontos-adicionais-e-metricas">Pontos adicionais (além da lista inicial) e métricas</a></li></ul></details></li><li><details><summary><a href="#p-cenarios">Cenários atualizados</a> <span class="qtd">33</span></summary><ul><li><a href="#d-02-cenarios-index">Índice dos cenários</a></li><li><a href="#d-02-cenarios-atualizados-c01-visao-geral">C01 — Visão geral da arquitetura</a></li><li><a href="#d-02-cenarios-atualizados-c02-dentro-da-celula">C02 — Dentro da célula: apps do cliente e DataReplication</a></li><li><a href="#d-02-cenarios-atualizados-c03-escrita-strong">C03 — Caminho feliz: escrita (apply serial depois do gate)</a></li><li><a href="#d-02-cenarios-atualizados-c05-leitura-strong">C05 — Caminho feliz: leitura strong</a></li><li><a href="#d-02-cenarios-atualizados-c06-follower-encaminha">C06 — Requisição chega numa célula que não é a líder</a></li><li><a href="#d-02-cenarios-atualizados-c07-timeout-depois-do-commit">C07 — Prazo estoura depois do commit, antes do ACK (retry do SDK)</a></li><li><a href="#d-02-cenarios-atualizados-c08-queda-de-celula-lider-ou-az-aws">C08 — Queda da célula líder ou de uma AZ na AWS</a></li><li><a href="#d-02-cenarios-atualizados-c09-queda-de-az-azure">C09 — Queda de uma AZ na Azure</a></li><li><a href="#d-02-cenarios-atualizados-c10-celulas-de-app-aws-fora">C10 — Apps da AWS fora, replicação viva: tráfego vai para a Azure</a></li><li><a href="#d-02-cenarios-atualizados-c11-transferencia-planejada">C11 — Transferência planejada de liderança (manutenção)</a></li><li><a href="#d-02-cenarios-atualizados-c12-modo-degradado">C12 — Link AWS↔Azure cai ou Azure cai: modo degradado com lease</a></li><li><a href="#d-02-cenarios-atualizados-c13-ressincronizacao-da-azure">C13 — Ressincronização da Azure</a></li><li><a href="#d-02-cenarios-atualizados-c14-aws-cai-sem-degradacao">C14 — AWS cai por inteiro sem degradação prévia</a></li><li><a href="#d-02-cenarios-atualizados-c15-aws-cai-em-degradacao">C15 — AWS cai durante o modo degradado</a></li><li><a href="#d-02-cenarios-atualizados-c16-aws-volta-apos-promocao">C16 — AWS volta depois da promoção da Azure</a></li><li><a href="#d-02-cenarios-atualizados-c17-maquina-de-estados">C17 — Máquina de estados dos modos de operação de um shard</a></li><li><a href="#d-02-cenarios-atualizados-c18-partida-e-recuperacao-do-no">C18 — Partida, recuperação e parada limpa do nó</a></li><li><a href="#d-02-cenarios-atualizados-c19-falha-do-datareplication">C19 — O DataReplication da célula cai ou reinicia</a></li><li><a href="#d-02-cenarios-atualizados-c20-bypass-de-escrita-direta">C20 — Aplicação escreve direto no banco (bypass)</a></li><li><a href="#d-02-cenarios-atualizados-c21-disco-fsync-e-reconstrucao">C21 — Falha de fsync, corrupção, disco lento e disco perdido</a></li><li><a href="#d-02-cenarios-atualizados-c22-cliente-com-sdk-nao-suportado">C22 — Cliente com SDK ou versão não suportada</a></li><li><a href="#d-02-cenarios-atualizados-c23-batchwriteitem-lote-uma-entrada">C23 — BatchWriteItem: o lote é uma entrada e o apply é por item (antes R15)</a></li><li><a href="#d-02-cenarios-atualizados-c24-orcamento-de-50ms-e-escrita-no-dynamodb">C24 — Orçamento de 50 ms e a escrita no DynamoDB dentro do ACK (antes R21)</a></li><li><a href="#d-02-cenarios-atualizados-c25-link-lento-faixa-cinzenta">C25 — Link lento ou saturado (faixa cinzenta): só alertar (antes R01)</a></li><li><a href="#d-02-cenarios-atualizados-c26-entrada-venenosa">C26 — Entrada venenosa: um item que o banco recusa para sempre (antes R02)</a></li><li><a href="#d-02-cenarios-atualizados-c27-encaminhamento-sem-lider-conhecida">C27 — Loop de encaminhamento e espera pela líder durante a eleição (antes R05)</a></li><li><a href="#d-02-cenarios-atualizados-c29-disco-do-log-em-degradacao-longa">C29 — Disco do log esgota durante uma degradação longa (antes R08)</a></li><li><a href="#d-02-cenarios-atualizados-c30-aws-que-volta-boot-cercado">C30 — Fencing: o DynamoDB e o applier da AWS que voltam depois da promoção (antes R14)</a></li><li><a href="#d-02-cenarios-atualizados-c31-implantacao-por-cliente-e-identidade">C31 — Uma instalação por cliente e identificação na API (antes R19)</a></li><li><a href="#d-02-cenarios-atualizados-c32-particao-e-lease-do-modo-degradado">C32 — Partição entre AWS e Azure: lease do modo degradado e promoção da Azure</a></li><li><a href="#d-02-cenarios-atualizados-c33-reconstrucao-em-tabela-sombra">C33 — Reconstrução do banco de uma célula em tabela sombra</a></li><li><a href="#d-02-cenarios-atualizados-c34-autorizacao-por-aplicacao">C34 — Autorização por aplicação: mTLS e lista de permissões por identidade</a></li></ul></details></li><li><details><summary><a href="#p-complexos">Cenários complexos</a> <span class="qtd">8</span></summary><ul><li><a href="#d-02-cenarios-complexos-x01-gate-e-troca-de-lider">X01 — Gate: definição, monotonicidade e troca de líder</a></li><li><a href="#d-02-cenarios-complexos-x02-modo-degradado">X02 — Modo degradado: entrada, permanência, lease e saída</a></li><li><a href="#d-02-cenarios-complexos-x03-desastre-e-promocao-da-azure">X03 — Desastre: promoção da Azure, fencing e reconciliação</a></li><li><a href="#d-02-cenarios-complexos-x04-partida-recuperacao-e-dois-logs">X04 — Partida, recuperação e coerência entre os dois logs</a></li><li><a href="#d-02-cenarios-complexos-x05-timeouts-e-idempotencia">X05 — Timeouts em cascata e idempotência do retry</a></li><li><a href="#d-02-cenarios-complexos-x06-delete-ttl-gsi">X06 — DELETE, TTL, Scan e GSI</a></li><li><a href="#d-02-cenarios-complexos-x07-gate-explicado-com-exemplos">X07 — O gate explicado com exemplos</a></li><li><a href="#d-02-cenarios-complexos-x08-leitura-forte-com-exemplos">X08 — Leitura forte explicada com dados mock</a></li></ul></details></li><li><details><summary><a href="#p-rever">Cenários a rever</a> <span class="qtd">14</span></summary><ul><li><a href="#d-02-cenarios-a-rever-r03-backlog-de-apply-no-cosmos">R03 — Backlog de apply no Cosmos (429 e RU insuficiente)</a></li><li><a href="#d-02-cenarios-a-rever-r06-duas-azs-aws-caem">R06 — Duas AZs da AWS caem com a Azure saudável</a></li><li><a href="#d-02-cenarios-a-rever-r07-link-oscilando">R07 — Link oscilando (flapping)</a></li><li><a href="#d-02-cenarios-a-rever-r09-resincronizacao-lenta-ou-bloqueada">R09 — Ressincronização da Azure lenta ou que nunca termina</a></li><li><a href="#d-02-cenarios-a-rever-r10-operador-lento-no-desastre">R10 — Tempo de decisão humana no desastre</a></li><li><a href="#d-02-cenarios-a-rever-r11-api-de-promocao-depende-da-aws">R11 — A API de promoção depende de algo que estava na AWS</a></li><li><a href="#d-02-cenarios-a-rever-r12-promocao-com-aws-viva">R12 — Promoção da Azure com a AWS viva (split-brain, PEND-01)</a></li><li><a href="#d-02-cenarios-a-rever-r13-escritas-orfas-reconciliacao">R13 — Escritas órfãs: reconciliação depois da promoção (PEND-03)</a></li><li><a href="#d-02-cenarios-a-rever-r16-leitura-forte-em-celulas-follower">R16 — Leitura forte em células follower (ReadIndex e gate)</a></li><li><a href="#d-02-cenarios-a-rever-r17-atributo-de-versao-e-limite-400kb">R17 — Atributo de versão: limite de 400 KB e ausência nas respostas</a></li><li><a href="#d-02-cenarios-a-rever-r18-rto-nao-quantificado">R18 — RTO (Delta-T) ainda sem número</a></li><li><a href="#d-02-cenarios-a-rever-r20-custo-6x">R20 — Custo: cada escrita lógica vira seis gravações</a></li><li><a href="#d-02-cenarios-a-rever-r22-memoria-da-janela-de-dedupe">R22 — Memória da janela de dedupe</a></li><li><a href="#d-02-cenarios-a-rever-r23-hipoteses-gerais">R23 — Hipóteses gerais em aberto</a></li></ul></details></li><li><details><summary><a href="#p-adr">ADRs</a> <span class="qtd">52</span></summary><ul><li><a href="#d-03-adr-adr-001-camada-intermediaria-agnostica">ADR-001 — Camada intermediária agnóstica a cloud e a banco</a></li><li><a href="#d-03-adr-adr-002-shards-logicos-celulas-ativo-passivo">ADR-002 — Shards lógicos, células e ativo/passivo</a></li><li><a href="#d-03-adr-adr-003-aws-primaria-azure-failover">ADR-003 — AWS primária e Azure como failover, ambas só em São Paulo</a></li><li><a href="#d-03-adr-adr-004-dynamodb-primeiro-adaptador">ADR-004 — DynamoDB como primeiro adaptador; Cosmos pelo Cloud-Adapter</a></li><li><a href="#d-03-adr-adr-005-ack-exige-gate">ADR-005 — ACK só depois do gate (Raft AWS e maioria durável Azure)</a></li><li><a href="#d-03-adr-adr-006-consenso-por-shard-eleicao-na-aws">ADR-006 — Consenso por shard; eleição só na AWS</a></li><li><a href="#d-03-adr-adr-007-sidecar-e-coordenacao-compartilhada">ADR-007 — Sidecar com coordenação compartilhada</a></li><li><a href="#d-03-adr-adr-008-terceiro-dominio">ADR-008 — Terceiro domínio com WAL integral</a></li><li><a href="#d-03-adr-adr-010-follower-encaminha-para-lider">ADR-010 — Follower encaminha para a líder; a liderança muda só por eleição de saúde</a></li><li><a href="#d-03-adr-adr-011-witness-manifesto-snapshots">ADR-011 — Witness = manifesto assinado, snapshots e WAL</a></li><li><a href="#d-03-adr-adr-013-transferencia-planejada-de-lideranca">ADR-013 — Transferência planejada de liderança (sincronizar antes de promover)</a></li><li><a href="#d-03-adr-adr-014-modo-degradado-opcao-b">ADR-014 — Modo degradado: a AWS segue quando a Azure fica inalcançável (opção B)</a></li><li><a href="#d-03-adr-adr-015-wal-post-image-e-versao">ADR-015 — O log guarda a post-image e a versão do item</a></li><li><a href="#d-03-adr-adr-016-app-unico-por-celula-monolito-modular">ADR-016 — Um único app DataReplication por célula, monolito modular</a></li><li><a href="#d-03-adr-adr-017-azure-learners-e-gate">ADR-017 — Azure como learners, com gate</a></li><li><a href="#d-03-adr-adr-018-dois-logs-raft-e-replicacao">ADR-018 — Dois logs separados: o do Raft e o de replicação</a></li><li><a href="#d-03-adr-adr-019-wal-proprio-volume-dedicado">ADR-019 — Log do Raft em volume de bloco dedicado; sem ACK em memória</a></li><li><a href="#d-03-adr-adr-020-raft-etcd-io-camada-multigrupo">ADR-020 — Raft: etcd-io/raft com camada multi-grupo própria</a></li><li><a href="#d-03-adr-adr-021-grpc-entre-celulas">ADR-021 — gRPC entre as células</a></li><li><a href="#d-03-adr-adr-022-banco-por-celula-nome-logico">ADR-022 — Um banco por célula; nome lógico com {cell}</a></li><li><a href="#d-03-adr-adr-024-delete-real-ttl-local-gsi">ADR-024 — DELETE real com ordem por chave; TTL local; GSI</a></li><li><a href="#d-03-adr-adr-025-escopo-da-api-v1-e-sdks">ADR-025 — Escopo da API v1 e SDKs suportados</a></li><li><a href="#d-03-adr-adr-026-dedupe-de-retry-id-estavel">ADR-026 — Dedupe de retry na líder por identificador estável</a></li><li><a href="#d-03-adr-adr-027-sinalizacao-do-modo-degradado">ADR-027 — Modo degradado sinalizado por header e métrica</a></li><li><a href="#d-03-adr-adr-028-timeouts-em-cascata">ADR-028 — Prazos em cascata dentro do timeout do SDK</a></li><li><a href="#d-03-adr-adr-029-gate-monotonico-na-troca-de-lider">ADR-029 — O gate nunca recua; líder nova reconstrói antes de ACKar</a></li><li><a href="#d-03-adr-adr-030-verificacao-formal-tla">ADR-030 — Modelo TLA+ do gate antes do código do gate</a></li><li><a href="#d-03-adr-adr-031-hexagonal-e-bibliotecas">ADR-031 — Arquitetura hexagonal e bibliotecas</a></li><li><a href="#d-03-adr-adr-032-parse-json-completo-e-rust">ADR-032 — Parse completo do JSON na v1; Rust como alternativa registrada</a></li><li><a href="#d-03-adr-adr-033-promocao-da-azure-humana">ADR-033 — Promoção da Azure sempre humana, só depois de D + M</a></li><li><a href="#d-03-adr-adr-034-fsync-fatal-e-identidade-nova">ADR-034 — Falha de fsync é fatal; disco perdido volta com identidade nova</a></li><li><a href="#d-03-adr-adr-035-lote-batchwriteitem-uma-entrada-e-apply-condicional">ADR-035 — BatchWriteItem vira uma entrada; o apply é por item e condicional</a></li><li><a href="#d-03-adr-adr-036-slo-de-50ms-exclui-a-escrita-no-banco">ADR-036 — O SLO de 50 ms exclui a escrita no banco e é publicado como &quot;overhead + banco&quot;</a></li><li><a href="#d-03-adr-adr-037-faixa-cinzenta-do-link-so-alerta">ADR-037 — Link lento na faixa cinzenta: só alertar, RPO continua 0</a></li><li><a href="#d-03-adr-adr-038-skip-de-entrada-venenosa-sempre-humano">ADR-038 — O SKIP de uma entrada venenosa é sempre aprovado por uma pessoa</a></li><li><a href="#d-03-adr-adr-039-sem-lider-conhecida-espera-ate-1s-e-503">ADR-039 — Sem líder conhecida: esperar até 1 s no servidor e então 503</a></li><li><a href="#d-03-adr-adr-041-disco-do-log-teto-de-70-por-cento-sem-s3-na-v1">ADR-041 — Disco do log em degradação longa: teto de 70% e reconstrução completa; sem S3 na v1</a></li><li><a href="#d-03-adr-adr-042-aws-que-volta-boot-cercado-e-recriacao-da-celula">ADR-042 — AWS que volta depois da promoção: boot cercado, credenciais revogadas e célula recriada</a></li><li><a href="#d-03-adr-adr-043-uma-instalacao-por-cliente-identidade-por-configuracao">ADR-043 — Uma instalação por cliente; o cliente é conhecido na configuração</a></li><li><a href="#d-03-adr-adr-044-lease-do-modo-degradado-e-promocao-da-azure">ADR-044 — Modo degradado com lease: a AWS para sozinha e a Azure só promove depois de D mais margem</a></li><li><a href="#d-03-adr-adr-045-politica-de-degradacao-por-instalacao">ADR-045 — `DEGRADED_POLICY` obrigatória por instalação</a></li><li><a href="#d-03-adr-adr-046-gate-so-conta-progresso-validado-pelo-raft">ADR-046 — O gate só conta progresso validado pelo Raft no termo atual</a></li><li><a href="#d-03-adr-adr-047-delete-real-invariante-e-reconstrucao-em-tabela-sombra">ADR-047 — DELETE real com invariante formal; reconstrução em tabela sombra</a></li><li><a href="#d-03-adr-adr-048-skip-por-item">ADR-048 — O SKIP identifica o item: (índice, ordem)</a></li><li><a href="#d-03-adr-adr-049-barreira-da-leitura-forte-e-o-gate">ADR-049 — A leitura forte espera `min(ReadIndex, gate)`</a></li><li><a href="#d-03-adr-adr-050-query-em-gsi-recusada">ADR-050 — `Query` em GSI é recusada</a></li><li><a href="#d-03-adr-adr-051-compatibilidade-dynamodb-inventario-conformidade-e-idempotencia">ADR-051 — Compatibilidade com o DynamoDB: inventário, conformidade e limite da idempotência</a></li><li><a href="#d-03-adr-adr-052-autorizacao-por-aplicacao-com-mtls">ADR-052 — Autorização por aplicação com mTLS</a></li><li><a href="#d-03-adr-adr-054-banco-por-celula-mantido">ADR-054 — Um banco por célula mantido, com o trade-off registrado</a></li><li><a href="#d-03-adr-adr-055-log-de-replicacao-segmentado-derivado-do-raft">ADR-055 — Log de replicação segmentado, derivado do Raft, sem fsync no caminho do ACK e em volume separado</a></li><li><a href="#d-03-adr-adr-056-group-commit-por-shard-e-nada-sai-antes-do-fsync">ADR-056 — Group commit por shard, nada sai antes do fsync e `AsyncStorageWrites` decidido por spike</a></li><li><a href="#d-03-adr-adr-057-um-unico-modo-strong-consistency">ADR-057 — Um único modo: strong consistency</a></li></ul></details></li><li><details><summary><a href="#p-diagramas">Diagramas de arquitetura</a> <span class="qtd">8</span></summary><ul><li><a href="#d-04-diagramas-d01-visao-do-sistema">D01 — Visão do sistema numa página</a></li><li><a href="#d-04-diagramas-d02-implantacao-da-celula">D02 — Implantação de uma célula no Kubernetes</a></li><li><a href="#d-04-diagramas-d03-camadas-hexagonais">D03 — Camadas: ports and adapters</a></li><li><a href="#d-04-diagramas-d04-dois-logs-e-commitpump">D04 — Os dois logs e o CommitPump</a></li><li><a href="#d-04-diagramas-d05-gate-e-quorum">D05 — Quórum e gate</a></li><li><a href="#d-04-diagramas-d06-estados-do-shard-e-do-no">D06 — Estados do shard e do nó</a></li><li><a href="#d-04-diagramas-d07-prazos-em-cascata">D07 — Prazos em cascata dentro dos 30 s do SDK</a></li><li><a href="#d-04-diagramas-d08-uma-escrita-seis-bancos">D08 — Uma escrita lógica, seis bancos</a></li></ul></details></li><li><details><summary><a href="#p-implementacao">Implementação</a> <span class="qtd">7</span></summary><ul><li><a href="#d-05-implementacao-01-principios-bibliotecas-e-pastas">Princípios, bibliotecas e estrutura de pastas</a></li><li><a href="#d-05-implementacao-02-desenho-e-diagramas">Desenho da arquitetura e diagramas de processo e de fluxo</a></li><li><a href="#d-05-implementacao-03-exemplos-de-codigo">Exemplos de código</a></li><li><a href="#d-05-implementacao-04-tabela-de-structs">Tabela de structs</a></li><li><a href="#d-05-implementacao-05-testes-armadilhas-e-ordem">Testes por camada, armadilhas e ordem de implementação</a></li><li><a href="#d-05-implementacao-06-testes-e-spikes">Testes de sistema e plano de spikes</a></li><li><a href="#d-05-implementacao-07-fases-de-trabalho">As cinco fases de trabalho</a></li></ul></details></li><li><details><summary><a href="#p-pendencias">Pendências e riscos</a> <span class="qtd">7</span></summary><ul><li><a href="#d-06-pendencias-e-riscos-01-pendencias">Pendências</a></li><li><a href="#d-06-pendencias-e-riscos-02-riscos">Registro de riscos</a></li><li><a href="#d-06-pendencias-e-riscos-03-perguntas-para-o-bruno">Perguntas para o Bruno</a></li><li><a href="#d-06-pendencias-e-riscos-analise-do-arquiteto-13-10">Resposta à revisão crítica do DataReplication v1</a></li><li><a href="#d-06-pendencias-e-riscos-analise-group-commit-e-async-storage-13-10">Análise: group commit com buffer em memória e `AsyncStorageWrites`</a></li><li><a href="#d-06-pendencias-e-riscos-revisao-critica-12-10">Revisão crítica de 12/10/2026: achados e tratamento</a></li><li><a href="#d-06-pendencias-e-riscos-revisao-critica-13-10">Revisão crítica de 13/10/2026: achados e tratamento</a></li></ul></details></li></ul>
 </nav>
 <main id="topo">
 <h1>DataReplication v1: documento único</h1>
-<div class="meta">Gerado em 13/10/2026 a partir do pacote em Markdown · Dono: Bruno · 139 documentos e 86 diagramas Mermaid.
+<div class="meta">Gerado em 14/10/2026 a partir do pacote em Markdown · Dono: Bruno · 141 documentos e 91 diagramas Mermaid.
 Os links entre documentos levam às seções deste arquivo; os links para código levam aos arquivos do pacote.
 Em caso de divergência, vale o Markdown do pacote.</div>
 <section id="p-principal"><h2>Documento principal</h2><article class="doc" id="d-datareplication-versao-1"><h3>DataReplication v1: documento principal</h3><p class="fonte">Fonte: <a href="DataReplication_Versao_1.md">DataReplication_Versao_1.md</a></p><p><a href="00_COMECE_AQUI.md">Início</a> · <a href="01_arquitetura/README.md">Arquitetura</a> · <a href="#d-02-cenarios-index">Cenários</a> · <a href="03_adr/INDEX.md">ADRs</a> · <a href="04_diagramas/INDEX.md">Diagramas</a> · <a href="05_implementacao/README.md">Implementação</a> · <a href="06_pendencias_e_riscos/README.md">Pendências</a> · <a href="#d-01-arquitetura-00-glossario">Glossário</a></p>
@@ -505,7 +505,7 @@ Em caso de divergência, vale o Markdown do pacote.</div>
 <p>→ <a href="#d-01-arquitetura-01-forma-do-app-e-escopo">01_forma_do_app_e_escopo</a>, <a href="#d-04-diagramas-d02-implantacao-da-celula">D02</a>, <a href="#d-04-diagramas-d03-camadas-hexagonais">D03</a>, <a href="#d-03-adr-adr-016-app-unico-por-celula-monolito-modular">ADR-016</a>, <a href="#d-03-adr-adr-031-hexagonal-e-bibliotecas">ADR-031</a>.</p>
 <h5 id="d-datareplication-versao-1--52-consenso-quórum-e-gate">5.2 Consenso, quórum e gate</h5>
 <p><code>etcd-io/raft</code> com camada multi-grupo própria (Dragonboat é o plano B). <em>Joint consensus</em> foi descartado porque a eleição passaria a exigir maioria Azure, contradizendo o modo degradado. O gate é uma função pequena, modelada em <strong>TLA+ antes do código</strong> (P1 a P8, o gate monotônico é a primeira; o modelo foi ampliado com lease, promoção entre nuvens, troca de membros, dedupe, DELETE e a barreira de leitura). O progresso da Azure <strong>só chega pelas respostas do Raft e só conta no termo atual</strong>; quando uma líder nova assume, ela <strong>reconstrói</strong> o índice da maioria Azure com progresso confirmado no termo novo antes de ACKar (<a href="#d-03-adr-adr-046-gate-so-conta-progresso-validado-pelo-raft">ADR-046</a>).</p>
-<p>→ <a href="#d-01-arquitetura-03-consenso-raft-quorum-e-gate">03_consenso_raft_quorum_e_gate</a>, <a href="#d-04-diagramas-d05-gate-e-quorum">D05</a>, <a href="#d-02-cenarios-complexos-x01-gate-e-troca-de-lider">X01</a>, <a href="#d-03-adr-adr-017-azure-learners-e-gate">ADR-017</a>, <a href="#d-03-adr-adr-029-gate-monotonico-na-troca-de-lider">ADR-029</a>, <a href="#d-03-adr-adr-030-verificacao-formal-tla">ADR-030</a>, <a href="#d-03-adr-adr-046-gate-so-conta-progresso-validado-pelo-raft">ADR-046</a>.</p>
+<p>→ <a href="#d-01-arquitetura-03-consenso-raft-quorum-e-gate">03_consenso_raft_quorum_e_gate</a>, <a href="#d-04-diagramas-d05-gate-e-quorum">D05</a>, <a href="#d-02-cenarios-complexos-x01-gate-e-troca-de-lider">X01</a>, <a href="#d-02-cenarios-complexos-x07-gate-explicado-com-exemplos">X07</a> (exemplos com índices), <a href="#d-03-adr-adr-017-azure-learners-e-gate">ADR-017</a>, <a href="#d-03-adr-adr-029-gate-monotonico-na-troca-de-lider">ADR-029</a>, <a href="#d-03-adr-adr-030-verificacao-formal-tla">ADR-030</a>, <a href="#d-03-adr-adr-046-gate-so-conta-progresso-validado-pelo-raft">ADR-046</a>.</p>
 <h5 id="d-datareplication-versao-1--53-os-dois-logs-o-fsync-e-o-disco">5.3 Os dois logs, o fsync e o disco</h5>
 <div class="tabela"><table>
 <thead>
@@ -560,7 +560,7 @@ Em caso de divergência, vale o Markdown do pacote.</div>
 <li><strong>Query e Scan em GSI são recusados</strong> (<a href="#d-03-adr-adr-050-query-em-gsi-recusada">ADR-050</a>).</li>
 <li>Não há variável de modo (<code>READ_MODE_DEFAULT</code> e <code>WRITE_MODE</code> não existem).</li>
 </ul>
-<p>→ <a href="#d-01-arquitetura-06-leitura-forte-escrita-serial-e-latencia">06_leitura_forte_escrita_serial_e_latencia</a>, <a href="#d-02-cenarios-atualizados-c03-escrita-strong">C03</a>, <a href="#d-02-cenarios-atualizados-c05-leitura-strong">C05</a>, <a href="#d-03-adr-adr-057-um-unico-modo-strong-consistency">ADR-057</a>, <a href="#d-03-adr-adr-049-barreira-da-leitura-forte-e-o-gate">ADR-049</a>, <a href="#d-03-adr-adr-050-query-em-gsi-recusada">ADR-050</a>.</p>
+<p>→ <a href="#d-01-arquitetura-06-leitura-forte-escrita-serial-e-latencia">06_leitura_forte_escrita_serial_e_latencia</a>, <a href="#d-02-cenarios-atualizados-c03-escrita-strong">C03</a>, <a href="#d-02-cenarios-atualizados-c05-leitura-strong">C05</a>, <a href="#d-02-cenarios-complexos-x08-leitura-forte-com-exemplos">X08</a> (exemplos com dados mock), <a href="#d-03-adr-adr-057-um-unico-modo-strong-consistency">ADR-057</a>, <a href="#d-03-adr-adr-049-barreira-da-leitura-forte-e-o-gate">ADR-049</a>, <a href="#d-03-adr-adr-050-query-em-gsi-recusada">ADR-050</a>.</p>
 <h5 id="d-datareplication-versao-1--56-prazos-em-cascata-e-idempotência">5.6 Prazos em cascata e idempotência</h5>
 <p>Tudo precisa responder dentro do <em>timeout</em> do SDK. O prazo nasce uma vez, na borda, e desce como <code>context</code>:</p>
 <div class="tabela"><table>
@@ -803,8 +803,8 @@ Em caso de divergência, vale o Markdown do pacote.</div>
 </tr>
 <tr>
 <td>🧩 Complexos</td>
-<td><a href="#d-02-cenarios-index--complexos-detalhamento">X01 a X06</a></td>
-<td>Gate e troca de líder, modo degradado, desastre e promoção, partida e dois logs, timeouts e idempotência, delete/TTL/GSI</td>
+<td><a href="#d-02-cenarios-index--complexos-detalhamento">X01 a X08</a></td>
+<td>Gate e troca de líder, modo degradado, desastre e promoção, partida e dois logs, timeouts e idempotência, delete/TTL/GSI, gate e leitura forte explicados com exemplos</td>
 </tr>
 <tr>
 <td>⚠️ A rever, com proposta</td>
@@ -869,7 +869,7 @@ Em caso de divergência, vale o Markdown do pacote.</div>
 </tr>
 <tr>
 <td><a href="#d-02-cenarios-index"><code>02_cenarios/</code></a></td>
-<td><code>atualizados/</code> (C01–C34), <code>complexos/</code> (X01–X06), <code>a_rever/</code> (14 cenários ainda sem decisão completa), cada um com diagrama</td>
+<td><code>atualizados/</code> (C01–C34), <code>complexos/</code> (X01–X08), <code>a_rever/</code> (14 cenários ainda sem decisão completa), cada um com diagrama</td>
 </tr>
 <tr>
 <td><a href="03_adr/INDEX.md"><code>03_adr/</code></a></td>
@@ -1225,7 +1225,7 @@ Em caso de divergência, vale o Markdown do pacote.</div>
 <td><a href="02_cenarios/atualizados"><code>02_cenarios/atualizados/</code></a></td>
 </tr>
 <tr>
-<td><strong>X01 a X06</strong></td>
+<td><strong>X01 a X08</strong></td>
 <td>Cenário <strong>complexo</strong>, detalhado em arquivo próprio</td>
 <td><a href="02_cenarios/complexos"><code>02_cenarios/complexos/</code></a></td>
 </tr>
@@ -3313,6 +3313,16 @@ Em caso de divergência, vale o Markdown do pacote.</div>
 <td>DELETE, TTL, Scan e GSI</td>
 <td>Delete real com invariante <code>I-DEL</code>, TTL local, Query em GSI recusada</td>
 </tr>
+<tr>
+<td><a href="#d-02-cenarios-complexos-x07-gate-explicado-com-exemplos">X07</a></td>
+<td>O gate explicado com exemplos</td>
+<td>Regra, quando atua e 6 cenários com índices (feliz, Azure atrasada, uma Azure fora, link caído, troca de líder, POC só AWS)</td>
+</tr>
+<tr>
+<td><a href="#d-02-cenarios-complexos-x08-leitura-forte-com-exemplos">X08</a></td>
+<td>Leitura forte com dados mock</td>
+<td>Barreira min(ReadIndex, gate) passo a passo, quando a leitura trava (T1 a T7) e o cenário oculto da líder nova com a Azure fora</td>
+</tr>
 </tbody>
 </table></div>
 <h4 id="d-02-cenarios-index--a-rever-em-aberto">A rever (em aberto)</h4>
@@ -3399,7 +3409,7 @@ Em caso de divergência, vale o Markdown do pacote.</div>
 </table></div>
 <h4 id="d-02-cenarios-index--como-os-cenários-se-conectam">Como os cenários se conectam</h4>
 <div class="diagrama"><pre class="mermaid">flowchart LR
-    C[&quot;C01 a C34: atualizados&quot;] --&gt;|&quot;detalham em&quot;| X[&quot;X01 a X06: complexos&quot;]
+    C[&quot;C01 a C34: atualizados&quot;] --&gt;|&quot;detalham em&quot;| X[&quot;X01 a X08: complexos&quot;]
     C --&gt;|&quot;pontos em aberto apontam para&quot;| R[&quot;R03 a R23: a rever&quot;]
     X --&gt;|&quot;pontos em aberto apontam para&quot;| R
     R --&gt;|&quot;quando decidido, vira&quot;| A[&quot;ADR novo e cenário atualizado&quot;]</pre></div>
@@ -3592,6 +3602,7 @@ Em caso de divergência, vale o Markdown do pacote.</div>
 <li><strong>GSI:</strong> <code>Query</code> ou <code>Scan</code> com <code>IndexName</code> de GSI é recusado com <code>ValidationException</code> (400), com ou sem <code>ConsistentRead</code>.</li>
 <li><strong>Células da Azure antes da promoção:</strong> mesma regra de qualquer célula seguidora (ReadIndex e gate da líder AWS, espera o Cosmos alcançar a barreira). Sem líder alcançável, <code>503</code>.</li>
 <li><strong>Sem relógio:</strong> a leitura usa ReadIndex e gate e nunca lease (X11).</li>
+<li><strong>Exemplos com dados mock:</strong> cada passo acima com valores concretos (leitura na líder, célula atrasada, escrita em voo, ler o que acabei de escrever em outra célula, Azure fora) e o fluxograma da decisão da leitura estão em <a href="#d-02-cenarios-complexos-x08-leitura-forte-com-exemplos">X08</a>.</li>
 </ol>
 <h4 id="d-02-cenarios-atualizados-c05-leitura-strong--falhas-e-tratativas">Falhas e tratativas</h4>
 <ul>
@@ -3602,10 +3613,12 @@ Em caso de divergência, vale o Markdown do pacote.</div>
 <li><strong>Scan.</strong> A barreira vale antes de cada página, mas não há instantâneo entre páginas: dois Scans consecutivos podem divergir.</li>
 <li><strong>TTL.</strong> Cada célula expira por conta própria e com atraso; a aplicação filtra pelo atributo de TTL (<a href="#d-02-cenarios-complexos-x06-delete-ttl-gsi">X06</a>).</li>
 <li><strong>Prazo vence esperando o applier.</strong> Erro recuperável (o SDK retenta).</li>
+<li><strong>Líder recém-eleita com a Azure fora</strong> (cenário oculto, T7 de <a href="#d-02-cenarios-complexos-x08-leitura-forte-com-exemplos">X08</a>). A líder nova não fica com o gate pronto enquanto 2 learners Azure não confirmarem no termo dela: toda leitura forte do shard responde <code>503 GATE_NOT_READY</code> até o link voltar. Usar o gate recebido da líder antiga poderia esconder uma escrita já ACKada. Tratamento em avaliação (pergunta 3 de X08).</li>
 </ul>
 <h4 id="d-02-cenarios-atualizados-c05-leitura-strong--pontos-em-aberto">Pontos em aberto</h4>
 <ul>
 <li>Leitura em células follower concentra ReadIndex na líder e soma ~1 RTT: <a href="#d-02-cenarios-a-rever-r16-leitura-forte-em-celulas-follower">R16</a>.</li>
+<li>Leitura forte indisponível numa líder nova enquanto a Azure está fora (T7 de <a href="#d-02-cenarios-complexos-x08-leitura-forte-com-exemplos">X08</a>): aceitar e bloquear manutenção com o link fora, ou só ACKar depois de o gate chegar a 2 de 3 células AWS.</li>
 </ul></article><article class="doc" id="d-02-cenarios-atualizados-c06-follower-encaminha"><h3>C06 — Requisição chega numa célula que não é a líder</h3><p class="fonte">Fonte: <a href="02_cenarios/atualizados/C06-follower-encaminha.md">02_cenarios/atualizados/C06-follower-encaminha.md</a></p><p><strong>Status:</strong> ✅ Atualizado (modelo v1) · <strong>ADRs:</strong> <a href="#d-03-adr-adr-010-follower-encaminha-para-lider">ADR-010</a></p>
 <h4 id="d-02-cenarios-atualizados-c06-follower-encaminha--cenário">Cenário</h4>
 <p>O Compass-Router entrega a requisição a uma célula follower. O <code>DataReplication</code> dela <strong>encaminha</strong> a escrita à líder por gRPC (+1 a 2 ms) e devolve a resposta como se fosse local. A liderança não muda por requisição; ela só muda por eleição de saúde ou transferência planejada.</p>
@@ -4860,12 +4873,13 @@ Em caso de divergência, vale o Markdown do pacote.</div>
 <li><strong>Learner que perde o disco ou é trocado:</strong> volta com identidade nova e começa do zero. Ele deixa de contar até alcançar o índice; o gate nunca usa um índice que não esteja durável nele agora, nem herda o progresso da identidade antiga.</li>
 <li><strong>Entradas replicadas aos learners mas nunca commitadas:</strong> podem existir na Azure. Na promoção, o log é escolhido por (termo, índice) e o cliente que recebeu <code>PENDING</code> trata o resultado como desconhecido (ver <a href="#d-02-cenarios-complexos-x03-desastre-e-promocao-da-azure">X03</a>).</li>
 <li><strong>Métricas separadas:</strong> <code>last_committed</code>, <code>last_azure_durable</code>, <code>last_acked</code>, <code>last_applied</code> e <code>last_reconciled</code>. Os nomes distinguem o que está decidido, o que está seguro na Azure, o que o cliente já viu, o que o banco já tem e o que a reconciliação já conferiu.</li>
+<li><strong>Exemplos passo a passo:</strong> a regra aplicada com índices concretos (caminho feliz, Azure atrasada, uma Azure fora, link caído, troca de líder e POC só AWS) e o fluxograma do gate a cada evento estão em <a href="#d-02-cenarios-complexos-x07-gate-explicado-com-exemplos">X07</a>. A leitura forte com dados mock está em <a href="#d-02-cenarios-complexos-x08-leitura-forte-com-exemplos">X08</a>.</li>
 </ol>
 <h4 id="d-02-cenarios-complexos-x01-gate-e-troca-de-lider--falhas-e-tratativas">Falhas e tratativas</h4>
 <ul>
 <li><strong>Líder nova sem o valor.</strong> Janela curta sem ACK logo após a eleição (parte da meta de 3 a 4 s de C08).</li>
 <li><strong>Learner reporta índice menor que antes.</strong> O gate guarda o máximo; o learner volta a contar quando alcança.</li>
-<li><strong>Azure inalcançável durante a reconstrução.</strong> Passados <code>DEGRADE_AFTER</code>, com <code>accept</code> a líder propõe <code>DEGRADE</code> com lease (C12, <a href="#d-02-cenarios-atualizados-c32-particao-e-lease-do-modo-degradado">C32</a>); com <code>reject</code> a escrita responde <code>503 PENDING</code>.</li>
+<li><strong>Azure inalcançável durante a reconstrução.</strong> Passados <code>DEGRADE_AFTER</code>, com <code>accept</code> a líder propõe <code>DEGRADE</code> com lease (C12, <a href="#d-02-cenarios-atualizados-c32-particao-e-lease-do-modo-degradado">C32</a>); com <code>reject</code> a escrita responde <code>503 PENDING</code>. A leitura forte do shard também fica em <code>503 GATE_NOT_READY</code> enquanto a Azure não confirmar no termo novo (cenário T7 de <a href="#d-02-cenarios-complexos-x08-leitura-forte-com-exemplos">X08</a>, em avaliação).</li>
 <li><strong>Líder nova herda um lease em curso.</strong> Ela herda o <code>DEGRADE</code> mas não o <code>t_c</code> (último contato com a maioria Azure): trata o lease como expirado até obter contato com a Azure ou um <code>RENEW</code> (<a href="#d-03-adr-adr-044-lease-do-modo-degradado-e-promocao-da-azure">ADR-044</a>).</li>
 </ul>
 <h4 id="d-02-cenarios-complexos-x01-gate-e-troca-de-lider--propriedades-para-o-modelo-tla-d12-ampliado-pelo-adr-046">Propriedades para o modelo TLA+ (D12, ampliado pelo ADR-046)</h4>
@@ -5192,7 +5206,813 @@ Em caso de divergência, vale o Markdown do pacote.</div>
 <ul>
 <li>Prova de I-DEL no TLA+ e teste de propriedade: entram no plano da fase 1 (<a href="#d-03-adr-adr-030-verificacao-formal-tla">ADR-030</a>).</li>
 <li>Reconstrução de réplica a partir de uma cópia antiga é coberta pelo protocolo da tabela sombra; a tabela de tombstones só entra se os testes mostrarem zumbi (H-DR1).</li>
-</ul></article></section><section id="p-rever"><h2>Cenários a rever</h2><article class="doc" id="d-02-cenarios-a-rever-r03-backlog-de-apply-no-cosmos"><h3>R03 — Backlog de apply no Cosmos (429 e RU insuficiente)</h3><p class="fonte">Fonte: <a href="02_cenarios/a_rever/R03-backlog-de-apply-no-cosmos.md">02_cenarios/a_rever/R03-backlog-de-apply-no-cosmos.md</a></p><p><strong>Status:</strong> 🟡 A rever · parcialmente tratado; o limite de lag de apply para a elegibilidade ao failover é a PEND-18 (valor a definir) · <strong>ADRs:</strong> <a href="#d-03-adr-adr-017-azure-learners-e-gate">ADR-017</a>, <a href="#d-03-adr-adr-018-dois-logs-raft-e-replicacao">ADR-018</a>, <a href="#d-03-adr-adr-057-um-unico-modo-strong-consistency">ADR-057</a> · <strong>Relacionados:</strong> <a href="#d-02-cenarios-atualizados-c13-ressincronizacao-da-azure">C13</a>, <a href="#d-02-cenarios-atualizados-c05-leitura-strong">C05</a>, <a href="#d-02-cenarios-complexos-x04-partida-recuperacao-e-dois-logs">X04</a></p>
+</ul></article><article class="doc" id="d-02-cenarios-complexos-x07-gate-explicado-com-exemplos"><h3>X07 — O gate explicado com exemplos</h3><p class="fonte">Fonte: <a href="02_cenarios/complexos/X07-gate-explicado-com-exemplos.md">02_cenarios/complexos/X07-gate-explicado-com-exemplos.md</a></p><p><strong>Status:</strong> Explicação didática (14/10/2026). Não decide nada novo: resume as regras já decididas e mostra cada uma com índices concretos · <strong>ADRs:</strong> <a href="#d-03-adr-adr-005-ack-exige-gate">ADR-005</a>, <a href="#d-03-adr-adr-017-azure-learners-e-gate">ADR-017</a>, <a href="#d-03-adr-adr-029-gate-monotonico-na-troca-de-lider">ADR-029</a>, <a href="#d-03-adr-adr-044-lease-do-modo-degradado-e-promocao-da-azure">ADR-044</a>, <a href="#d-03-adr-adr-046-gate-so-conta-progresso-validado-pelo-raft">ADR-046</a>, <a href="#d-03-adr-adr-049-barreira-da-leitura-forte-e-o-gate">ADR-049</a>, <a href="#d-03-adr-adr-056-group-commit-por-shard-e-nada-sai-antes-do-fsync">ADR-056</a>, <a href="#d-03-adr-adr-057-um-unico-modo-strong-consistency">ADR-057</a> · <strong>Relacionados:</strong> <a href="#d-02-cenarios-complexos-x01-gate-e-troca-de-lider">X01</a>, <a href="#d-04-diagramas-d05-gate-e-quorum">D05</a>, <a href="#d-02-cenarios-atualizados-c12-modo-degradado">C12</a>, <a href="#d-02-cenarios-atualizados-c32-particao-e-lease-do-modo-degradado">C32</a>, <a href="../spec/SPEC_POC_LOCAL.md">SPEC_POC_LOCAL</a> (regras G-01 a G-10)</p>
+<h4 id="d-02-cenarios-complexos-x07-gate-explicado-com-exemplos--cenário">Cenário</h4>
+<h5 id="d-02-cenarios-complexos-x07-gate-explicado-com-exemplos--o-que-é-em-uma-frase">O que é, em uma frase</h5>
+<p>O gate é <strong>o maior índice do log que já está durável nas duas nuvens</strong>. Nada acima dele pode ser confirmado ao cliente, aplicado em banco nenhum ou lido por leitura forte.</p>
+<p>O Raft sozinho só garante "durável em 2 de 3 AWS". O gate acrescenta "e durável em 2 de 3 Azure". É por causa dele que o RPO é 0 entre nuvens.</p>
+<h5 id="d-02-cenarios-complexos-x07-gate-explicado-com-exemplos--a-condição-a-regra">A condição (a regra)</h5>
+<p>Existe <strong>um gate por shard</strong> (cada shard tem o seu grupo Raft). Na célula líder do shard:</p>
+<pre><code>maioriaAzure = 2º maior índice durável entre Z1, Z2, Z3
+               (só respostas de AppendEntries do termo atual, enviadas depois do fsync)
+candidato    = min(commitRaft, maioriaAzure)
+gate         = max(gate, candidato)            -- nunca recua
+</code></pre>
+<p>Nas células que não são líderes do shard (G-06):</p>
+<pre><code>gate = min(commitRaft local, maior gate recebido da líder)
+</code></pre>
+<p>O "2º maior" é só um jeito de dizer "o maior índice que pelo menos 2 de 3 têm". Exemplo: Z1=105, Z2=101, Z3=98 → ordenando 105, 101, 98 → o 2º é 101. Z1 e Z2 têm 101; só Z1 tem 105.</p>
+<p>As cinco condições que fazem um valor contar:</p>
+<div class="tabela"><table>
+<thead>
+<tr>
+<th>#</th>
+<th>Condição</th>
+<th>Por quê</th>
+<th>Regra</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td>Só conta depois do fsync, em toda réplica (líder inclusive)</td>
+<td>"Confirmado" tem de significar "no disco", não "na memória"</td>
+<td>ADR-056, G-05, SG-03</td>
+</tr>
+<tr>
+<td>2</td>
+<td>Progresso da Azure só vem da resposta do <code>AppendEntries</code> (<code>MsgAppResp</code> sem rejeição)</td>
+<td>Essa resposta passou pelo casamento de logs: índice N significa "o mesmo prefixo até N"</td>
+<td>ADR-046, G-04</td>
+</tr>
+<tr>
+<td>3</td>
+<td>Só conta resposta do <strong>termo atual</strong> da líder</td>
+<td>Um número de outro termo pode ser o sufixo de uma líder antiga (cenário 5)</td>
+<td>ADR-046, G-03</td>
+</tr>
+<tr>
+<td>4</td>
+<td>É o mínimo dos dois lados</td>
+<td>A Azure pode ter entrada ainda não commitada; a AWS pode ter commit que a Azure ainda não tem</td>
+<td>ADR-017, G-01</td>
+</tr>
+<tr>
+<td>5</td>
+<td>Nunca recua</td>
+<td>Escrita ACKada e aplicada não pode "desconfirmar"</td>
+<td>ADR-029, G-02</td>
+</tr>
+</tbody>
+</table></div>
+<h5 id="d-02-cenarios-complexos-x07-gate-explicado-com-exemplos--quando-ele-atua">Quando ele atua</h5>
+<div class="tabela"><table>
+<thead>
+<tr>
+<th>Momento</th>
+<th>O que espera</th>
+<th>Se o gate não chega</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>ACK da escrita</strong> (célula líder)</td>
+<td><code>gate &gt;= índice da escrita</code> e apply na célula da líder (SG-01)</td>
+<td>Aos 7,5 s responde <code>503 PENDING</code> (resultado desconhecido; o retry cai no dedupe)</td>
+</tr>
+<tr>
+<td><strong>Applier</strong> (toda célula)</td>
+<td>Aplica no DynamoDB só até o gate (<code>aplicado &lt;= gate</code>, SG-02)</td>
+<td>O banco fica parado no último gate; nada acima é escrito</td>
+</tr>
+<tr>
+<td><strong>Leitura forte</strong></td>
+<td>Barreira <code>min(ReadIndex, gate)</code> e <code>aplicado &gt;= barreira</code></td>
+<td>Não depende da Azure para o que já foi ACKado (cenário 4)</td>
+</tr>
+<tr>
+<td><strong>Troca de líder</strong></td>
+<td>Gate fica "não pronto" até 2 learners confirmarem no termo novo (G-07)</td>
+<td>Sem ACK, sem applier e leitura forte com <code>503 GATE_NOT_READY</code></td>
+</tr>
+<tr>
+<td><strong>Modo degradado</strong> (só <code>accept</code>, com lease válido)</td>
+<td>A Azure sai da conta: <code>gate = commitRaft</code></td>
+<td>Fim do lease D: <code>503 LEASE_EXPIRED</code></td>
+</tr>
+<tr>
+<td><strong>Publicação às outras células</strong></td>
+<td>A líder envia o gate a cada avanço, ou a cada 100 ms sem avanço</td>
+<td>A follower aplica até o último gate recebido</td>
+</tr>
+</tbody>
+</table></div>
+<p>O gate é recalculado <strong>por evento</strong>: cada commit do Raft e cada resposta de learner acorda quem espera. Não há polling.</p>
+<h4 id="d-02-cenarios-complexos-x07-gate-explicado-com-exemplos--diagrama-comportamento-do-gate-a-cada-evento">Diagrama: comportamento do gate a cada evento</h4>
+<div class="diagrama"><pre class="mermaid">flowchart TD
+    EV[&quot;Evento na líder do shard&quot;] --&gt; TIPO{&quot;Que evento?&quot;}
+    TIPO --&gt;|&quot;commit do Raft avançou&quot;| CALC
+    TIPO --&gt;|&quot;resposta de learner Azure&quot;| R1{&quot;É MsgAppResp sem rejeição, de um id da lista de learners?&quot;}
+    R1 --&gt;|&quot;não, ou é heartbeat&quot;| IGN[&quot;Ignora: não conta como progresso&quot;]
+    R1 --&gt;|&quot;sim&quot;| R2{&quot;Termo da resposta = termo atual da líder?&quot;}
+    R2 --&gt;|&quot;não&quot;| IGN
+    R2 --&gt;|&quot;sim&quot;| R3[&quot;Guarda o índice do learner, que só sobe; o learner só responde depois do fsync&quot;]
+    R3 --&gt; CALC
+    TIPO --&gt;|&quot;líder nova eleita&quot;| NOVA[&quot;Descarta o progresso dos learners do termo anterior; gate mantém o valor e fica não pronto&quot;]
+    NOVA --&gt; CALC
+    CALC{&quot;Modo degradado com lease válido?&quot;} --&gt;|&quot;sim, só com accept&quot;| DEG[&quot;candidato = commit do Raft&quot;]
+    CALC --&gt;|&quot;não&quot;| MAJ[&quot;maioriaAzure = 2º maior índice dos learners no termo atual&quot;]
+    MAJ --&gt; CAND[&quot;candidato = min(commit do Raft, maioriaAzure)&quot;]
+    DEG --&gt; MONO
+    CAND --&gt; MONO[&quot;gate = max(gate, candidato)&quot;]
+    MONO --&gt; PRONTO{&quot;Gate pronto? 2 learners confirmaram no termo atual, ou modo sem Azure&quot;}
+    PRONTO --&gt;|&quot;não&quot;| ESPERA[&quot;Sem ACK, sem applier, leitura forte com 503 GATE_NOT_READY&quot;]
+    PRONTO --&gt;|&quot;sim&quot;| AV{&quot;O gate avançou?&quot;}
+    AV --&gt;|&quot;não&quot;| FIM[&quot;Nada a fazer; quem espera continua esperando até o prazo&quot;]
+    AV --&gt;|&quot;sim&quot;| ACORDA[&quot;Acorda quem espera índice menor ou igual ao gate&quot;]
+    ACORDA --&gt; A1[&quot;Applier grava até o gate no banco da célula&quot;]
+    ACORDA --&gt; A2[&quot;Escritas com apply feito recebem ACK&quot;]
+    ACORDA --&gt; A3[&quot;Publica o gate às outras células, G-06&quot;]</pre></div>
+<h4 id="d-02-cenarios-complexos-x07-gate-explicado-com-exemplos--diagrama-uma-escrita-passando-pelo-gate">Diagrama: uma escrita passando pelo gate</h4>
+<div class="diagrama"><pre class="mermaid">sequenceDiagram
+    autonumber
+    participant APP as App
+    participant L as A1 líder
+    participant F as A2 e A3
+    participant Z as Z1 Z2 Z3
+    participant DB as DynamoDB da célula 1
+    APP-&gt;&gt;L: PutItem
+    L-&gt;&gt;L: valida e propõe índice 101
+    par AWS
+        L-&gt;&gt;F: AppendEntries 101
+        F-&gt;&gt;F: fsync
+        F--&gt;&gt;L: resposta, depois do fsync
+    and Azure
+        L-&gt;&gt;Z: AppendEntries 101, mesma mensagem
+        Z-&gt;&gt;Z: fsync
+        Z--&gt;&gt;L: resposta com termo e índice, depois do fsync
+    end
+    L-&gt;&gt;L: fsync próprio
+    Note over L: commitRaft = 101 quando 2 de 3 AWS têm fsync
+    Note over L: maioriaAzure = 101 quando 2 de 3 Azure têm fsync
+    Note over L: gate = min(101, 101) = 101
+    L-&gt;&gt;DB: apply condicional da entrada 101
+    L--&gt;&gt;APP: 200 OK</pre></div>
+<h4 id="d-02-cenarios-complexos-x07-gate-explicado-com-exemplos--etapas">Etapas</h4>
+<p>Cenários com índices concretos, do mais simples ao mais delicado.</p>
+<p>Notação: <code>A1..A3</code> votantes AWS (A1 é a líder), <code>Z1..Z3</code> learners Azure. Os números são o maior índice <strong>durável</strong> de cada réplica. Os tempos são ilustrativos.</p>
+<h5 id="d-02-cenarios-complexos-x07-gate-explicado-com-exemplos--cenário-1--caminho-feliz">Cenário 1 — Caminho feliz</h5>
+<p>Estado inicial: tudo em 100, gate = 100, termo 5. Chega a escrita que vira o índice 101.</p>
+<div class="tabela"><table>
+<thead>
+<tr>
+<th>t</th>
+<th>Evento</th>
+<th>commitRaft</th>
+<th>Z1/Z2/Z3</th>
+<th>maioriaAzure</th>
+<th>gate</th>
+<th>Efeito</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>0 ms</td>
+<td>A1 propõe 101</td>
+<td>100</td>
+<td>100/100/100</td>
+<td>100</td>
+<td>100</td>
+<td>escrita espera</td>
+</tr>
+<tr>
+<td>3 ms</td>
+<td>A2 faz fsync e responde</td>
+<td>101 (A2 + A1 depois do fsync dela)</td>
+<td>100/100/100</td>
+<td>100</td>
+<td>100</td>
+<td>Raft commitou, mas <strong>não ACKa</strong></td>
+</tr>
+<tr>
+<td>8 ms</td>
+<td>Z1 responde 101</td>
+<td>101</td>
+<td>101/100/100</td>
+<td>100</td>
+<td>100</td>
+<td>1 de 3 na Azure não basta</td>
+</tr>
+<tr>
+<td>9 ms</td>
+<td>Z2 responde 101</td>
+<td>101</td>
+<td>101/101/100</td>
+<td>101</td>
+<td><strong>101</strong></td>
+<td>gate anda; applier grava 101 no DynamoDB da célula 1</td>
+</tr>
+<tr>
+<td>15 ms</td>
+<td>apply termina</td>
+<td></td>
+<td></td>
+<td></td>
+<td>101</td>
+<td><strong>ACK 200</strong> ao cliente</td>
+</tr>
+</tbody>
+</table></div>
+<p>O ponto: o commit do Raft (3 ms) não é o momento do ACK. O ACK espera a Azure e o apply.</p>
+<h5 id="d-02-cenarios-complexos-x07-gate-explicado-com-exemplos--cenário-2--azure-atrasada-e-azure-à-frente-do-commit">Cenário 2 — Azure atrasada (e Azure à frente do commit)</h5>
+<p>Várias escritas em voo, índices 101 a 105.</p>
+<div class="tabela"><table>
+<thead>
+<tr>
+<th>Momento</th>
+<th>commitRaft</th>
+<th>Z1/Z2/Z3</th>
+<th>maioriaAzure</th>
+<th>gate</th>
+<th>Quem é ACKado</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>a</td>
+<td>105</td>
+<td>104/101/99</td>
+<td>101</td>
+<td>101</td>
+<td>até 101</td>
+</tr>
+<tr>
+<td>b</td>
+<td>105</td>
+<td>104/103/99</td>
+<td>103</td>
+<td>103</td>
+<td>102 e 103</td>
+</tr>
+<tr>
+<td>c</td>
+<td>105</td>
+<td>105/105/99</td>
+<td>105</td>
+<td>105</td>
+<td>104 e 105</td>
+</tr>
+<tr>
+<td>d (Azure à frente)</td>
+<td>106</td>
+<td>108/107/99</td>
+<td>107</td>
+<td><strong>106</strong></td>
+<td>106; 107 e 108 esperam o commit do Raft</td>
+</tr>
+</tbody>
+</table></div>
+<p>Leitura: o gate anda no ritmo da <strong>segunda</strong> Azure mais rápida e nunca passa do commit do Raft. No momento d a Azure tem entradas que a AWS ainda não commitou; elas não contam, porque podem nunca ser commitadas (se A1 cair agora).</p>
+<h5 id="d-02-cenarios-complexos-x07-gate-explicado-com-exemplos--cenário-3--uma-azure-fora">Cenário 3 — Uma Azure fora</h5>
+<p>Z3 cai. Z1 e Z2 seguem respondendo.</p>
+<div class="tabela"><table>
+<thead>
+<tr>
+<th>Momento</th>
+<th>commitRaft</th>
+<th>Z1/Z2/Z3</th>
+<th>maioriaAzure</th>
+<th>gate</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>a</td>
+<td>200</td>
+<td>200/200/150</td>
+<td>200</td>
+<td>200</td>
+</tr>
+<tr>
+<td>b</td>
+<td>210</td>
+<td>210/204/150</td>
+<td>204</td>
+<td>204</td>
+</tr>
+</tbody>
+</table></div>
+<p>Nada para, mas a margem acabou: o gate agora depende <strong>das duas</strong> que sobraram, e anda no ritmo da mais lenta delas (Z2). Se Z2 também cair, cai no cenário 4. Por isso a queda de uma AZ da Azure é alerta, não incidente (<a href="#d-02-cenarios-atualizados-c09-queda-de-az-azure">C09</a>).</p>
+<h5 id="d-02-cenarios-complexos-x07-gate-explicado-com-exemplos--cenário-4--link-awsazure-caído">Cenário 4 — Link AWS↔Azure caído</h5>
+<p>Estado no instante da queda: tudo em 200, gate = 200. A AWS continua commitando.</p>
+<div class="tabela"><table>
+<thead>
+<tr>
+<th>t</th>
+<th>commitRaft</th>
+<th>Z1/Z2/Z3</th>
+<th>maioriaAzure</th>
+<th>gate</th>
+<th>O que acontece</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>0 s</td>
+<td>200</td>
+<td>200/200/200</td>
+<td>200</td>
+<td>200</td>
+<td>link cai</td>
+</tr>
+<tr>
+<td>1 s</td>
+<td>230</td>
+<td>200/200/200</td>
+<td>200</td>
+<td>200</td>
+<td>escritas 201 a 230 commitadas, <strong>sem ACK e sem apply</strong></td>
+</tr>
+<tr>
+<td>2 s (<code>DEGRADE_AFTER</code>)</td>
+<td>240</td>
+<td>parado</td>
+<td>200</td>
+<td>200</td>
+<td>decide pela <code>DEGRADED_POLICY</code></td>
+</tr>
+</tbody>
+</table></div>
+<p>Daqui em diante:</p>
+<ul>
+<li><strong><code>reject</code></strong> (recomendado para dinheiro): o gate fica em 200. Aos 7,5 s cada escrita recebe <code>503 PENDING</code>. As entradas 201 a 240 <strong>estão commitadas na AWS mas não no DynamoDB</strong>. Quando o link volta, a Azure recebe 201 a 240, a maioria Azure chega a 240, o gate anda, o applier grava e o retry do SDK encontra o resultado pelo dedupe. RPO 0, disponibilidade de escrita zero durante a queda.</li>
+<li><strong><code>accept</code></strong>: a líder propõe <code>DEGRADE</code> (índice 241). Commitado o <code>DEGRADE</code> e com lease válido, <code>gate = commitRaft</code>: as escritas pendentes são ACKadas com <code>x-dr-mode: degraded</code>. RPO &gt; 0 enquanto durar. O lease conta desde o último contato com a maioria Azure (<code>t_c</code> = 0 s), não desde o <code>DEGRADE</code>. Em <code>t_c + D</code> a AWS para sozinha: <code>503 LEASE_EXPIRED</code>. A Azure só pode ser promovida depois de <code>D + M</code>.</li>
+</ul>
+<p>E a <strong>leitura forte</strong> durante a queda (com <code>reject</code>): <code>ReadIndex = 240</code>, gate = 200, barreira = <code>min(240, 200) = 200</code>, aplicado = 200. A leitura é servida na hora com o estado de 200. Isso está correto: nenhum cliente recebeu ACK de 201 a 240, então ninguém pode esperar vê-las. É exatamente o que o ADR-049 resolveu: leitura não trava por causa da Azure.</p>
+<h5 id="d-02-cenarios-complexos-x07-gate-explicado-com-exemplos--cenário-5--troca-de-líder-onde-o-termo-importa">Cenário 5 — Troca de líder (onde o termo importa)</h5>
+<p>Estado no termo 5, líder A1:</p>
+<div class="tabela"><table>
+<thead>
+<tr>
+<th></th>
+<th>commitRaft</th>
+<th>A1/A2/A3</th>
+<th>Z1/Z2/Z3</th>
+<th>maioriaAzure</th>
+<th>gate</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>antes</td>
+<td>305</td>
+<td>306/305/303</td>
+<td>306/304/300</td>
+<td>304</td>
+<td>304</td>
+</tr>
+</tbody>
+</table></div>
+<p>A1 tinha a entrada <strong>306 (termo 5)</strong>, já enviada a Z1, mas não commitada (só A1 a tinha entre os votantes). A1 morre.</p>
+<div class="tabela"><table>
+<thead>
+<tr>
+<th>Passo</th>
+<th>O que acontece</th>
+<th>gate</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td>A2 é eleita no termo 6 (log de A2 vai até 305)</td>
+<td>304, <strong>não pronto</strong></td>
+</tr>
+<tr>
+<td>2</td>
+<td>Progresso dos learners do termo 5 é descartado (G-03). O gate <strong>não zera</strong> (monotônico), mas fica parado: sem ACK, sem applier, leitura forte com <code>503 GATE_NOT_READY</code></td>
+<td>304</td>
+</tr>
+<tr>
+<td>3</td>
+<td>A2 grava a entrada vazia do termo novo, <strong>306 (termo 6)</strong>, e a envia a todos. Z1 tinha 306 do termo 5: o casamento de logs detecta conflito e Z1 troca pela 306 do termo 6 antes de responder</td>
+<td>304</td>
+</tr>
+<tr>
+<td>4</td>
+<td>A3 faz fsync: commitRaft = 306 (termo 6)</td>
+<td>304</td>
+</tr>
+<tr>
+<td>5</td>
+<td>Z1 e Z2 respondem 306 <strong>no termo 6</strong></td>
+<td><strong>306, pronto</strong></td>
+</tr>
+<tr>
+<td>6</td>
+<td>A2 volta a ACKar, aplicar e servir leitura forte</td>
+<td>306</td>
+</tr>
+</tbody>
+</table></div>
+<p>Por que não confiar no "Z1 diz que tem 306" que chega por fora, no passo 2? Porque aquela 306 era a do termo 5, de A1, que <strong>nunca foi commitada e foi apagada</strong> no passo 3. Se A2 contasse esse número, acharia que a 306 dela já estava na Azure quando não estava. Esse é o caso que o ADR-046 fecha.</p>
+<p>Os clientes que escreveram 306 (termo 5) em A1 recebem timeout ou <code>503 PENDING</code>; o retry vai para A2 e o dedupe resolve. Escritas de A1 já ACKadas (até 304) estão abaixo do gate antigo e nunca se perdem, porque o Raft garante que A2 tem tudo o que foi commitado.</p>
+<h5 id="d-02-cenarios-complexos-x07-gate-explicado-com-exemplos--cenário-6--poc-só-aws-g-08">Cenário 6 — POC só AWS (G-08)</h5>
+<p>Com <code>LEARNERS</code> vazia: não existe maioriaAzure, então <strong>gate = commitRaft</strong> e o gate está sempre pronto. O <code>/status</code> mostra <code>azure: "off"</code>.</p>
+<div class="tabela"><table>
+<thead>
+<tr>
+<th>t</th>
+<th>Evento</th>
+<th>commitRaft (cell_1 líder)</th>
+<th>gate cell_1</th>
+<th>commit local cell_2 / cell_3</th>
+<th>gate cell_2 / cell_3</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>0 ms</td>
+<td>propõe 101</td>
+<td>100</td>
+<td>100</td>
+<td>100 / 100</td>
+<td>100 / 100</td>
+</tr>
+<tr>
+<td>3 ms</td>
+<td>cell_2 faz fsync</td>
+<td>101</td>
+<td><strong>101</strong></td>
+<td>101 / 100</td>
+<td>100 / 100</td>
+</tr>
+<tr>
+<td>4 ms</td>
+<td>cell_1 aplica 101 e <strong>ACKa</strong></td>
+<td>101</td>
+<td>101</td>
+<td>101 / 100</td>
+<td>100 / 100</td>
+</tr>
+<tr>
+<td>5 ms</td>
+<td>publica gate 101</td>
+<td></td>
+<td></td>
+<td>101 / 100</td>
+<td><strong>101 / 100</strong> (cell_3 limitada pelo commit local)</td>
+</tr>
+<tr>
+<td>9 ms</td>
+<td>cell_3 recebe o commit</td>
+<td></td>
+<td></td>
+<td>101 / 101</td>
+<td>101 / <strong>101</strong></td>
+</tr>
+</tbody>
+</table></div>
+<p>O que a POC prova: o caminho Raft → gate → apply → ACK, a propagação do gate (G-06) e <code>aplicado &lt;= gate</code> nas três células. O que <strong>não</strong> prova: nenhuma espera pela Azure, nada dos cenários 2 a 5. Essas regras (G-01 a G-05, G-07) ficam nos testes de unidade com learners simulados (O-02).</p>
+<h4 id="d-02-cenarios-complexos-x07-gate-explicado-com-exemplos--pontos-em-aberto">Pontos em aberto</h4>
+<h5 id="d-02-cenarios-complexos-x07-gate-explicado-com-exemplos--cenários-ocultos">Cenários ocultos</h5>
+<ol>
+<li><strong>A POC não exercita o gate segurando nada.</strong> Com gate = commit, o gate nunca é o gargalo, então a latência e o comportamento medidos na POC não dizem nada sobre a espera pela Azure, a reconstrução na troca de líder (cenário 5) nem a faixa cinzenta (<a href="#d-02-cenarios-atualizados-c25-link-lento-faixa-cinzenta">C25</a>). Os testes de unidade provam a regra, não a integração com o <code>etcd-io/raft</code> (por exemplo, se o <code>MsgAppResp</code> do learner realmente vira evento no termo certo). Ver a pergunta 1 abaixo.</li>
+<li><strong>O canal de eventos que bloqueia (G-04) pode travar o shard.</strong> "O canal bloqueia em vez de perder" é correto para não perder progresso, mas, se quem consome o canal for lento, ele bloqueia o laço <code>Ready</code> do Raft daquele shard: commit, heartbeat e eleição ficam parados. O risco é um gate lento derrubar a liderança. Ver a pergunta 2.</li>
+<li><strong>Na troca de líder, a janela sem ACK é pelo menos um RTT AWS↔Azure mais o fsync na Azure.</strong> Se o link estiver na faixa cinzenta exatamente nessa hora, a líder nova fica sem gate pronto até <code>DEGRADE_AFTER</code>; com <code>reject</code> isso vira <code>503</code> para todas as escritas do shard. É o comportamento decidido, mas entra na conta do RTO.</li>
+<li><strong>Apply é parte do ACK.</strong> O ACK espera o gate <strong>e</strong> o apply na célula da líder (SG-01). Um DynamoDB lento ou com throttling na célula da líder atrasa o ACK mesmo com o gate em dia; uma entrada venenosa para o shard inteiro (<a href="#d-02-cenarios-atualizados-c26-entrada-venenosa">C26</a>).</li>
+</ol>
+<h5 id="d-02-cenarios-complexos-x07-gate-explicado-com-exemplos--perguntas-para-o-bruno">Perguntas para o Bruno</h5>
+<p><strong>1. A POC deve ter um learner simulado de ponta a ponta?</strong>
+- <strong>a)</strong> Manter como está: gate = commit na POC, regras da Azure só em teste de unidade.
+- <strong>b) (recomendado)</strong> Adicionar à POC um quarto processo DR como learner (sem DynamoDB, sem voto), com atraso injetável no <code>docker compose</code>. Com <code>LEARNERS=1</code> id, a maioria Azure seria "1 de 1" só para teste. Prova o <code>MsgAppResp</code> virando evento, o termo e o cenário 5 de verdade, sem trazer a Azure para a POC.</p>
+<p><strong>2. Como tratar o canal de progresso do gate quando o consumidor atrasa?</strong>
+- <strong>a)</strong> Manter o canal que bloqueia (G-04) e medir no spike se o laço <code>Ready</code> chega a travar.
+- <strong>b) (recomendado)</strong> Trocar o canal por um "último valor por learner" (variável atômica por (learner, termo) que só sobe, com um sinal de acordar). Não perde progresso, porque o progresso é monotônico e só o maior valor importa, e nunca bloqueia o Raft. Exigiria ajustar a G-04 na spec.</p></article><article class="doc" id="d-02-cenarios-complexos-x08-leitura-forte-com-exemplos"><h3>X08 — Leitura forte explicada com dados mock</h3><p class="fonte">Fonte: <a href="02_cenarios/complexos/X08-leitura-forte-com-exemplos.md">02_cenarios/complexos/X08-leitura-forte-com-exemplos.md</a></p><p><strong>Status:</strong> Explicação didática (14/10/2026). Não decide nada novo, exceto a pergunta 3 no fim · <strong>ADRs:</strong> <a href="#d-03-adr-adr-049-barreira-da-leitura-forte-e-o-gate">ADR-049</a>, <a href="#d-03-adr-adr-057-um-unico-modo-strong-consistency">ADR-057</a>, <a href="#d-03-adr-adr-039-sem-lider-conhecida-espera-ate-1s-e-503">ADR-039</a>, <a href="#d-03-adr-adr-029-gate-monotonico-na-troca-de-lider">ADR-029</a>, <a href="#d-03-adr-adr-046-gate-so-conta-progresso-validado-pelo-raft">ADR-046</a> · <strong>Relacionados:</strong> <a href="#d-02-cenarios-complexos-x07-gate-explicado-com-exemplos">X07</a>, <a href="#d-02-cenarios-atualizados-c05-leitura-strong">C05</a>, <a href="#d-02-cenarios-a-rever-r16-leitura-forte-em-celulas-follower">R16</a>, <a href="../spec/SPEC_POC_LOCAL.md">SPEC_POC_LOCAL</a> (A.6)</p>
+<h4 id="d-02-cenarios-complexos-x08-leitura-forte-com-exemplos--cenário">Cenário</h4>
+<h5 id="d-02-cenarios-complexos-x08-leitura-forte-com-exemplos--a-ideia-em-uma-frase">A ideia em uma frase</h5>
+<p>A leitura forte <strong>não fala com a Azure e não conta células</strong>. Ela pergunta à líder "até que índice o cliente pode ter recebido ACK?" (a barreira), espera o DynamoDB <strong>da própria célula</strong> chegar até esse índice e lê.</p>
+<h5 id="d-02-cenarios-complexos-x08-leitura-forte-com-exemplos--os-quatro-números-que-aparecem-em-toda-leitura">Os quatro números que aparecem em toda leitura</h5>
+<div class="tabela"><table>
+<thead>
+<tr>
+<th>Número</th>
+<th>O que é</th>
+<th>Quem tem</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>ReadIndex</code></td>
+<td>Commit do Raft no momento da leitura, com a liderança confirmada por 2 de 3 AWS (um heartbeat, só AWS)</td>
+<td>Líder</td>
+</tr>
+<tr>
+<td><code>gate</code></td>
+<td>Maior índice durável em 2 de 3 AWS <strong>e</strong> 2 de 3 Azure (calculado na escrita, fica na memória)</td>
+<td>Líder</td>
+</tr>
+<tr>
+<td><code>barreira</code></td>
+<td><code>min(ReadIndex, gate)</code>: o maior índice que pode ter recebido ACK</td>
+<td>Calculado por leitura</td>
+</tr>
+<tr>
+<td><code>aplicado</code></td>
+<td>Até que índice o applier já gravou no DynamoDB daquela célula</td>
+<td>Cada célula</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>Regra da leitura:</strong> espera <code>aplicado &gt;= barreira</code> e então lê o DynamoDB local.</p>
+<p>Por que <code>min</code>? Escrita acima do gate ainda não recebeu ACK; escrita acima do <code>ReadIndex</code> nem foi commitada. Nenhum cliente pode ter visto algo acima da barreira, então não é preciso esperar por isso.</p>
+<h4 id="d-02-cenarios-complexos-x08-leitura-forte-com-exemplos--diagrama-decisão-da-leitura-forte-com-os-pontos-em-que-ela-falha">Diagrama: decisão da leitura forte, com os pontos em que ela falha</h4>
+<div class="diagrama"><pre class="mermaid">flowchart TD
+    IN[&quot;GetItem ou Scan chega na célula&quot;] --&gt; LID{&quot;Conhece a líder do shard?&quot;}
+    LID --&gt;|&quot;não, eleição ou partição&quot;| W1[&quot;Espera até 1 s&quot;] --&gt; E1[&quot;503, T3 ou T4&quot;]
+    LID --&gt;|&quot;sim&quot;| SOU{&quot;Esta célula é a líder?&quot;}
+    SOU --&gt;|&quot;não&quot;| RB[&quot;Pede ReadBarrier à líder por gRPC&quot;]
+    RB --&gt; PRONTO
+    SOU --&gt;|&quot;sim&quot;| PRONTO{&quot;Gate pronto na líder?&quot;}
+    PRONTO --&gt;|&quot;não, líder recém-eleita&quot;| E2[&quot;503 GATE_NOT_READY, T6 e T7&quot;]
+    PRONTO --&gt;|&quot;sim&quot;| RI{&quot;ReadIndex: 2 de 3 AWS confirmam a liderança?&quot;}
+    RI --&gt;|&quot;não, líder isolada&quot;| E3[&quot;503 no prazo, T5&quot;]
+    RI --&gt;|&quot;sim&quot;| BAR[&quot;barreira = min(ReadIndex, gate), lidos na mesma resposta&quot;]
+    BAR --&gt; AP{&quot;Applier da célula parado por entrada venenosa?&quot;}
+    AP --&gt;|&quot;sim&quot;| E4[&quot;503 na hora, T2&quot;]
+    AP --&gt;|&quot;não&quot;| CMP{&quot;aplicado &gt;= barreira?&quot;}
+    CMP --&gt;|&quot;sim&quot;| LER[&quot;Lê o DynamoDB da própria célula&quot;]
+    CMP --&gt;|&quot;não&quot;| ESP[&quot;Espera o applier local&quot;]
+    ESP --&gt; PRAZO{&quot;Passou o prazo de 7,5 s?&quot;}
+    PRAZO --&gt;|&quot;não&quot;| CMP
+    PRAZO --&gt;|&quot;sim&quot;| E5[&quot;503 retentável, T1&quot;]
+    LER --&gt; OK[&quot;200 com tudo o que foi ACKado até a barreira, sem _dr_v&quot;]</pre></div>
+<h4 id="d-02-cenarios-complexos-x08-leitura-forte-com-exemplos--diagrama-sequência-da-leitura">Diagrama: sequência da leitura</h4>
+<div class="diagrama"><pre class="mermaid">sequenceDiagram
+    autonumber
+    participant APP as App
+    participant C as DR da célula que recebeu a leitura
+    participant L as Líder do shard
+    participant AWS as Outras células AWS
+    participant DB as DynamoDB da célula
+    APP-&gt;&gt;C: GetItem cliente 42
+    C-&gt;&gt;L: ReadBarrier (se C não é a líder)
+    L-&gt;&gt;AWS: heartbeat: ainda sou líder?
+    AWS--&gt;&gt;L: sim (2 de 3)
+    L--&gt;&gt;C: ReadIndex e gate na mesma resposta
+    Note over C: barreira = min(ReadIndex, gate)
+    loop enquanto aplicado &lt; barreira
+        C-&gt;&gt;C: espera o applier local
+    end
+    C-&gt;&gt;DB: GetItem ConsistentRead
+    DB--&gt;&gt;C: item
+    C--&gt;&gt;APP: item, sem o atributo _dr_v</pre></div>
+<p>Repare: nenhuma seta vai para a Azure.</p>
+<h4 id="d-02-cenarios-complexos-x08-leitura-forte-com-exemplos--etapas">Etapas</h4>
+<h5 id="d-02-cenarios-complexos-x08-leitura-forte-com-exemplos--dados-mock">Dados mock</h5>
+<p>Tabela lógica <code>cadastro_cliente_{cell}</code>, item <code>cliente#42</code>. Histórico do log do shard:</p>
+<div class="tabela"><table>
+<thead>
+<tr>
+<th>Índice</th>
+<th>Escrita</th>
+<th>Situação no início dos exemplos</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>198</td>
+<td><code>limite = 1000</code></td>
+<td>ACKada</td>
+</tr>
+<tr>
+<td>199</td>
+<td><code>limite = 1500</code></td>
+<td>ACKada</td>
+</tr>
+<tr>
+<td>200</td>
+<td><code>limite = 2000</code></td>
+<td>ACKada</td>
+</tr>
+<tr>
+<td>201</td>
+<td><code>limite = 3000</code></td>
+<td>ainda não existe</td>
+</tr>
+</tbody>
+</table></div>
+<p>Estado inicial (cell_1 é a líder):</p>
+<div class="tabela"><table>
+<thead>
+<tr>
+<th></th>
+<th>commit</th>
+<th>gate</th>
+<th>aplicado</th>
+<th><code>limite</code> no DynamoDB</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>cell_1 (líder)</td>
+<td>200</td>
+<td>200</td>
+<td>200</td>
+<td>2000</td>
+</tr>
+<tr>
+<td>cell_2</td>
+<td>200</td>
+<td>200</td>
+<td>200</td>
+<td>2000</td>
+</tr>
+<tr>
+<td>cell_3</td>
+<td>200</td>
+<td>200</td>
+<td>199</td>
+<td>1500</td>
+</tr>
+</tbody>
+</table></div>
+<h5 id="d-02-cenarios-complexos-x08-leitura-forte-com-exemplos--l1--tudo-em-dia-leitura-na-líder">L1 — Tudo em dia, leitura na líder</h5>
+<ol>
+<li>App lê <code>cliente#42</code> na cell_1.</li>
+<li>ReadIndex = 200, gate = 200 → barreira = <strong>200</strong>.</li>
+<li>Aplicado na cell_1 = 200 ≥ 200: não espera.</li>
+<li>Resposta: <strong><code>limite = 2000</code></strong>. Custo: um heartbeat dentro da AWS mais o GetItem.</li>
+</ol>
+<h5 id="d-02-cenarios-complexos-x08-leitura-forte-com-exemplos--l2--leitura-numa-célula-atrasada">L2 — Leitura numa célula atrasada</h5>
+<ol>
+<li>App lê na cell_3. A cell_3 pede a barreira à líder: ReadIndex = 200, gate = 200 → barreira = <strong>200</strong>.</li>
+<li>Aplicado na cell_3 = <strong>199</strong> (o DynamoDB dela ainda tem 1500).</li>
+<li>Espera o applier gravar o 200 (alguns ms).</li>
+<li>Resposta: <strong><code>limite = 2000</code></strong>. Sem a barreira, a cell_3 responderia <strong>1500</strong>, um valor que o cliente já sabe estar velho.</li>
+</ol>
+<h5 id="d-02-cenarios-complexos-x08-leitura-forte-com-exemplos--l3--escrita-em-voo-durante-a-leitura">L3 — Escrita em voo durante a leitura</h5>
+<p>Chega a escrita 201 (<code>limite = 3000</code>). A AWS commita, mas a Azure ainda não confirmou.</p>
+<div class="tabela"><table>
+<thead>
+<tr>
+<th></th>
+<th>commit</th>
+<th>gate</th>
+<th>aplicado</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>cell_1 (líder)</td>
+<td>201</td>
+<td>200</td>
+<td>200</td>
+</tr>
+</tbody>
+</table></div>
+<ol>
+<li>Leitura na cell_1: ReadIndex = 201, gate = 200 → barreira = <strong>200</strong>.</li>
+<li>Aplicado = 200 ≥ 200: não espera.</li>
+<li>Resposta: <strong><code>limite = 2000</code></strong>.</li>
+</ol>
+<p>Está certo: a escrita 201 ainda não recebeu ACK; o cliente que a enviou ainda está esperando a resposta. Se a leitura devolvesse 3000 e a AWS caísse agora, a Azure seria promovida <strong>sem</strong> o 3000: o valor lido "desapareceria". É isso que o gate na leitura impede.</p>
+<h5 id="d-02-cenarios-complexos-x08-leitura-forte-com-exemplos--l4--ler-o-que-acabei-de-escrever-em-outra-célula">L4 — Ler o que acabei de escrever, em outra célula</h5>
+<ol>
+<li>A Azure confirma 201: gate = 201, cell_1 aplica, <strong>ACK</strong> para a app (<code>limite = 3000</code>).</li>
+<li>Logo em seguida a app lê pela <strong>cell_3</strong>, que ainda não sabe de nada:</li>
+</ol>
+<div class="tabela"><table>
+<thead>
+<tr>
+<th></th>
+<th>commit</th>
+<th>gate local</th>
+<th>aplicado</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>cell_3</td>
+<td>200</td>
+<td>200</td>
+<td>200</td>
+</tr>
+</tbody>
+</table></div>
+<ol start="3">
+<li>A cell_3 pede a barreira à líder: ReadIndex = 201, gate = 201 → barreira = <strong>201</strong>.</li>
+<li>A cell_3 espera: recebe o commit 201 do Raft, recebe o gate 201 publicado pela líder (G-06), aplica 201.</li>
+<li>Resposta: <strong><code>limite = 3000</code></strong>.</li>
+</ol>
+<p>Esse é o motivo de a follower pedir o gate à líder <strong>na hora</strong>, e não usar um gate guardado: com o gate guardado (200) ela responderia 2000 para quem acabou de receber ACK de 3000.</p>
+<h5 id="d-02-cenarios-complexos-x08-leitura-forte-com-exemplos--l5--link-com-a-azure-caído-degradedpolicyreject">L5 — Link com a Azure caído (<code>DEGRADED_POLICY=reject</code>)</h5>
+<div class="tabela"><table>
+<thead>
+<tr>
+<th></th>
+<th>commit</th>
+<th>gate</th>
+<th>aplicado</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>cell_1 (líder)</td>
+<td>230</td>
+<td>200</td>
+<td>200</td>
+</tr>
+</tbody>
+</table></div>
+<p>As escritas 201 a 230 estão commitadas na AWS, mas sem ACK (<code>503 PENDING</code>) e sem apply.</p>
+<ol>
+<li>Leitura: ReadIndex = 230, gate = 200 → barreira = <strong>200</strong>.</li>
+<li>Aplicado = 200: não espera.</li>
+<li>Resposta: <strong><code>limite = 2000</code></strong>, na hora.</li>
+</ol>
+<p><strong>A leitura não trava com a Azure fora.</strong> Ela mostra o último estado confirmado nas duas nuvens, e é exatamente o que os clientes sabem: ninguém recebeu ACK de 201 a 230.</p>
+<h4 id="d-02-cenarios-complexos-x08-leitura-forte-com-exemplos--falhas-e-tratativas">Falhas e tratativas</h4>
+<h5 id="d-02-cenarios-complexos-x08-leitura-forte-com-exemplos--quando-a-leitura-trava-ou-falha">Quando a leitura trava ou falha</h5>
+<div class="tabela"><table>
+<thead>
+<tr>
+<th>#</th>
+<th>Situação</th>
+<th>Dados mock</th>
+<th>O que a app vê</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>T1</td>
+<td><strong>Apply lento</strong> na célula (throttling do DynamoDB)</td>
+<td>barreira = 200, aplicado na cell_2 = 190 e andando devagar</td>
+<td>Espera; se passar de 7,5 s, <code>503</code> retentável. Problema daquela célula: as outras respondem</td>
+</tr>
+<tr>
+<td>T2</td>
+<td><strong>Entrada venenosa</strong> (o DynamoDB recusa o item 196 na cell_2)</td>
+<td>barreira = 200, aplicado na cell_2 parado em 195</td>
+<td><code>503</code> <strong>na hora</strong> (não espera o prazo) para leituras daquele shard na cell_2 (<a href="#d-02-cenarios-atualizados-c26-entrada-venenosa">C26</a>)</td>
+</tr>
+<tr>
+<td>T3</td>
+<td><strong>Sem líder</strong> (eleição em andamento)</td>
+<td>ninguém responde o ReadBarrier</td>
+<td>Espera até 1 s e <code>503</code> (<a href="#d-03-adr-adr-039-sem-lider-conhecida-espera-ate-1s-e-503">ADR-039</a>)</td>
+</tr>
+<tr>
+<td>T4</td>
+<td><strong>Célula isolada</strong> das outras AWS</td>
+<td>a cell_3 não alcança a líder</td>
+<td>Espera até 1 s e <code>503</code>. Ela nunca responde com o próprio dado sem barreira</td>
+</tr>
+<tr>
+<td>T5</td>
+<td><strong>Líder isolada que ainda acha que é líder</strong></td>
+<td>a cell_1 não recebe resposta do heartbeat</td>
+<td>O ReadIndex não se completa; <code>503</code> no prazo. Evita ler de uma líder antiga</td>
+</tr>
+<tr>
+<td>T6</td>
+<td><strong>Líder recém-eleita</strong></td>
+<td>A2 eleita no termo 6, gate ainda não pronto</td>
+<td><code>503 GATE_NOT_READY</code> até 2 Azure confirmarem no termo 6. Com a Azure saudável isso dura um RTT AWS↔Azure mais um fsync (poucos ms)</td>
+</tr>
+<tr>
+<td><strong>T7</strong></td>
+<td><strong>T6 com a Azure fora</strong> (cenário oculto)</td>
+<td>A2 eleita, link caído, gate parado em 200 e não pronto</td>
+<td><strong><code>503</code> em toda leitura forte do shard enquanto a Azure estiver fora</strong> (ver o cenário oculto T7 abaixo)</td>
+</tr>
+</tbody>
+</table></div>
+<p>Resumo: a leitura <strong>não</strong> depende da Azure no dia a dia (L5). Ela trava por problema <strong>local</strong> (T1, T2), por falta de <strong>líder AWS</strong> (T3 a T5) e, por um tempo curto, logo depois de uma <strong>troca de líder</strong> (T6). O único caso em que a Azure trava a leitura é o T7.</p>
+<h5 id="d-02-cenarios-complexos-x08-leitura-forte-com-exemplos--o-cenário-oculto-t7">O cenário oculto T7</h5>
+<p>Linha do tempo com os dados mock:</p>
+<ol>
+<li>Link AWS↔Azure cai. Gate = 200 na cell_1. Leituras seguem servindo <code>limite = 2000</code> (L5).</li>
+<li>A cell_1 cai (manutenção ou falha). A cell_2 vira líder no termo 6.</li>
+<li>A cell_2 precisa de 2 learners Azure confirmando no termo 6 para o gate ficar pronto (G-07). O link está fora: isso nunca acontece.</li>
+<li><strong>Toda leitura forte do shard responde <code>503 GATE_NOT_READY</code></strong> até o link voltar.</li>
+</ol>
+<div class="diagrama"><pre class="mermaid">flowchart TD
+    A[&quot;Link AWS-Azure cai; gate = 200 na cell_1&quot;] --&gt; B[&quot;Leituras seguem servindo limite = 2000, L5&quot;]
+    B --&gt; C[&quot;cell_1 cai; cell_2 vira líder no termo 6&quot;]
+    C --&gt; D{&quot;2 learners Azure confirmam no termo 6?&quot;}
+    D --&gt;|&quot;não, link fora&quot;| E[&quot;Gate não pronto: toda leitura forte do shard dá 503 GATE_NOT_READY&quot;]
+    E --&gt; D
+    D --&gt;|&quot;sim, link voltou&quot;| F[&quot;Gate pronto; leitura volta a responder&quot;]
+    C -.-&gt;|&quot;por que não usar o gate 200 recebido da cell_1?&quot;| G[&quot;A cell_1 pode ter ACKado o 201 antes de publicar o gate 201: a leitura devolveria 2000 a quem recebeu ACK de 3000&quot;]</pre></div>
+<p>Por que a cell_2 não usa o gate 200 que recebeu da cell_1 (G-06)? Porque esse valor pode estar velho. Se a cell_1 tinha ACKado o 201 e caiu antes de publicar o gate 201, a cell_2 leria com barreira 200 e devolveria <strong>2000 a quem recebeu ACK de 3000</strong>. A regra G-07 escolhe recusar em vez de responder errado.</p>
+<p>Com <code>reject</code> isso é certo. Com <code>accept</code>, a líder nova herda o <code>DEGRADE</code> mas trata o lease como expirado (<a href="#d-03-adr-adr-044-lease-do-modo-degradado-e-promocao-da-azure">ADR-044</a>, item 2), então o resultado tende a ser o mesmo; o modelo TLA+ precisa confirmar.</p>
+<p>O impacto: uma queda do link <strong>somada</strong> a uma troca de líder (por exemplo, manutenção de uma célula AWS durante o problema no link) derruba a leitura forte daquele shard, não só a escrita.</p>
+<h4 id="d-02-cenarios-complexos-x08-leitura-forte-com-exemplos--pontos-em-aberto">Pontos em aberto</h4>
+<h5 id="d-02-cenarios-complexos-x08-leitura-forte-com-exemplos--pergunta-para-o-bruno">Pergunta para o Bruno</h5>
+<p><strong>3. O que fazer com a leitura forte numa líder nova enquanto a Azure está fora (T7)?</strong>
+- <strong>a) (recomendado para a v1)</strong> Aceitar: <code>503 GATE_NOT_READY</code> até o link voltar. É correto e simples. Registrar como risco, alertar e <strong>proibir transferência planejada de liderança (ADR-013) e manutenção de célula AWS enquanto o link estiver fora</strong>, o que elimina a causa mais comum.
+- <strong>b)</strong> Fazer a líder só ACKar depois que o gate novo chegar a 2 de 3 células AWS (vai junto do próximo AppendEntries). Assim a líder nova sempre conhece um gate que cobre todo ACK e pode servir leitura com ele. Custa cerca de um RTT dentro da AWS a mais por escrita e muda a G-06/G-07; precisaria entrar no modelo TLA+.</p></article></section><section id="p-rever"><h2>Cenários a rever</h2><article class="doc" id="d-02-cenarios-a-rever-r03-backlog-de-apply-no-cosmos"><h3>R03 — Backlog de apply no Cosmos (429 e RU insuficiente)</h3><p class="fonte">Fonte: <a href="02_cenarios/a_rever/R03-backlog-de-apply-no-cosmos.md">02_cenarios/a_rever/R03-backlog-de-apply-no-cosmos.md</a></p><p><strong>Status:</strong> 🟡 A rever · parcialmente tratado; o limite de lag de apply para a elegibilidade ao failover é a PEND-18 (valor a definir) · <strong>ADRs:</strong> <a href="#d-03-adr-adr-017-azure-learners-e-gate">ADR-017</a>, <a href="#d-03-adr-adr-018-dois-logs-raft-e-replicacao">ADR-018</a>, <a href="#d-03-adr-adr-057-um-unico-modo-strong-consistency">ADR-057</a> · <strong>Relacionados:</strong> <a href="#d-02-cenarios-atualizados-c13-ressincronizacao-da-azure">C13</a>, <a href="#d-02-cenarios-atualizados-c05-leitura-strong">C05</a>, <a href="#d-02-cenarios-complexos-x04-partida-recuperacao-e-dois-logs">X04</a></p>
 <h4 id="d-02-cenarios-a-rever-r03-backlog-de-apply-no-cosmos--cenário">Cenário</h4>
 <p>O gate conta o índice <strong>durável (fsync)</strong> nos learners da Azure, não o apply. Por isso, se o Cosmos não tiver RU para o pico e devolver 429, o <strong>RPO segue 0</strong>, mas o atraso entre <code>commitIndex</code> e <code>appliedIndex</code> na Azure cresce sem limite. Consequências: leituras eventuais na Azure ficam velhas (<a href="#d-02-cenarios-atualizados-c05-leitura-strong">C05</a>) e, no failover, a Azure precisa drenar o backlog antes de abrir leituras fortes, então <strong>o RTO real depende do tamanho da fila</strong>.</p>
 <p><strong>Efeito escondido (novo).</strong> O log de replicação da Azure só pode ser truncado até o que foi aplicado. Backlog longo <strong>enche o disco dos learners</strong>; learner sem disco falha o fsync, sai do gate e a AWS acaba em modo degradado. <strong>Um Cosmos lento pode, por esse caminho, causar RPO &gt; 0.</strong></p>

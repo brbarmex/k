@@ -96,7 +96,7 @@
 | Código | O que é | Onde |
 |---|---|---|
 | **C01 a C34** | Cenário **atualizado** (modelo v1) | [`02_cenarios/atualizados/`](../02_cenarios/atualizados/) |
-| **X01 a X06** | Cenário **complexo**, detalhado em arquivo próprio | [`02_cenarios/complexos/`](../02_cenarios/complexos/) |
+| **X01 a X08** | Cenário **complexo**, detalhado em arquivo próprio | [`02_cenarios/complexos/`](../02_cenarios/complexos/) |
 | **R03 a R23** | Cenário ou hipótese **a rever** (os 14 que ainda não têm decisão) | [`02_cenarios/a_rever/`](../02_cenarios/a_rever/) |
 | **ADR-001 a 055** | Registro de decisão de arquitetura (044 a 054 vêm da revisão crítica de 13/10; 055, do log de replicação segmentado) | [`03_adr/`](../03_adr/INDEX.md) |
 | **D1 a D13** | Decisões da revisão de 12 e 13/10 (D9 gate, D10 header, D11 dedupe, D12 TLA+, D13 prazos) | [`ADR`](../03_adr/INDEX.md) correspondentes |

@@ -1,0 +1,665 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>X07 — O gate explicado com exemplos · DataReplication v1</title>
+<link rel="stylesheet" href="../assets/site.css">
+</head>
+<body>
+<!--
+Fonte(s) usada(s) nesta página (rastreabilidade), relativas à raiz do pacote:
+  02_cenarios/complexos/X07-gate-explicado-com-exemplos.md
+  04_diagramas/D05-gate-e-quorum.md
+Gerado em 14/10/2026 a partir do pacote DataReplication_Versao_1.
+-->
+<header class="topo">
+<button class="menu" type="button" aria-label="Abrir navegação" onclick="document.body.classList.toggle('nav-aberta')">☰</button>
+<a href="../index.html">DataReplication v1</a><span class="sep">·</span><span>Apresentação ao comitê técnico</span>
+</header>
+<div class="layout">
+<nav class="sidebar" aria-label="Navegação">
+<a class="marca" href="../index.html">DataReplication v1<span>Comitê técnico</span></a>
+<a class="nav-inicio" href="../index.html">Resumo e requisitos</a>
+<details class="grupo"><summary>Success path <span class="qtd">9</span></summary><ul>
+<li><a class="idx" href="../success-path/index.html">Índice da seção</a></li>
+<li><a href="../success-path/C01-visao-geral.html"><b>C01</b> Visão geral da arquitetura</a></li>
+<li><a href="../success-path/C02-dentro-da-celula.html"><b>C02</b> Dentro da célula: apps do cliente e DataReplication</a></li>
+<li><a href="../success-path/C03-escrita-strong.html"><b>C03</b> Caminho feliz: escrita (apply serial depois do gate)</a></li>
+<li><a href="../success-path/C05-leitura-strong.html"><b>C05</b> Caminho feliz: leitura strong</a></li>
+<li><a href="../success-path/C06-follower-encaminha.html"><b>C06</b> Requisição chega numa célula que não é a líder</a></li>
+<li><a href="../success-path/C11-transferencia-planejada.html"><b>C11</b> Transferência planejada de liderança (manutenção)</a></li>
+<li><a href="../success-path/C18-partida-e-recuperacao-do-no.html"><b>C18</b> Partida, recuperação e parada limpa do nó</a></li>
+<li><a href="../success-path/C23-batchwriteitem-lote-uma-entrada.html"><b>C23</b> BatchWriteItem: o lote é uma entrada e o apply é por item (antes R15)</a></li>
+<li><a href="../success-path/C31-implantacao-por-cliente-e-identidade.html"><b>C31</b> Uma instalação por cliente e identificação na API (antes R19)</a></li>
+</ul></details>
+<details class="grupo"><summary>Fail path <span class="qtd">23</span></summary><ul>
+<li><a class="idx" href="../fail-path/index.html">Índice da seção</a></li>
+<li><a href="../fail-path/C07-timeout-depois-do-commit.html"><b>C07</b> Prazo estoura depois do commit, antes do ACK (retry do SDK)</a></li>
+<li><a href="../fail-path/C08-queda-de-celula-lider-ou-az-aws.html"><b>C08</b> Queda da célula líder ou de uma AZ na AWS</a></li>
+<li><a href="../fail-path/C09-queda-de-az-azure.html"><b>C09</b> Queda de uma AZ na Azure</a></li>
+<li><a href="../fail-path/C10-celulas-de-app-aws-fora.html"><b>C10</b> Apps da AWS fora, replicação viva: tráfego vai para a Azure</a></li>
+<li><a href="../fail-path/C12-modo-degradado.html"><b>C12</b> Link AWS↔Azure cai ou Azure cai: modo degradado com lease</a></li>
+<li><a href="../fail-path/C13-ressincronizacao-da-azure.html"><b>C13</b> Ressincronização da Azure</a></li>
+<li><a href="../fail-path/C14-aws-cai-sem-degradacao.html"><b>C14</b> AWS cai por inteiro sem degradação prévia</a></li>
+<li><a href="../fail-path/C15-aws-cai-em-degradacao.html"><b>C15</b> AWS cai durante o modo degradado</a></li>
+<li><a href="../fail-path/C16-aws-volta-apos-promocao.html"><b>C16</b> AWS volta depois da promoção da Azure</a></li>
+<li><a href="../fail-path/C17-maquina-de-estados.html"><b>C17</b> Máquina de estados dos modos de operação de um shard</a></li>
+<li><a href="../fail-path/C19-falha-do-datareplication.html"><b>C19</b> O DataReplication da célula cai ou reinicia</a></li>
+<li><a href="../fail-path/C20-bypass-de-escrita-direta.html"><b>C20</b> Aplicação escreve direto no banco (bypass)</a></li>
+<li><a href="../fail-path/C21-disco-fsync-e-reconstrucao.html"><b>C21</b> Falha de fsync, corrupção, disco lento e disco perdido</a></li>
+<li><a href="../fail-path/C22-cliente-com-sdk-nao-suportado.html"><b>C22</b> Cliente com SDK ou versão não suportada</a></li>
+<li><a href="../fail-path/C24-orcamento-de-50ms-e-escrita-no-dynamodb.html"><b>C24</b> Orçamento de 50 ms e a escrita no DynamoDB dentro do ACK (antes R21)</a></li>
+<li><a href="../fail-path/C25-link-lento-faixa-cinzenta.html"><b>C25</b> Link lento ou saturado (faixa cinzenta): só alertar (antes R01)</a></li>
+<li><a href="../fail-path/C26-entrada-venenosa.html"><b>C26</b> Entrada venenosa: um item que o banco recusa para sempre (antes R02)</a></li>
+<li><a href="../fail-path/C27-encaminhamento-sem-lider-conhecida.html"><b>C27</b> Loop de encaminhamento e espera pela líder durante a eleição (antes R05)</a></li>
+<li><a href="../fail-path/C29-disco-do-log-em-degradacao-longa.html"><b>C29</b> Disco do log esgota durante uma degradação longa (antes R08)</a></li>
+<li><a href="../fail-path/C30-aws-que-volta-boot-cercado.html"><b>C30</b> Fencing: o DynamoDB e o applier da AWS que voltam depois da promoção (antes R14)</a></li>
+<li><a href="../fail-path/C32-particao-e-lease-do-modo-degradado.html"><b>C32</b> Partição entre AWS e Azure: lease do modo degradado e promoção da Azure</a></li>
+<li><a href="../fail-path/C33-reconstrucao-em-tabela-sombra.html"><b>C33</b> Reconstrução do banco de uma célula em tabela sombra</a></li>
+<li><a href="../fail-path/C34-autorizacao-por-aplicacao.html"><b>C34</b> Autorização por aplicação: mTLS e lista de permissões por identidade</a></li>
+</ul></details>
+<details class="grupo" open><summary>Complex path <span class="qtd">8</span></summary><ul>
+<li><a class="idx" href="index.html">Índice da seção</a></li>
+<li><a href="X01-gate-e-troca-de-lider.html"><b>X01</b> Gate: definição, monotonicidade e troca de líder</a></li>
+<li><a href="X02-modo-degradado.html"><b>X02</b> Modo degradado: entrada, permanência, lease e saída</a></li>
+<li><a href="X03-desastre-e-promocao-da-azure.html"><b>X03</b> Desastre: promoção da Azure, fencing e reconciliação</a></li>
+<li><a href="X04-partida-recuperacao-e-dois-logs.html"><b>X04</b> Partida, recuperação e coerência entre os dois logs</a></li>
+<li><a href="X05-timeouts-e-idempotencia.html"><b>X05</b> Timeouts em cascata e idempotência do retry</a></li>
+<li><a href="X06-delete-ttl-gsi.html"><b>X06</b> DELETE, TTL, Scan e GSI</a></li>
+<li><a class="atual" aria-current="page" href="X07-gate-explicado-com-exemplos.html"><b>X07</b> O gate explicado com exemplos</a></li>
+<li><a href="X08-leitura-forte-com-exemplos.html"><b>X08</b> Leitura forte explicada com dados mock</a></li>
+</ul></details>
+<details class="grupo"><summary>Parking lot <span class="qtd">14</span></summary><ul>
+<li><a class="idx" href="../parking-lot/index.html">Índice da seção</a></li>
+<li><a href="../parking-lot/R03-backlog-de-apply-no-cosmos.html"><b>R03</b> Backlog de apply no Cosmos (429 e RU insuficiente)</a></li>
+<li><a href="../parking-lot/R06-duas-azs-aws-caem.html"><b>R06</b> Duas AZs da AWS caem com a Azure saudável</a></li>
+<li><a href="../parking-lot/R07-link-oscilando.html"><b>R07</b> Link oscilando (flapping)</a></li>
+<li><a href="../parking-lot/R09-resincronizacao-lenta-ou-bloqueada.html"><b>R09</b> Ressincronização da Azure lenta ou que nunca termina</a></li>
+<li><a href="../parking-lot/R10-operador-lento-no-desastre.html"><b>R10</b> Tempo de decisão humana no desastre</a></li>
+<li><a href="../parking-lot/R11-api-de-promocao-depende-da-aws.html"><b>R11</b> A API de promoção depende de algo que estava na AWS</a></li>
+<li><a href="../parking-lot/R12-promocao-com-aws-viva.html"><b>R12</b> Promoção da Azure com a AWS viva (split-brain, PEND-01)</a></li>
+<li><a href="../parking-lot/R13-escritas-orfas-reconciliacao.html"><b>R13</b> Escritas órfãs: reconciliação depois da promoção (PEND-03)</a></li>
+<li><a href="../parking-lot/R16-leitura-forte-em-celulas-follower.html"><b>R16</b> Leitura forte em células follower (ReadIndex e gate)</a></li>
+<li><a href="../parking-lot/R17-atributo-de-versao-e-limite-400kb.html"><b>R17</b> Atributo de versão: limite de 400 KB e ausência nas respostas</a></li>
+<li><a href="../parking-lot/R18-rto-nao-quantificado.html"><b>R18</b> RTO (Delta-T) ainda sem número</a></li>
+<li><a href="../parking-lot/R20-custo-6x.html"><b>R20</b> Custo: cada escrita lógica vira seis gravações</a></li>
+<li><a href="../parking-lot/R22-memoria-da-janela-de-dedupe.html"><b>R22</b> Memória da janela de dedupe</a></li>
+<li><a href="../parking-lot/R23-hipoteses-gerais.html"><b>R23</b> Hipóteses gerais em aberto</a></li>
+</ul></details>
+</nav>
+<main>
+<div class="migalhas"><a href="../index.html">Início</a> / <a href="index.html">Complex path</a> / X07</div>
+<h1>X07 — O gate explicado com exemplos</h1>
+<div class="meta"><span class="selo complex-path">Complex path</span><div><b>Status na fonte:</b> Explicação didática (14/10/2026). Não decide nada novo: resume as regras já decididas e mostra cada uma com índices concretos</div><div><b>Relacionados:</b> <a href="X01-gate-e-troca-de-lider.html">X01</a>, <a href="../../04_diagramas/D05-gate-e-quorum.md">D05</a>, <a href="../fail-path/C12-modo-degradado.html">C12</a>, <a href="../fail-path/C32-particao-e-lease-do-modo-degradado.html">C32</a>, <a href="../../../spec/SPEC_POC_LOCAL.md">SPEC_POC_LOCAL</a> (regras G-01 a G-10)</div></div>
+<section id="visao-geral"><h2>1. Visão geral do cenário</h2>
+<h3>O que é, em uma frase</h3>
+<p>O gate é <strong>o maior índice do log que já está durável nas duas nuvens</strong>. Nada acima dele pode ser confirmado ao cliente, aplicado em banco nenhum ou lido por leitura forte.</p>
+<p>O Raft sozinho só garante "durável em 2 de 3 AWS". O gate acrescenta "e durável em 2 de 3 Azure". É por causa dele que o RPO é 0 entre nuvens.</p>
+<h3>A condição (a regra)</h3>
+<p>Existe <strong>um gate por shard</strong> (cada shard tem o seu grupo Raft). Na célula líder do shard:</p>
+<pre><code>maioriaAzure = 2º maior índice durável entre Z1, Z2, Z3
+               (só respostas de AppendEntries do termo atual, enviadas depois do fsync)
+candidato    = min(commitRaft, maioriaAzure)
+gate         = max(gate, candidato)            -- nunca recua
+</code></pre>
+<p>Nas células que não são líderes do shard (G-06):</p>
+<pre><code>gate = min(commitRaft local, maior gate recebido da líder)
+</code></pre>
+<p>O "2º maior" é só um jeito de dizer "o maior índice que pelo menos 2 de 3 têm". Exemplo: Z1=105, Z2=101, Z3=98 → ordenando 105, 101, 98 → o 2º é 101. Z1 e Z2 têm 101; só Z1 tem 105.</p>
+<p>As cinco condições que fazem um valor contar:</p>
+<div class="tabela"><table>
+<thead>
+<tr>
+<th>#</th>
+<th>Condição</th>
+<th>Por quê</th>
+<th>Regra</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td>Só conta depois do fsync, em toda réplica (líder inclusive)</td>
+<td>"Confirmado" tem de significar "no disco", não "na memória"</td>
+<td>ADR-056, G-05, SG-03</td>
+</tr>
+<tr>
+<td>2</td>
+<td>Progresso da Azure só vem da resposta do <code>AppendEntries</code> (<code>MsgAppResp</code> sem rejeição)</td>
+<td>Essa resposta passou pelo casamento de logs: índice N significa "o mesmo prefixo até N"</td>
+<td>ADR-046, G-04</td>
+</tr>
+<tr>
+<td>3</td>
+<td>Só conta resposta do <strong>termo atual</strong> da líder</td>
+<td>Um número de outro termo pode ser o sufixo de uma líder antiga (cenário 5)</td>
+<td>ADR-046, G-03</td>
+</tr>
+<tr>
+<td>4</td>
+<td>É o mínimo dos dois lados</td>
+<td>A Azure pode ter entrada ainda não commitada; a AWS pode ter commit que a Azure ainda não tem</td>
+<td>ADR-017, G-01</td>
+</tr>
+<tr>
+<td>5</td>
+<td>Nunca recua</td>
+<td>Escrita ACKada e aplicada não pode "desconfirmar"</td>
+<td>ADR-029, G-02</td>
+</tr>
+</tbody>
+</table></div>
+<h3>Quando ele atua</h3>
+<div class="tabela"><table>
+<thead>
+<tr>
+<th>Momento</th>
+<th>O que espera</th>
+<th>Se o gate não chega</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>ACK da escrita</strong> (célula líder)</td>
+<td><code>gate &gt;= índice da escrita</code> e apply na célula da líder (SG-01)</td>
+<td>Aos 7,5 s responde <code>503 PENDING</code> (resultado desconhecido; o retry cai no dedupe)</td>
+</tr>
+<tr>
+<td><strong>Applier</strong> (toda célula)</td>
+<td>Aplica no DynamoDB só até o gate (<code>aplicado &lt;= gate</code>, SG-02)</td>
+<td>O banco fica parado no último gate; nada acima é escrito</td>
+</tr>
+<tr>
+<td><strong>Leitura forte</strong></td>
+<td>Barreira <code>min(ReadIndex, gate)</code> e <code>aplicado &gt;= barreira</code></td>
+<td>Não depende da Azure para o que já foi ACKado (cenário 4)</td>
+</tr>
+<tr>
+<td><strong>Troca de líder</strong></td>
+<td>Gate fica "não pronto" até 2 learners confirmarem no termo novo (G-07)</td>
+<td>Sem ACK, sem applier e leitura forte com <code>503 GATE_NOT_READY</code></td>
+</tr>
+<tr>
+<td><strong>Modo degradado</strong> (só <code>accept</code>, com lease válido)</td>
+<td>A Azure sai da conta: <code>gate = commitRaft</code></td>
+<td>Fim do lease D: <code>503 LEASE_EXPIRED</code></td>
+</tr>
+<tr>
+<td><strong>Publicação às outras células</strong></td>
+<td>A líder envia o gate a cada avanço, ou a cada 100 ms sem avanço</td>
+<td>A follower aplica até o último gate recebido</td>
+</tr>
+</tbody>
+</table></div>
+<p>O gate é recalculado <strong>por evento</strong>: cada commit do Raft e cada resposta de learner acorda quem espera. Não há polling.</p>
+</section>
+<section id="diagrama"><h2>2. Diagrama</h2>
+<h3>Comportamento do gate a cada evento</h3>
+<div class="diagrama"><pre class="mermaid">flowchart TD
+    EV[&quot;Evento na líder do shard&quot;] --&gt; TIPO{&quot;Que evento?&quot;}
+    TIPO --&gt;|&quot;commit do Raft avançou&quot;| CALC
+    TIPO --&gt;|&quot;resposta de learner Azure&quot;| R1{&quot;É MsgAppResp sem rejeição, de um id da lista de learners?&quot;}
+    R1 --&gt;|&quot;não, ou é heartbeat&quot;| IGN[&quot;Ignora: não conta como progresso&quot;]
+    R1 --&gt;|&quot;sim&quot;| R2{&quot;Termo da resposta = termo atual da líder?&quot;}
+    R2 --&gt;|&quot;não&quot;| IGN
+    R2 --&gt;|&quot;sim&quot;| R3[&quot;Guarda o índice do learner, que só sobe; o learner só responde depois do fsync&quot;]
+    R3 --&gt; CALC
+    TIPO --&gt;|&quot;líder nova eleita&quot;| NOVA[&quot;Descarta o progresso dos learners do termo anterior; gate mantém o valor e fica não pronto&quot;]
+    NOVA --&gt; CALC
+    CALC{&quot;Modo degradado com lease válido?&quot;} --&gt;|&quot;sim, só com accept&quot;| DEG[&quot;candidato = commit do Raft&quot;]
+    CALC --&gt;|&quot;não&quot;| MAJ[&quot;maioriaAzure = 2º maior índice dos learners no termo atual&quot;]
+    MAJ --&gt; CAND[&quot;candidato = min(commit do Raft, maioriaAzure)&quot;]
+    DEG --&gt; MONO
+    CAND --&gt; MONO[&quot;gate = max(gate, candidato)&quot;]
+    MONO --&gt; PRONTO{&quot;Gate pronto? 2 learners confirmaram no termo atual, ou modo sem Azure&quot;}
+    PRONTO --&gt;|&quot;não&quot;| ESPERA[&quot;Sem ACK, sem applier, leitura forte com 503 GATE_NOT_READY&quot;]
+    PRONTO --&gt;|&quot;sim&quot;| AV{&quot;O gate avançou?&quot;}
+    AV --&gt;|&quot;não&quot;| FIM[&quot;Nada a fazer; quem espera continua esperando até o prazo&quot;]
+    AV --&gt;|&quot;sim&quot;| ACORDA[&quot;Acorda quem espera índice menor ou igual ao gate&quot;]
+    ACORDA --&gt; A1[&quot;Applier grava até o gate no banco da célula&quot;]
+    ACORDA --&gt; A2[&quot;Escritas com apply feito recebem ACK&quot;]
+    ACORDA --&gt; A3[&quot;Publica o gate às outras células, G-06&quot;]</pre></div>
+<h3>Uma escrita passando pelo gate</h3>
+<div class="diagrama"><pre class="mermaid">sequenceDiagram
+    autonumber
+    participant APP as App
+    participant L as A1 líder
+    participant F as A2 e A3
+    participant Z as Z1 Z2 Z3
+    participant DB as DynamoDB da célula 1
+    APP-&gt;&gt;L: PutItem
+    L-&gt;&gt;L: valida e propõe índice 101
+    par AWS
+        L-&gt;&gt;F: AppendEntries 101
+        F-&gt;&gt;F: fsync
+        F--&gt;&gt;L: resposta, depois do fsync
+    and Azure
+        L-&gt;&gt;Z: AppendEntries 101, mesma mensagem
+        Z-&gt;&gt;Z: fsync
+        Z--&gt;&gt;L: resposta com termo e índice, depois do fsync
+    end
+    L-&gt;&gt;L: fsync próprio
+    Note over L: commitRaft = 101 quando 2 de 3 AWS têm fsync
+    Note over L: maioriaAzure = 101 quando 2 de 3 Azure têm fsync
+    Note over L: gate = min(101, 101) = 101
+    L-&gt;&gt;DB: apply condicional da entrada 101
+    L--&gt;&gt;APP: 200 OK</pre></div>
+<h3>Arquitetura geral relacionada: <a href="../../04_diagramas/D05-gate-e-quorum.md">D05 — Quórum e gate</a></h3><p class="nota">Diagrama de <code>04_diagramas/</code> escolhido pelo site como contexto; o cenário fonte não faz essa associação.</p>
+<div class="diagrama"><pre class="mermaid">flowchart LR
+    subgraph VOT[&quot;Votantes AWS&quot;]
+        A1[&quot;A1 líder, termo T&quot;]
+        A2[&quot;A2&quot;]
+        A3[&quot;A3&quot;]
+    end
+    subgraph LRN[&quot;Learners Azure, sem voto&quot;]
+        Z1[&quot;Z1&quot;]
+        Z2[&quot;Z2&quot;]
+        Z3[&quot;Z3&quot;]
+    end
+    A1 --&gt;|&quot;auto-ACK só depois do próprio fsync&quot;| RC[&quot;commit do Raft: 2 de 3 com fsync&quot;]
+    A2 --&gt; RC
+    A3 --&gt; RC
+    Z1 --&gt;|&quot;resposta do AppendEntries depois do fsync: termo, índice, identidade&quot;| AQ[&quot;2º maior índice durável no termo atual&quot;]
+    Z2 --&gt; AQ
+    Z3 --&gt; AQ
+    AQ -.-&gt;|&quot;valor de outro termo ou fora de banda: ignorado&quot;| IGN[&quot;descartado até a primeira confirmação no termo novo&quot;]
+    RC --&gt; MIN[&quot;gate = min dos dois, atualizado por evento&quot;]
+    AQ --&gt; MIN
+    MIN --&gt; MONO[&quot;monotônico: current = max de current e o novo valor&quot;]
+    DEG[&quot;Modo degradado com lease D, só accept&quot;] -.-&gt;|&quot;ignora o AQ enquanto o lease valer&quot;| MIN
+    LEASE{&quot;Lease válido? conferido a cada ACK&quot;} --&gt;|&quot;não&quot;| REJ[&quot;503 LEASE_EXPIRED&quot;]
+    MONO --&gt; ACK[&quot;libera ACK e apply&quot;]
+    MONO --&gt; RB[&quot;barreira da leitura forte: min de ReadIndex e gate&quot;]</pre></div>
+</section>
+<section id="etapas"><h2>3. Legenda e etapas</h2>
+<div class="etapas"><p>Cenários com índices concretos, do mais simples ao mais delicado.</p>
+<p>Notação: <code>A1..A3</code> votantes AWS (A1 é a líder), <code>Z1..Z3</code> learners Azure. Os números são o maior índice <strong>durável</strong> de cada réplica. Os tempos são ilustrativos.</p>
+<h3>Cenário 1 — Caminho feliz</h3>
+<p>Estado inicial: tudo em 100, gate = 100, termo 5. Chega a escrita que vira o índice 101.</p>
+<div class="tabela"><table>
+<thead>
+<tr>
+<th>t</th>
+<th>Evento</th>
+<th>commitRaft</th>
+<th>Z1/Z2/Z3</th>
+<th>maioriaAzure</th>
+<th>gate</th>
+<th>Efeito</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>0 ms</td>
+<td>A1 propõe 101</td>
+<td>100</td>
+<td>100/100/100</td>
+<td>100</td>
+<td>100</td>
+<td>escrita espera</td>
+</tr>
+<tr>
+<td>3 ms</td>
+<td>A2 faz fsync e responde</td>
+<td>101 (A2 + A1 depois do fsync dela)</td>
+<td>100/100/100</td>
+<td>100</td>
+<td>100</td>
+<td>Raft commitou, mas <strong>não ACKa</strong></td>
+</tr>
+<tr>
+<td>8 ms</td>
+<td>Z1 responde 101</td>
+<td>101</td>
+<td>101/100/100</td>
+<td>100</td>
+<td>100</td>
+<td>1 de 3 na Azure não basta</td>
+</tr>
+<tr>
+<td>9 ms</td>
+<td>Z2 responde 101</td>
+<td>101</td>
+<td>101/101/100</td>
+<td>101</td>
+<td><strong>101</strong></td>
+<td>gate anda; applier grava 101 no DynamoDB da célula 1</td>
+</tr>
+<tr>
+<td>15 ms</td>
+<td>apply termina</td>
+<td></td>
+<td></td>
+<td></td>
+<td>101</td>
+<td><strong>ACK 200</strong> ao cliente</td>
+</tr>
+</tbody>
+</table></div>
+<p>O ponto: o commit do Raft (3 ms) não é o momento do ACK. O ACK espera a Azure e o apply.</p>
+<h3>Cenário 2 — Azure atrasada (e Azure à frente do commit)</h3>
+<p>Várias escritas em voo, índices 101 a 105.</p>
+<div class="tabela"><table>
+<thead>
+<tr>
+<th>Momento</th>
+<th>commitRaft</th>
+<th>Z1/Z2/Z3</th>
+<th>maioriaAzure</th>
+<th>gate</th>
+<th>Quem é ACKado</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>a</td>
+<td>105</td>
+<td>104/101/99</td>
+<td>101</td>
+<td>101</td>
+<td>até 101</td>
+</tr>
+<tr>
+<td>b</td>
+<td>105</td>
+<td>104/103/99</td>
+<td>103</td>
+<td>103</td>
+<td>102 e 103</td>
+</tr>
+<tr>
+<td>c</td>
+<td>105</td>
+<td>105/105/99</td>
+<td>105</td>
+<td>105</td>
+<td>104 e 105</td>
+</tr>
+<tr>
+<td>d (Azure à frente)</td>
+<td>106</td>
+<td>108/107/99</td>
+<td>107</td>
+<td><strong>106</strong></td>
+<td>106; 107 e 108 esperam o commit do Raft</td>
+</tr>
+</tbody>
+</table></div>
+<p>Leitura: o gate anda no ritmo da <strong>segunda</strong> Azure mais rápida e nunca passa do commit do Raft. No momento d a Azure tem entradas que a AWS ainda não commitou; elas não contam, porque podem nunca ser commitadas (se A1 cair agora).</p>
+<h3>Cenário 3 — Uma Azure fora</h3>
+<p>Z3 cai. Z1 e Z2 seguem respondendo.</p>
+<div class="tabela"><table>
+<thead>
+<tr>
+<th>Momento</th>
+<th>commitRaft</th>
+<th>Z1/Z2/Z3</th>
+<th>maioriaAzure</th>
+<th>gate</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>a</td>
+<td>200</td>
+<td>200/200/150</td>
+<td>200</td>
+<td>200</td>
+</tr>
+<tr>
+<td>b</td>
+<td>210</td>
+<td>210/204/150</td>
+<td>204</td>
+<td>204</td>
+</tr>
+</tbody>
+</table></div>
+<p>Nada para, mas a margem acabou: o gate agora depende <strong>das duas</strong> que sobraram, e anda no ritmo da mais lenta delas (Z2). Se Z2 também cair, cai no cenário 4. Por isso a queda de uma AZ da Azure é alerta, não incidente (<a href="../fail-path/C09-queda-de-az-azure.html">C09</a>).</p>
+<h3>Cenário 4 — Link AWS↔Azure caído</h3>
+<p>Estado no instante da queda: tudo em 200, gate = 200. A AWS continua commitando.</p>
+<div class="tabela"><table>
+<thead>
+<tr>
+<th>t</th>
+<th>commitRaft</th>
+<th>Z1/Z2/Z3</th>
+<th>maioriaAzure</th>
+<th>gate</th>
+<th>O que acontece</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>0 s</td>
+<td>200</td>
+<td>200/200/200</td>
+<td>200</td>
+<td>200</td>
+<td>link cai</td>
+</tr>
+<tr>
+<td>1 s</td>
+<td>230</td>
+<td>200/200/200</td>
+<td>200</td>
+<td>200</td>
+<td>escritas 201 a 230 commitadas, <strong>sem ACK e sem apply</strong></td>
+</tr>
+<tr>
+<td>2 s (<code>DEGRADE_AFTER</code>)</td>
+<td>240</td>
+<td>parado</td>
+<td>200</td>
+<td>200</td>
+<td>decide pela <code>DEGRADED_POLICY</code></td>
+</tr>
+</tbody>
+</table></div>
+<p>Daqui em diante:</p>
+<ul>
+<li><strong><code>reject</code></strong> (recomendado para dinheiro): o gate fica em 200. Aos 7,5 s cada escrita recebe <code>503 PENDING</code>. As entradas 201 a 240 <strong>estão commitadas na AWS mas não no DynamoDB</strong>. Quando o link volta, a Azure recebe 201 a 240, a maioria Azure chega a 240, o gate anda, o applier grava e o retry do SDK encontra o resultado pelo dedupe. RPO 0, disponibilidade de escrita zero durante a queda.</li>
+<li><strong><code>accept</code></strong>: a líder propõe <code>DEGRADE</code> (índice 241). Commitado o <code>DEGRADE</code> e com lease válido, <code>gate = commitRaft</code>: as escritas pendentes são ACKadas com <code>x-dr-mode: degraded</code>. RPO &gt; 0 enquanto durar. O lease conta desde o último contato com a maioria Azure (<code>t_c</code> = 0 s), não desde o <code>DEGRADE</code>. Em <code>t_c + D</code> a AWS para sozinha: <code>503 LEASE_EXPIRED</code>. A Azure só pode ser promovida depois de <code>D + M</code>.</li>
+</ul>
+<p>E a <strong>leitura forte</strong> durante a queda (com <code>reject</code>): <code>ReadIndex = 240</code>, gate = 200, barreira = <code>min(240, 200) = 200</code>, aplicado = 200. A leitura é servida na hora com o estado de 200. Isso está correto: nenhum cliente recebeu ACK de 201 a 240, então ninguém pode esperar vê-las. É exatamente o que o ADR-049 resolveu: leitura não trava por causa da Azure.</p>
+<h3>Cenário 5 — Troca de líder (onde o termo importa)</h3>
+<p>Estado no termo 5, líder A1:</p>
+<div class="tabela"><table>
+<thead>
+<tr>
+<th></th>
+<th>commitRaft</th>
+<th>A1/A2/A3</th>
+<th>Z1/Z2/Z3</th>
+<th>maioriaAzure</th>
+<th>gate</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>antes</td>
+<td>305</td>
+<td>306/305/303</td>
+<td>306/304/300</td>
+<td>304</td>
+<td>304</td>
+</tr>
+</tbody>
+</table></div>
+<p>A1 tinha a entrada <strong>306 (termo 5)</strong>, já enviada a Z1, mas não commitada (só A1 a tinha entre os votantes). A1 morre.</p>
+<div class="tabela"><table>
+<thead>
+<tr>
+<th>Passo</th>
+<th>O que acontece</th>
+<th>gate</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td>A2 é eleita no termo 6 (log de A2 vai até 305)</td>
+<td>304, <strong>não pronto</strong></td>
+</tr>
+<tr>
+<td>2</td>
+<td>Progresso dos learners do termo 5 é descartado (G-03). O gate <strong>não zera</strong> (monotônico), mas fica parado: sem ACK, sem applier, leitura forte com <code>503 GATE_NOT_READY</code></td>
+<td>304</td>
+</tr>
+<tr>
+<td>3</td>
+<td>A2 grava a entrada vazia do termo novo, <strong>306 (termo 6)</strong>, e a envia a todos. Z1 tinha 306 do termo 5: o casamento de logs detecta conflito e Z1 troca pela 306 do termo 6 antes de responder</td>
+<td>304</td>
+</tr>
+<tr>
+<td>4</td>
+<td>A3 faz fsync: commitRaft = 306 (termo 6)</td>
+<td>304</td>
+</tr>
+<tr>
+<td>5</td>
+<td>Z1 e Z2 respondem 306 <strong>no termo 6</strong></td>
+<td><strong>306, pronto</strong></td>
+</tr>
+<tr>
+<td>6</td>
+<td>A2 volta a ACKar, aplicar e servir leitura forte</td>
+<td>306</td>
+</tr>
+</tbody>
+</table></div>
+<p>Por que não confiar no "Z1 diz que tem 306" que chega por fora, no passo 2? Porque aquela 306 era a do termo 5, de A1, que <strong>nunca foi commitada e foi apagada</strong> no passo 3. Se A2 contasse esse número, acharia que a 306 dela já estava na Azure quando não estava. Esse é o caso que o ADR-046 fecha.</p>
+<p>Os clientes que escreveram 306 (termo 5) em A1 recebem timeout ou <code>503 PENDING</code>; o retry vai para A2 e o dedupe resolve. Escritas de A1 já ACKadas (até 304) estão abaixo do gate antigo e nunca se perdem, porque o Raft garante que A2 tem tudo o que foi commitado.</p>
+<h3>Cenário 6 — POC só AWS (G-08)</h3>
+<p>Com <code>LEARNERS</code> vazia: não existe maioriaAzure, então <strong>gate = commitRaft</strong> e o gate está sempre pronto. O <code>/status</code> mostra <code>azure: "off"</code>.</p>
+<div class="tabela"><table>
+<thead>
+<tr>
+<th>t</th>
+<th>Evento</th>
+<th>commitRaft (cell_1 líder)</th>
+<th>gate cell_1</th>
+<th>commit local cell_2 / cell_3</th>
+<th>gate cell_2 / cell_3</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>0 ms</td>
+<td>propõe 101</td>
+<td>100</td>
+<td>100</td>
+<td>100 / 100</td>
+<td>100 / 100</td>
+</tr>
+<tr>
+<td>3 ms</td>
+<td>cell_2 faz fsync</td>
+<td>101</td>
+<td><strong>101</strong></td>
+<td>101 / 100</td>
+<td>100 / 100</td>
+</tr>
+<tr>
+<td>4 ms</td>
+<td>cell_1 aplica 101 e <strong>ACKa</strong></td>
+<td>101</td>
+<td>101</td>
+<td>101 / 100</td>
+<td>100 / 100</td>
+</tr>
+<tr>
+<td>5 ms</td>
+<td>publica gate 101</td>
+<td></td>
+<td></td>
+<td>101 / 100</td>
+<td><strong>101 / 100</strong> (cell_3 limitada pelo commit local)</td>
+</tr>
+<tr>
+<td>9 ms</td>
+<td>cell_3 recebe o commit</td>
+<td></td>
+<td></td>
+<td>101 / 101</td>
+<td>101 / <strong>101</strong></td>
+</tr>
+</tbody>
+</table></div>
+<p>O que a POC prova: o caminho Raft → gate → apply → ACK, a propagação do gate (G-06) e <code>aplicado &lt;= gate</code> nas três células. O que <strong>não</strong> prova: nenhuma espera pela Azure, nada dos cenários 2 a 5. Essas regras (G-01 a G-05, G-07) ficam nos testes de unidade com learners simulados (O-02).</p></div>
+</section>
+<section id="pontos"><h2>4. Pontos que precisam ser avaliados</h2>
+<p class="nota">Reescritos a partir das seções “Falhas e tratativas” e “Pontos em aberto” (e de outras seções de risco, quando existem). Em cada ponto, <b>O que a fonte define</b> vem da documentação; <b>Sugestão de encaminhamento</b> é <b>inferência do arquiteto</b>, não decisão registrada.</p>
+<article class="ponto">
+<h3><span class="num">1</span>A POC não exercita o gate segurando escrita <span class="origem">Pontos em aberto</span></h3>
+<dl>
+<dt>Contexto</dt><dd>Na POC só AWS (G-08) o gate é igual ao commit do Raft, então nunca é o gargalo. A espera pela Azure, a reconstrução na troca de líder e a faixa cinzenta não aparecem nas medições; as regras G-01 a G-05 e G-07 ficam só em teste de unidade com learners simulados.</dd>
+<dt>O que a fonte define</dt><dd class="nd-fonte">Não decidido na fonte. Pergunta 1 do <a href="X07-gate-explicado-com-exemplos.html">X07</a>: manter (1a) ou incluir um processo DR como learner simulado, com atraso injetável (1b).</dd>
+<dt class="sug">Sugestão de encaminhamento <small>(inferência, não decidida)</small></dt><dd class="sug">Adotar 1b: um learner simulado no compose prova o <code>MsgAppResp</code> virando evento no termo certo e o cenário 5 (troca de líder) de ponta a ponta, sem trazer a Azure para a POC.</dd>
+</dl>
+</article>
+<article class="ponto">
+<h3><span class="num">2</span>Canal de progresso que bloqueia pode travar o Raft do shard <span class="origem">Pontos em aberto</span></h3>
+<dl>
+<dt>Contexto</dt><dd>A G-04 manda o canal de progresso bloquear em vez de perder eventos. Se o consumidor atrasar, o laço <code>Ready</code> do Raft daquele shard bloqueia: commit, heartbeat e eleição param, e um gate lento pode derrubar a liderança.</dd>
+<dt>O que a fonte define</dt><dd class="nd-fonte">Não decidido na fonte. Pergunta 2 do <a href="X07-gate-explicado-com-exemplos.html">X07</a>: manter e medir no spike (2a) ou trocar por um último valor por learner, monotônico e sem bloqueio (2b).</dd>
+<dt class="sug">Sugestão de encaminhamento <small>(inferência, não decidida)</small></dt><dd class="sug">Adotar 2b: como o progresso só sobe, guardar o maior valor por (learner, termo) com um sinal de acordar não perde informação e nunca bloqueia o Raft. Exige ajustar a G-04.</dd>
+</dl>
+</article>
+<article class="ponto">
+<h3><span class="num">3</span>Janela sem ACK na troca de líder depende do link <span class="origem">Pontos em aberto</span></h3>
+<dl>
+<dt>Contexto</dt><dd>A líder nova só fica com o gate pronto depois de um RTT AWS-Azure mais o fsync na Azure. Com o link na faixa cinzenta nessa hora, ela fica sem gate até <code>DEGRADE_AFTER</code>; com <code>reject</code>, todas as escritas do shard respondem <code>503</code>.</dd>
+<dt>O que a fonte define</dt><dd class="">Comportamento decidido (<a href="../../03_adr/ADR-029-gate-monotonico-na-troca-de-lider.md">ADR-029</a>, <a href="../../03_adr/ADR-046-gate-so-conta-progresso-validado-pelo-raft.md">ADR-046</a>, G-07); a duração da janela não foi medida.</dd>
+<dt class="sug">Sugestão de encaminhamento <small>(inferência, não decidida)</small></dt><dd class="sug">Medir a janela no teste de caos (do fim da eleição ao primeiro ACK) com link saudável e com link lento, e somar ao RTO.</dd>
+</dl>
+</article>
+<article class="ponto">
+<h3><span class="num">4</span>ACK depende também do apply na célula da líder <span class="origem">Pontos em aberto</span></h3>
+<dl>
+<dt>Contexto</dt><dd>O ACK espera o gate e o apply na célula da líder (SG-01). Um DynamoDB lento ou com throttling nessa célula atrasa o ACK mesmo com o gate em dia, e uma entrada venenosa para o shard inteiro.</dd>
+<dt>O que a fonte define</dt><dd class="">SG-01 e AP-09 da spec da POC; entrada venenosa em <a href="../fail-path/C26-entrada-venenosa.html">C26</a> e <a href="../../03_adr/ADR-038-skip-de-entrada-venenosa-sempre-humano.md">ADR-038</a>.</dd>
+<dt class="sug">Sugestão de encaminhamento <small>(inferência, não decidida)</small></dt><dd class="sug">Expor métrica separada de tempo de gate e tempo de apply por shard, para distinguir lentidão da Azure de lentidão do banco local.</dd>
+</dl>
+</article>
+</section>
+<section id="adrs"><h2>5. ADRs relacionados</h2>
+<div class="tabela"><table><thead><tr><th>ADR</th><th>Título</th><th>Decisão resumida</th><th>Arquivo</th></tr></thead><tbody>
+<tr><td class="nw"><a href="../../03_adr/ADR-005-ack-exige-gate.md">ADR-005</a></td><td>ACK só depois do gate (Raft AWS e maioria durável Azure)</td><td>O ACK só sai quando gateIndex = min(commit Raft, maioria Azure durável) alcança o índice da escrita.</td><td><a href="../../03_adr/ADR-005-ack-exige-gate.md">ADR-005-ack-exige-gate.md</a></td></tr>
+<tr><td class="nw"><a href="../../03_adr/ADR-017-azure-learners-e-gate.md">ADR-017</a></td><td>Azure como learners, com gate</td><td>Azure como learners; gateIndex = min(commit Raft, índice durável em 2 de 3 learners) controla ACK e applier.</td><td><a href="../../03_adr/ADR-017-azure-learners-e-gate.md">ADR-017-azure-learners-e-gate.md</a></td></tr>
+<tr><td class="nw"><a href="../../03_adr/ADR-029-gate-monotonico-na-troca-de-lider.md">ADR-029</a></td><td>O gate nunca recua; líder nova reconstrói antes de ACKar</td><td>O gate nunca recua: a líder nova reconstrói o gate com os learners antes de ACKar.</td><td><a href="../../03_adr/ADR-029-gate-monotonico-na-troca-de-lider.md">ADR-029-gate-monotonico-na-troca-de-lider.md</a></td></tr>
+<tr><td class="nw"><a href="../../03_adr/ADR-044-lease-do-modo-degradado-e-promocao-da-azure.md">ADR-044</a></td><td>Modo degradado com lease: a AWS para sozinha e a Azure só promove depois de D mais margem</td><td>Modo degradado com lease D contado desde t_c; a AWS para sozinha e a Azure só promove depois de D + M.</td><td><a href="../../03_adr/ADR-044-lease-do-modo-degradado-e-promocao-da-azure.md">ADR-044-lease-do-modo-degradado-e-promocao-da-azure.md</a></td></tr>
+<tr><td class="nw"><a href="../../03_adr/ADR-046-gate-so-conta-progresso-validado-pelo-raft.md">ADR-046</a></td><td>O gate só conta progresso validado pelo Raft no termo atual</td><td>O gate só conta progresso da Azure confirmado pelo AppendEntries no termo atual.</td><td><a href="../../03_adr/ADR-046-gate-so-conta-progresso-validado-pelo-raft.md">ADR-046-gate-so-conta-progresso-validado-pelo-raft.md</a></td></tr>
+<tr><td class="nw"><a href="../../03_adr/ADR-049-barreira-da-leitura-forte-e-o-gate.md">ADR-049</a></td><td>A leitura forte espera <code>min(ReadIndex, gate)</code></td><td>A leitura forte espera min(ReadIndex, gate), obtidos da líder na mesma resposta.</td><td><a href="../../03_adr/ADR-049-barreira-da-leitura-forte-e-o-gate.md">ADR-049-barreira-da-leitura-forte-e-o-gate.md</a></td></tr>
+<tr><td class="nw"><a href="../../03_adr/ADR-056-group-commit-por-shard-e-nada-sai-antes-do-fsync.md">ADR-056</a></td><td>Group commit por shard, nada sai antes do fsync e <code>AsyncStorageWrites</code> decidido por spike</td><td>Group commit por shard sem espera fixa; nada (ACK, voto, MsgAppResp) sai antes do fsync; AsyncStorageWrites decidido pelo spike S1b.</td><td><a href="../../03_adr/ADR-056-group-commit-por-shard-e-nada-sai-antes-do-fsync.md">ADR-056-group-commit-por-shard-e-nada-sai-antes-do-fsync.md</a></td></tr>
+<tr><td class="nw"><a href="../../03_adr/ADR-057-um-unico-modo-strong-consistency.md">ADR-057</a></td><td>Um único modo: strong consistency</td><td>Um único modo, strong consistency, na escrita, na replicação e no Raft; leitura sempre forte; sem variável de modo.</td><td><a href="../../03_adr/ADR-057-um-unico-modo-strong-consistency.md">ADR-057-um-unico-modo-strong-consistency.md</a></td></tr>
+</tbody></table></div>
+<p class="nota">Lista extraída do cabeçalho “ADRs” do arquivo fonte. A decisão resumida condensa a seção “Decisão” de cada ADR.</p>
+</section>
+<section id="anexo"><h2>Anexo: texto original da fonte</h2><p class="nota">Seções do .md fonte reproduzidas sem reescrita, para conferência.</p>
+<details class="anexo"><summary>Pontos em aberto</summary><h3>Cenários ocultos</h3>
+<ol>
+<li><strong>A POC não exercita o gate segurando nada.</strong> Com gate = commit, o gate nunca é o gargalo, então a latência e o comportamento medidos na POC não dizem nada sobre a espera pela Azure, a reconstrução na troca de líder (cenário 5) nem a faixa cinzenta (<a href="../fail-path/C25-link-lento-faixa-cinzenta.html">C25</a>). Os testes de unidade provam a regra, não a integração com o <code>etcd-io/raft</code> (por exemplo, se o <code>MsgAppResp</code> do learner realmente vira evento no termo certo). Ver a pergunta 1 abaixo.</li>
+<li><strong>O canal de eventos que bloqueia (G-04) pode travar o shard.</strong> "O canal bloqueia em vez de perder" é correto para não perder progresso, mas, se quem consome o canal for lento, ele bloqueia o laço <code>Ready</code> do Raft daquele shard: commit, heartbeat e eleição ficam parados. O risco é um gate lento derrubar a liderança. Ver a pergunta 2.</li>
+<li><strong>Na troca de líder, a janela sem ACK é pelo menos um RTT AWS↔Azure mais o fsync na Azure.</strong> Se o link estiver na faixa cinzenta exatamente nessa hora, a líder nova fica sem gate pronto até <code>DEGRADE_AFTER</code>; com <code>reject</code> isso vira <code>503</code> para todas as escritas do shard. É o comportamento decidido, mas entra na conta do RTO.</li>
+<li><strong>Apply é parte do ACK.</strong> O ACK espera o gate <strong>e</strong> o apply na célula da líder (SG-01). Um DynamoDB lento ou com throttling na célula da líder atrasa o ACK mesmo com o gate em dia; uma entrada venenosa para o shard inteiro (<a href="../fail-path/C26-entrada-venenosa.html">C26</a>).</li>
+</ol>
+<h3>Perguntas para o Bruno</h3>
+<p><strong>1. A POC deve ter um learner simulado de ponta a ponta?</strong>
+- <strong>a)</strong> Manter como está: gate = commit na POC, regras da Azure só em teste de unidade.
+- <strong>b) (recomendado)</strong> Adicionar à POC um quarto processo DR como learner (sem DynamoDB, sem voto), com atraso injetável no <code>docker compose</code>. Com <code>LEARNERS=1</code> id, a maioria Azure seria "1 de 1" só para teste. Prova o <code>MsgAppResp</code> virando evento, o termo e o cenário 5 de verdade, sem trazer a Azure para a POC.</p>
+<p><strong>2. Como tratar o canal de progresso do gate quando o consumidor atrasa?</strong>
+- <strong>a)</strong> Manter o canal que bloqueia (G-04) e medir no spike se o laço <code>Ready</code> chega a travar.
+- <strong>b) (recomendado)</strong> Trocar o canal por um "último valor por learner" (variável atômica por (learner, termo) que só sobe, com um sinal de acordar). Não perde progresso, porque o progresso é monotônico e só o maior valor importa, e nunca bloqueia o Raft. Exigiria ajustar a G-04 na spec.</p></details>
+</section>
+<footer class="rodape">
+Gerado em 14/10/2026 a partir de <code>DataReplication_Versao_1/</code>. O conteúdo vem dos arquivos .md citados no código-fonte desta página;
+textos marcados como <em>sugestão</em> são inferência do arquiteto e não decisões registradas.
+</footer>
+</main>
+</div>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@11.4.1/dist/mermaid.min.js"></script>
+<script>mermaid.initialize({startOnLoad: true, theme: "neutral", securityLevel: "strict", flowchart: {htmlLabels: true, useMaxWidth: true}, sequence: {useMaxWidth: true}});</script>
+</body>
+</html>

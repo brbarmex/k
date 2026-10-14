@@ -37,12 +37,13 @@ flowchart TD
 7. **Learner que perde o disco ou é trocado:** volta com identidade nova e começa do zero. Ele deixa de contar até alcançar o índice; o gate nunca usa um índice que não esteja durável nele agora, nem herda o progresso da identidade antiga.
 8. **Entradas replicadas aos learners mas nunca commitadas:** podem existir na Azure. Na promoção, o log é escolhido por (termo, índice) e o cliente que recebeu `PENDING` trata o resultado como desconhecido (ver [X03](X03-desastre-e-promocao-da-azure.md)).
 9. **Métricas separadas:** `last_committed`, `last_azure_durable`, `last_acked`, `last_applied` e `last_reconciled`. Os nomes distinguem o que está decidido, o que está seguro na Azure, o que o cliente já viu, o que o banco já tem e o que a reconciliação já conferiu.
+10. **Exemplos passo a passo:** a regra aplicada com índices concretos (caminho feliz, Azure atrasada, uma Azure fora, link caído, troca de líder e POC só AWS) e o fluxograma do gate a cada evento estão em [X07](X07-gate-explicado-com-exemplos.md). A leitura forte com dados mock está em [X08](X08-leitura-forte-com-exemplos.md).
 
 ## Falhas e tratativas
 
 - **Líder nova sem o valor.** Janela curta sem ACK logo após a eleição (parte da meta de 3 a 4 s de C08).
 - **Learner reporta índice menor que antes.** O gate guarda o máximo; o learner volta a contar quando alcança.
-- **Azure inalcançável durante a reconstrução.** Passados `DEGRADE_AFTER`, com `accept` a líder propõe `DEGRADE` com lease (C12, [C32](../atualizados/C32-particao-e-lease-do-modo-degradado.md)); com `reject` a escrita responde `503 PENDING`.
+- **Azure inalcançável durante a reconstrução.** Passados `DEGRADE_AFTER`, com `accept` a líder propõe `DEGRADE` com lease (C12, [C32](../atualizados/C32-particao-e-lease-do-modo-degradado.md)); com `reject` a escrita responde `503 PENDING`. A leitura forte do shard também fica em `503 GATE_NOT_READY` enquanto a Azure não confirmar no termo novo (cenário T7 de [X08](X08-leitura-forte-com-exemplos.md), em avaliação).
 - **Líder nova herda um lease em curso.** Ela herda o `DEGRADE` mas não o `t_c` (último contato com a maioria Azure): trata o lease como expirado até obter contato com a Azure ou um `RENEW` ([ADR-044](../../03_adr/ADR-044-lease-do-modo-degradado-e-promocao-da-azure.md)).
 
 ## Propriedades para o modelo TLA+ (D12, ampliado pelo ADR-046)

@@ -57,6 +57,8 @@ Todo cenário tem um diagrama Mermaid, as etapas e as falhas com a tratativa. Os
 | [X04](complexos/X04-partida-recuperacao-e-dois-logs.md) | Partida, recuperação e coerência entre os dois logs | CommitPump e truncamento |
 | [X05](complexos/X05-timeouts-e-idempotencia.md) | Timeouts em cascata e idempotência do retry | Prazos em cascata e janela de dedupe |
 | [X06](complexos/X06-delete-ttl-gsi.md) | DELETE, TTL, Scan e GSI | Delete real com invariante `I-DEL`, TTL local, Query em GSI recusada |
+| [X07](complexos/X07-gate-explicado-com-exemplos.md) | O gate explicado com exemplos | Regra, quando atua e 6 cenários com índices (feliz, Azure atrasada, uma Azure fora, link caído, troca de líder, POC só AWS) |
+| [X08](complexos/X08-leitura-forte-com-exemplos.md) | Leitura forte com dados mock | Barreira min(ReadIndex, gate) passo a passo, quando a leitura trava (T1 a T7) e o cenário oculto da líder nova com a Azure fora |
 
 ## A rever (em aberto)
 
@@ -81,7 +83,7 @@ Todo cenário tem um diagrama Mermaid, as etapas e as falhas com a tratativa. Os
 
 ```mermaid
 flowchart LR
-    C["C01 a C34: atualizados"] -->|"detalham em"| X["X01 a X06: complexos"]
+    C["C01 a C34: atualizados"] -->|"detalham em"| X["X01 a X08: complexos"]
     C -->|"pontos em aberto apontam para"| R["R03 a R23: a rever"]
     X -->|"pontos em aberto apontam para"| R
     R -->|"quando decidido, vira"| A["ADR novo e cenário atualizado"]

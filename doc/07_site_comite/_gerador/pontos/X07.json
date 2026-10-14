@@ -1,0 +1,33 @@
+{
+ "id": "X07",
+ "pontos": [
+  {
+   "titulo": "A POC não exercita o gate segurando escrita",
+   "origem": "Pontos em aberto",
+   "contexto": "Na POC só AWS (G-08) o gate é igual ao commit do Raft, então nunca é o gargalo. A espera pela Azure, a reconstrução na troca de líder e a faixa cinzenta não aparecem nas medições; as regras G-01 a G-05 e G-07 ficam só em teste de unidade com learners simulados.",
+   "na_fonte": "Não decidido na fonte. Pergunta 1 do X07: manter (1a) ou incluir um processo DR como learner simulado, com atraso injetável (1b).",
+   "sugestao": "Adotar 1b: um learner simulado no compose prova o `MsgAppResp` virando evento no termo certo e o cenário 5 (troca de líder) de ponta a ponta, sem trazer a Azure para a POC."
+  },
+  {
+   "titulo": "Canal de progresso que bloqueia pode travar o Raft do shard",
+   "origem": "Pontos em aberto",
+   "contexto": "A G-04 manda o canal de progresso bloquear em vez de perder eventos. Se o consumidor atrasar, o laço `Ready` do Raft daquele shard bloqueia: commit, heartbeat e eleição param, e um gate lento pode derrubar a liderança.",
+   "na_fonte": "Não decidido na fonte. Pergunta 2 do X07: manter e medir no spike (2a) ou trocar por um último valor por learner, monotônico e sem bloqueio (2b).",
+   "sugestao": "Adotar 2b: como o progresso só sobe, guardar o maior valor por (learner, termo) com um sinal de acordar não perde informação e nunca bloqueia o Raft. Exige ajustar a G-04."
+  },
+  {
+   "titulo": "Janela sem ACK na troca de líder depende do link",
+   "origem": "Pontos em aberto",
+   "contexto": "A líder nova só fica com o gate pronto depois de um RTT AWS-Azure mais o fsync na Azure. Com o link na faixa cinzenta nessa hora, ela fica sem gate até `DEGRADE_AFTER`; com `reject`, todas as escritas do shard respondem `503`.",
+   "na_fonte": "Comportamento decidido (ADR-029, ADR-046, G-07); a duração da janela não foi medida.",
+   "sugestao": "Medir a janela no teste de caos (do fim da eleição ao primeiro ACK) com link saudável e com link lento, e somar ao RTO."
+  },
+  {
+   "titulo": "ACK depende também do apply na célula da líder",
+   "origem": "Pontos em aberto",
+   "contexto": "O ACK espera o gate e o apply na célula da líder (SG-01). Um DynamoDB lento ou com throttling nessa célula atrasa o ACK mesmo com o gate em dia, e uma entrada venenosa para o shard inteiro.",
+   "na_fonte": "SG-01 e AP-09 da spec da POC; entrada venenosa em C26 e ADR-038.",
+   "sugestao": "Expor métrica separada de tempo de gate e tempo de apply por shard, para distinguir lentidão da Azure de lentidão do banco local."
+  }
+ ]
+}

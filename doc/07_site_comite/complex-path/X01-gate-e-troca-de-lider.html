@@ -11,7 +11,7 @@
 Fonte(s) usada(s) nesta página (rastreabilidade), relativas à raiz do pacote:
   02_cenarios/complexos/X01-gate-e-troca-de-lider.md
   04_diagramas/D05-gate-e-quorum.md
-Gerado em 13/10/2026 a partir do pacote DataReplication_Versao_1.
+Gerado em 14/10/2026 a partir do pacote DataReplication_Versao_1.
 -->
 <header class="topo">
 <button class="menu" type="button" aria-label="Abrir navegação" onclick="document.body.classList.toggle('nav-aberta')">☰</button>
@@ -59,7 +59,7 @@ Gerado em 13/10/2026 a partir do pacote DataReplication_Versao_1.
 <li><a href="../fail-path/C33-reconstrucao-em-tabela-sombra.html"><b>C33</b> Reconstrução do banco de uma célula em tabela sombra</a></li>
 <li><a href="../fail-path/C34-autorizacao-por-aplicacao.html"><b>C34</b> Autorização por aplicação: mTLS e lista de permissões por identidade</a></li>
 </ul></details>
-<details class="grupo" open><summary>Complex path <span class="qtd">6</span></summary><ul>
+<details class="grupo" open><summary>Complex path <span class="qtd">8</span></summary><ul>
 <li><a class="idx" href="index.html">Índice da seção</a></li>
 <li><a class="atual" aria-current="page" href="X01-gate-e-troca-de-lider.html"><b>X01</b> Gate: definição, monotonicidade e troca de líder</a></li>
 <li><a href="X02-modo-degradado.html"><b>X02</b> Modo degradado: entrada, permanência, lease e saída</a></li>
@@ -67,6 +67,8 @@ Gerado em 13/10/2026 a partir do pacote DataReplication_Versao_1.
 <li><a href="X04-partida-recuperacao-e-dois-logs.html"><b>X04</b> Partida, recuperação e coerência entre os dois logs</a></li>
 <li><a href="X05-timeouts-e-idempotencia.html"><b>X05</b> Timeouts em cascata e idempotência do retry</a></li>
 <li><a href="X06-delete-ttl-gsi.html"><b>X06</b> DELETE, TTL, Scan e GSI</a></li>
+<li><a href="X07-gate-explicado-com-exemplos.html"><b>X07</b> O gate explicado com exemplos</a></li>
+<li><a href="X08-leitura-forte-com-exemplos.html"><b>X08</b> Leitura forte explicada com dados mock</a></li>
 </ul></details>
 <details class="grupo"><summary>Parking lot <span class="qtd">14</span></summary><ul>
 <li><a class="idx" href="../parking-lot/index.html">Índice da seção</a></li>
@@ -147,6 +149,7 @@ Gerado em 13/10/2026 a partir do pacote DataReplication_Versao_1.
 <li><strong>Learner que perde o disco ou é trocado:</strong> volta com identidade nova e começa do zero. Ele deixa de contar até alcançar o índice; o gate nunca usa um índice que não esteja durável nele agora, nem herda o progresso da identidade antiga.</li>
 <li><strong>Entradas replicadas aos learners mas nunca commitadas:</strong> podem existir na Azure. Na promoção, o log é escolhido por (termo, índice) e o cliente que recebeu <code>PENDING</code> trata o resultado como desconhecido (ver <a href="X03-desastre-e-promocao-da-azure.html">X03</a>).</li>
 <li><strong>Métricas separadas:</strong> <code>last_committed</code>, <code>last_azure_durable</code>, <code>last_acked</code>, <code>last_applied</code> e <code>last_reconciled</code>. Os nomes distinguem o que está decidido, o que está seguro na Azure, o que o cliente já viu, o que o banco já tem e o que a reconciliação já conferiu.</li>
+<li><strong>Exemplos passo a passo:</strong> a regra aplicada com índices concretos (caminho feliz, Azure atrasada, uma Azure fora, link caído, troca de líder e POC só AWS) e o fluxograma do gate a cada evento estão em <a href="X07-gate-explicado-com-exemplos.html">X07</a>. A leitura forte com dados mock está em <a href="X08-leitura-forte-com-exemplos.html">X08</a>.</li>
 </ol></div>
 </section>
 <section id="pontos"><h2>4. Pontos que precisam ser avaliados</h2>
@@ -223,7 +226,7 @@ Gerado em 13/10/2026 a partir do pacote DataReplication_Versao_1.
 <details class="anexo"><summary>Falhas e tratativas</summary><ul>
 <li><strong>Líder nova sem o valor.</strong> Janela curta sem ACK logo após a eleição (parte da meta de 3 a 4 s de C08).</li>
 <li><strong>Learner reporta índice menor que antes.</strong> O gate guarda o máximo; o learner volta a contar quando alcança.</li>
-<li><strong>Azure inalcançável durante a reconstrução.</strong> Passados <code>DEGRADE_AFTER</code>, com <code>accept</code> a líder propõe <code>DEGRADE</code> com lease (C12, <a href="../fail-path/C32-particao-e-lease-do-modo-degradado.html">C32</a>); com <code>reject</code> a escrita responde <code>503 PENDING</code>.</li>
+<li><strong>Azure inalcançável durante a reconstrução.</strong> Passados <code>DEGRADE_AFTER</code>, com <code>accept</code> a líder propõe <code>DEGRADE</code> com lease (C12, <a href="../fail-path/C32-particao-e-lease-do-modo-degradado.html">C32</a>); com <code>reject</code> a escrita responde <code>503 PENDING</code>. A leitura forte do shard também fica em <code>503 GATE_NOT_READY</code> enquanto a Azure não confirmar no termo novo (cenário T7 de <a href="X08-leitura-forte-com-exemplos.html">X08</a>, em avaliação).</li>
 <li><strong>Líder nova herda um lease em curso.</strong> Ela herda o <code>DEGRADE</code> mas não o <code>t_c</code> (último contato com a maioria Azure): trata o lease como expirado até obter contato com a Azure ou um <code>RENEW</code> (<a href="../../03_adr/ADR-044-lease-do-modo-degradado-e-promocao-da-azure.md">ADR-044</a>).</li>
 </ul></details>
 <details class="anexo"><summary>Propriedades para o modelo TLA+ (D12, ampliado pelo ADR-046)</summary><p>As propriedades P1 a P8 são as originais e mantêm a numeração. P9 em diante são as acrescentadas pela revisão de 13/10.</p>
@@ -336,7 +339,7 @@ Gerado em 13/10/2026 a partir do pacote DataReplication_Versao_1.
 </ul></details>
 </section>
 <footer class="rodape">
-Gerado em 13/10/2026 a partir de <code>DataReplication_Versao_1/</code>. O conteúdo vem dos arquivos .md citados no código-fonte desta página;
+Gerado em 14/10/2026 a partir de <code>DataReplication_Versao_1/</code>. O conteúdo vem dos arquivos .md citados no código-fonte desta página;
 textos marcados como <em>sugestão</em> são inferência do arquiteto e não decisões registradas.
 </footer>
 </main>

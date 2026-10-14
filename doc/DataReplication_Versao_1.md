@@ -188,7 +188,7 @@ Um **monolito modular** por célula (módulos `api`, `core`, log, Raft, transpor
 
 `etcd-io/raft` com camada multi-grupo própria (Dragonboat é o plano B). *Joint consensus* foi descartado porque a eleição passaria a exigir maioria Azure, contradizendo o modo degradado. O gate é uma função pequena, modelada em **TLA+ antes do código** (P1 a P8, o gate monotônico é a primeira; o modelo foi ampliado com lease, promoção entre nuvens, troca de membros, dedupe, DELETE e a barreira de leitura). O progresso da Azure **só chega pelas respostas do Raft e só conta no termo atual**; quando uma líder nova assume, ela **reconstrói** o índice da maioria Azure com progresso confirmado no termo novo antes de ACKar ([ADR-046](03_adr/ADR-046-gate-so-conta-progresso-validado-pelo-raft.md)).
 
-→ [03_consenso_raft_quorum_e_gate](01_arquitetura/03_consenso_raft_quorum_e_gate.md), [D05](04_diagramas/D05-gate-e-quorum.md), [X01](02_cenarios/complexos/X01-gate-e-troca-de-lider.md), [ADR-017](03_adr/ADR-017-azure-learners-e-gate.md), [ADR-029](03_adr/ADR-029-gate-monotonico-na-troca-de-lider.md), [ADR-030](03_adr/ADR-030-verificacao-formal-tla.md), [ADR-046](03_adr/ADR-046-gate-so-conta-progresso-validado-pelo-raft.md).
+→ [03_consenso_raft_quorum_e_gate](01_arquitetura/03_consenso_raft_quorum_e_gate.md), [D05](04_diagramas/D05-gate-e-quorum.md), [X01](02_cenarios/complexos/X01-gate-e-troca-de-lider.md), [X07](02_cenarios/complexos/X07-gate-explicado-com-exemplos.md) (exemplos com índices), [ADR-017](03_adr/ADR-017-azure-learners-e-gate.md), [ADR-029](03_adr/ADR-029-gate-monotonico-na-troca-de-lider.md), [ADR-030](03_adr/ADR-030-verificacao-formal-tla.md), [ADR-046](03_adr/ADR-046-gate-so-conta-progresso-validado-pelo-raft.md).
 
 ### 5.3 Os dois logs, o fsync e o disco
 
@@ -221,7 +221,7 @@ O `DataReplication` tem **um único modo**, sem segundo fluxo na escrita, na rep
 - **Query e Scan em GSI são recusados** ([ADR-050](03_adr/ADR-050-query-em-gsi-recusada.md)).
 - Não há variável de modo (`READ_MODE_DEFAULT` e `WRITE_MODE` não existem).
 
-→ [06_leitura_forte_escrita_serial_e_latencia](01_arquitetura/06_leitura_forte_escrita_serial_e_latencia.md), [C03](02_cenarios/atualizados/C03-escrita-strong.md), [C05](02_cenarios/atualizados/C05-leitura-strong.md), [ADR-057](03_adr/ADR-057-um-unico-modo-strong-consistency.md), [ADR-049](03_adr/ADR-049-barreira-da-leitura-forte-e-o-gate.md), [ADR-050](03_adr/ADR-050-query-em-gsi-recusada.md).
+→ [06_leitura_forte_escrita_serial_e_latencia](01_arquitetura/06_leitura_forte_escrita_serial_e_latencia.md), [C03](02_cenarios/atualizados/C03-escrita-strong.md), [C05](02_cenarios/atualizados/C05-leitura-strong.md), [X08](02_cenarios/complexos/X08-leitura-forte-com-exemplos.md) (exemplos com dados mock), [ADR-057](03_adr/ADR-057-um-unico-modo-strong-consistency.md), [ADR-049](03_adr/ADR-049-barreira-da-leitura-forte-e-o-gate.md), [ADR-050](03_adr/ADR-050-query-em-gsi-recusada.md).
 
 ### 5.6 Prazos em cascata e idempotência
 
@@ -331,7 +331,7 @@ Todos os cenários têm diagrama Mermaid. Totais: **34 atualizados**, **6 comple
 | Grupo | Quais | Observação |
 |---|---|---|
 | ✅ Atualizados | [C01 a C34](02_cenarios/INDEX.md#atualizados-modelo-v1) | Redesenhados no modelo v1 (learners, gate, dois logs, prazos). **C23 a C31** vêm das decisões de 13/10 e **C32 a C34** da revisão crítica |
-| 🧩 Complexos | [X01 a X06](02_cenarios/INDEX.md#complexos-detalhamento) | Gate e troca de líder, modo degradado, desastre e promoção, partida e dois logs, timeouts e idempotência, delete/TTL/GSI |
+| 🧩 Complexos | [X01 a X08](02_cenarios/INDEX.md#complexos-detalhamento) | Gate e troca de líder, modo degradado, desastre e promoção, partida e dois logs, timeouts e idempotência, delete/TTL/GSI, gate e leitura forte explicados com exemplos |
 | ⚠️ A rever, com proposta | [R07](02_cenarios/a_rever/R07-link-oscilando.md) | Falta decisão do Bruno |
 | 🟡 A rever, parcialmente tratados | [R03](02_cenarios/a_rever/R03-backlog-de-apply-no-cosmos.md), [R06](02_cenarios/a_rever/R06-duas-azs-aws-caem.md), [R09](02_cenarios/a_rever/R09-resincronizacao-lenta-ou-bloqueada.md), [R11](02_cenarios/a_rever/R11-api-de-promocao-depende-da-aws.md), [R12](02_cenarios/a_rever/R12-promocao-com-aws-viva.md), [R13](02_cenarios/a_rever/R13-escritas-orfas-reconciliacao.md), [R16](02_cenarios/a_rever/R16-leitura-forte-em-celulas-follower.md), [R17](02_cenarios/a_rever/R17-atributo-de-versao-e-limite-400kb.md), [R20](02_cenarios/a_rever/R20-custo-6x.md), [R22](02_cenarios/a_rever/R22-memoria-da-janela-de-dedupe.md) | Parte já coberta pelo desenho. O R06 e o R12 têm o desenho decidido (lease, ADR-044) e faltam D e a prova no TLA+ |
 | ❓ A rever, sem resolução | [R10](02_cenarios/a_rever/R10-operador-lento-no-desastre.md), [R18](02_cenarios/a_rever/R18-rto-nao-quantificado.md), [R23](02_cenarios/a_rever/R23-hipoteses-gerais.md) | Dependem do negócio ou de medição. O R18 tem o método decidido (distribuição medida em exercícios) |
@@ -375,7 +375,7 @@ A definição de pronto vale **por instalação** (uma por cliente) e é uma lis
 | Pasta | Conteúdo |
 |---|---|
 | [`01_arquitetura/`](01_arquitetura/README.md) | Detalhe de arquitetura em 10 arquivos, mais o [glossário](01_arquitetura/00_glossario.md) |
-| [`02_cenarios/`](02_cenarios/INDEX.md) | `atualizados/` (C01–C34), `complexos/` (X01–X06), `a_rever/` (14 cenários ainda sem decisão completa), cada um com diagrama |
+| [`02_cenarios/`](02_cenarios/INDEX.md) | `atualizados/` (C01–C34), `complexos/` (X01–X08), `a_rever/` (14 cenários ainda sem decisão completa), cada um com diagrama |
 | [`03_adr/`](03_adr/INDEX.md) | 54 decisões, um arquivo cada |
 | [`04_diagramas/`](04_diagramas/INDEX.md) | Diagramas de arquitetura e o catálogo de todos os 86 diagramas do pacote |
 | [`05_implementacao/`](05_implementacao/README.md) | Guia de código, exemplos compilados, structs, testes e spikes |

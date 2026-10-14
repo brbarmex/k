@@ -1,0 +1,26 @@
+{
+ "id": "X08",
+ "pontos": [
+  {
+   "titulo": "Leitura forte indisponível numa líder nova com a Azure fora (T7)",
+   "origem": "Pontos em aberto",
+   "contexto": "Com o link AWS-Azure caído, uma troca de líder deixa o gate não pronto: toda leitura forte do shard responde `503 GATE_NOT_READY` até o link voltar. A líder nova não pode usar o gate recebido da antiga porque ele pode estar abaixo de uma escrita já ACKada.",
+   "na_fonte": "Não decidido na fonte. Pergunta 3 do X08: aceitar e bloquear manutenção e transferência de líder com o link fora (3a) ou só ACKar depois de o gate chegar a 2 de 3 células AWS (3b).",
+   "sugestao": "Adotar 3a na v1, com alerta e trava operacional; reavaliar 3b com o modelo TLA+ e o custo medido de um RTT a mais dentro da AWS por escrita."
+  },
+  {
+   "titulo": "Apply lento ou parado derruba a leitura da célula",
+   "origem": "Falhas e tratativas",
+   "contexto": "A leitura espera o applier local alcançar a barreira. Com throttling no DynamoDB ela espera até 7,5 s e responde `503`; com entrada venenosa responde `503` na hora. O problema é local: outras células seguem respondendo.",
+   "na_fonte": "C05, ADR-049 item 4 e AP-07 da spec da POC.",
+   "sugestao": "Fazer o roteamento tirar a célula com `/readyz` falso das leituras e alertar pelo atraso de apply por célula."
+  },
+  {
+   "titulo": "Leitura em célula follower espera a propagação do gate",
+   "origem": "Falhas e tratativas",
+   "contexto": "A follower só aplica até `min(commit local, gate recebido)`. Logo depois de um ACK, ela espera o commit e a publicação do gate (a cada avanço ou 100 ms) antes de responder, o que soma latência à leitura do que acabei de escrever.",
+   "na_fonte": "G-06 e A.6 da spec da POC; R16.",
+   "sugestao": "Medir no spike o p99 da leitura em follower logo após a escrita e comparar com a leitura na líder."
+  }
+ ]
+}
