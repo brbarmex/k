@@ -22,6 +22,10 @@ A leitura forte esperava `applied >= ReadIndex`, com o `ReadIndex` do commit Raf
 - Requer que `applied` nunca passe do gate ([ADR-057](ADR-057-um-unico-modo-strong-consistency.md)), senão a leitura veria escrita não ACKada.
 - A leitura-do-que-escrevi continua garantida.
 
+## Atualização de 14/10/2026 (inventário dos ADRs, resposta 7a)
+
+O item 4 foi implementado na POC. Com o applier estacionado ([ADR-038](ADR-038-skip-de-entrada-venenosa-sempre-humano.md)), esperar um índice no item venenoso ou depois dele devolve na hora `ErrApplierStopped`, inclusive para quem já esperava quando o applier estacionou; índices anteriores ao item venenoso continuam sendo atendidos. A leitura forte responde `503` com `x-dr-code: APPLIER_STOPPED` e métrica `dr_reads_total{resultado="applier_stopped"}`. A escrita que espera o apply responde `503 PENDING` na hora, em vez de depois do prazo. Código: `usecase/apply.go` (`WaitApplied`, `park`), `usecase/read.go` e `adapter/in/dynamohttp/handler.go`, com testes.
+
 ## Onde está o detalhe
 
 - [C05-leitura-strong.md](../02_cenarios/atualizados/C05-leitura-strong.md)

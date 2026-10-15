@@ -20,6 +20,8 @@ Gerado em 14/10/2026 a partir do pacote DataReplication_Versao_1.
 <nav class="sidebar" aria-label="Navegação">
 <a class="marca" href="index.html">DataReplication v1<span>Comitê técnico</span></a>
 <a class="nav-inicio atual" href="index.html">Resumo e requisitos</a>
+<a class="nav-inicio" href="estado-atual.html">Estado atual</a>
+<a class="nav-inicio" href="inventario-adrs.html">Inventário dos ADRs</a>
 <details class="grupo"><summary>Success path <span class="qtd">9</span></summary><ul>
 <li><a class="idx" href="success-path/index.html">Índice da seção</a></li>
 <li><a href="success-path/C01-visao-geral.html"><b>C01</b> Visão geral da arquitetura</a></li>
@@ -93,13 +95,17 @@ Gerado em 14/10/2026 a partir do pacote DataReplication_Versao_1.
 
 <h1>DataReplication v1</h1>
 <p class="lead">Camada intermediária entre a aplicação e o banco que só confirma a escrita depois de o dado estar
-durável na AWS (DynamoDB) e na Azure (Cosmos DB). Estado da documentação: 14/10/2026, com as decisões da revisão crítica (ADR-044 a ADR-054), o log de replicação segmentado (ADR-055), o group commit por shard (ADR-056), o apply paralelo por chave (ADR-058), o checkpoint sem trava (ADR-059) e o laço do Raft que nunca espera o apply, depois do teste de carga da POC (ADR-060).</p>
+durável na AWS (DynamoDB) e na Azure (Cosmos DB). Estado da documentação: 14/10/2026, com as decisões da revisão crítica (ADR-044 a ADR-054), o log de replicação segmentado (ADR-055), o group commit por shard (ADR-056), o apply paralelo por chave (ADR-058), o checkpoint sem trava (ADR-059) e o laço do Raft que nunca espera o apply, depois do teste de carga da POC (ADR-060); ADR-061 descartado e ADR-062 e ADR-063 pendentes. As regras vigentes estão consolidadas no Estado atual.</p>
 <div class="kpis">
 <div><b>RPO = 0</b><span>em operação normal</span></div>
 <div><b>RTO = Delta-T</b><span>sem número: não decidido na fonte</span></div>
 <div><b>~3.000 TPS</b><span>PutItem e BatchWriteItem</span></div>
 <div><b>P99 ≤ 50 ms</b><span>overhead, sem a escrita no banco</span></div>
 </div>
+<div class="caixa destaque"><h3>Primeira leitura: <a href="estado-atual.html">Estado atual</a></h3>
+<p><a href="#como-funciona">Como funciona a escrita e a leitura</a> · <a href="#cenarios-por-assunto">Cenários por assunto</a></p>
+<p>Como o sistema é hoje, em cerca de 15 minutos: invariantes de segurança, regras vigentes por tema com o status de cada uma na POC,
+o que mudou e o que está em aberto. O <a href="inventario-adrs.html">inventário dos ADRs</a> traz o status efetivo de cada decisão e as contradições a decidir.</p></div>
 <nav class="cartoes secoes" aria-label="Seções do site"><a class="cartao secao success-path" href="success-path/index.html"><span class="t">Success path</span><span class="st">9 páginas</span><span class="r">Fluxos em regime normal, sem falha.</span></a><a class="cartao secao fail-path" href="fail-path/index.html"><span class="t">Fail path</span><span class="st">24 páginas</span><span class="r">Falhas e degradações com tratamento decidido.</span></a><a class="cartao secao complex-path" href="complex-path/index.html"><span class="t">Complex path</span><span class="st">8 páginas</span><span class="r">Cenários compostos e aprofundados.</span></a><a class="cartao secao parking-lot" href="parking-lot/index.html"><span class="t">Parking lot</span><span class="st">14 páginas</span><span class="r">Riscos e questões ainda sem decisão fechada.</span></a></nav>
 
 <section id="resumo"><h2>Resumo executivo</h2>
@@ -132,6 +138,67 @@ durável na AWS (DynamoDB) e na Azure (Cosmos DB). Estado da documentação: 14/
 <li><strong>Se a Azure ou o link cair</strong>, a política da instalação decide (<a href="../03_adr/ADR-045-politica-de-degradacao-por-instalacao.md">ADR-045</a>). Com <code>DEGRADED_POLICY=accept</code>, após 2 s a líder propõe <code>DEGRADE</code> com <strong>validade D</strong>: a AWS segue sozinha (<strong>RPO &gt; 0</strong>) sinalizando <code>x-dr-mode: degraded</code> e <strong>para sozinha ao fim de D</strong>. Com <code>reject</code>, as escritas falham e o RPO é 0 sempre. A Azure <strong>nunca se promove sozinha</strong>: a promoção é humana e só é aceita depois de D + M (<a href="../03_adr/ADR-044-lease-do-modo-degradado-e-promocao-da-azure.md">ADR-044</a>).</li>
 </ol>
 <p>Detalhe: <a href="../04_diagramas/D01-visao-do-sistema.md">D01</a>, <a href="success-path/C01-visao-geral.html">C01</a>, <a href="success-path/C02-dentro-da-celula.html">C02</a>.</p>
+</section>
+
+<section id="como-funciona"><h2>Como funciona: escrita, estados do shard e leitura</h2>
+<p class="nota">Seção 6 do documento principal. As regras completas, com as invariantes de segurança e o status de cada uma na POC,
+estão no <a href="estado-atual.html">Estado atual</a> (seções 2, 3.2 e 3.3).</p>
+<h3>6.1 Escrita (modo Strong)</h3>
+<div class="diagrama"><pre class="mermaid">flowchart TD
+    A[&quot;App chama PutItem no DataReplication&quot;] --&gt; B[&quot;Parse, validação, nome lógico da tabela, dedupe&quot;]
+    B --&gt; C{&quot;Esta célula é a líder?&quot;}
+    C --&gt;|&quot;não&quot;| D[&quot;Encaminha à líder, um salto&quot;]
+    C --&gt;|&quot;sim&quot;| AD{&quot;Admissão: apply local e buffer do Raft em dia?&quot;}
+    D --&gt; AD
+    AD --&gt;|&quot;não&quot;| T[&quot;400 ThrottlingException: nada entrou no log, o SDK repete&quot;]
+    AD --&gt;|&quot;sim&quot;| E[&quot;Propose no Raft: 2 de 3 votantes AWS com fsync&quot;]
+    E --&gt; F[&quot;Learners Azure: 2 de 3 com fsync&quot;]
+    F --&gt; G[&quot;Gate alcança o índice&quot;]
+    G --&gt; H[&quot;Applier grava no banco da célula da líder, em paralelo por chave&quot;]
+    H --&gt; L{&quot;Lease válido, se degradado?&quot;}
+    L --&gt;|&quot;sim&quot;| I[&quot;ACK ao cliente, com header se estiver degradado&quot;]
+    L --&gt;|&quot;não&quot;| M[&quot;503 LEASE_EXPIRED&quot;]
+    G -.-&gt;|&quot;Azure inalcançável por 2 s e política accept&quot;| J[&quot;DEGRADE com validade D: gate usa só o commit Raft&quot;]
+    G -.-&gt;|&quot;Azure inalcançável e política reject&quot;| K[&quot;503 PENDING: sem ACK, RPO 0&quot;]
+    J --&gt; H</pre></div>
+<p>Detalhe: <a href="success-path/C03-escrita-strong.html">C03</a> (escrita), <a href="success-path/C06-follower-encaminha.html">C06</a> (follower), <a href="fail-path/C32-particao-e-lease-do-modo-degradado.html">C32</a> (partição e lease), <a href="complex-path/X07-gate-explicado-com-exemplos.html">X07</a> (gate com exemplos). A admissão é do <a href="../03_adr/ADR-060-laco-do-raft-nunca-espera-o-apply-e-admissao-por-atraso.md">ADR-060</a> e do <a href="../03_adr/ADR-056-group-commit-por-shard-e-nada-sai-antes-do-fsync.md">ADR-056</a>. Regras e invariantes: <a href="estado-atual.html">Estado atual</a>, seção 3.2.</p>
+<h3>6.2 Estados do shard</h3>
+<div class="diagrama"><pre class="mermaid">stateDiagram-v2
+    [*] --&gt; Normal
+    Normal --&gt; Degradado: Azure ou link inalcançável por 2 s, política accept
+    Degradado --&gt; Parado: lease D expirou
+    Parado --&gt; Degradado: renovação humana
+    Degradado --&gt; Ressincronizando: Azure volta
+    Parado --&gt; Ressincronizando: Azure volta
+    Ressincronizando --&gt; Normal: lag baixo e estável, RESTORE
+    Normal --&gt; PromovidoAzure: AWS perdida, promoção humana
+    Degradado --&gt; PromovidoAzure: AWS perdida, perda declarada, só depois de D + M
+    Parado --&gt; PromovidoAzure: AWS perdida, só depois de D + M
+    PromovidoAzure --&gt; Normal: AWS volta e failback planejado</pre></div>
+<p>Detalhe: <a href="fail-path/C17-maquina-de-estados.html">C17</a>, <a href="../04_diagramas/D06-estados-do-shard-e-do-no.md">D06</a>.</p>
+<h3>6.3 Leitura forte</h3>
+<p>Toda leitura é forte; não há leitura eventual nem consulta por GSI. A célula, líder ou não, pede à líder o <code>ReadIndex</code> e o gate na mesma resposta, espera o próprio banco ter aplicado até <code>min(ReadIndex, gate)</code> e só então lê. Assim a leitura nunca devolve estado anterior a uma escrita confirmada nem uma escrita ainda não confirmada, e uma Azure lenta não atrasa a leitura.</p>
+<div class="diagrama"><pre class="mermaid">flowchart TD
+    A[&quot;App chama GetItem ou Scan na tabela base&quot;] --&gt; GSI{&quot;Usa IndexName de GSI?&quot;}
+    GSI --&gt;|&quot;sim&quot;| V[&quot;400 ValidationException&quot;]
+    GSI --&gt;|&quot;não&quot;| L{&quot;Líder conhecida em até 1 s?&quot;}
+    L --&gt;|&quot;não&quot;| NL[&quot;503 NO_LEADER&quot;]
+    L --&gt;|&quot;sim&quot;| GR{&quot;Gate da líder pronto no termo atual?&quot;}
+    GR --&gt;|&quot;não&quot;| GNR[&quot;503 GATE_NOT_READY&quot;]
+    GR --&gt;|&quot;sim&quot;| B[&quot;Barreira: ReadIndex R e gate G da líder, na mesma resposta&quot;]
+    B --&gt; W{&quot;Banco local aplicou até min de R e G?&quot;}
+    W --&gt;|&quot;ainda não&quot;| E[&quot;Espera o applier, até o prazo de 7,5 s&quot;]
+    E --&gt; W
+    E -.-&gt;|&quot;prazo vencido&quot;| RT[&quot;503 READ_TIMEOUT&quot;]
+    E -.-&gt;|&quot;applier parado num item venenoso&quot;| AS[&quot;503 APPLIER_STOPPED, na hora&quot;]
+    W --&gt;|&quot;sim&quot;| R[&quot;Lê o banco da própria célula e responde, sem _dr_v&quot;]</pre></div>
+<p>Detalhe: <a href="success-path/C05-leitura-strong.html">C05</a> (leitura), <a href="complex-path/X08-leitura-forte-com-exemplos.html">X08</a> (leitura forte com exemplos), <a href="parking-lot/R16-leitura-forte-em-celulas-follower.html">R16</a> (custo na follower). Decisões: <a href="../03_adr/ADR-049-barreira-da-leitura-forte-e-o-gate.md">ADR-049</a>, <a href="../03_adr/ADR-050-query-em-gsi-recusada.md">ADR-050</a>, <a href="../03_adr/ADR-057-um-unico-modo-strong-consistency.md">ADR-057</a>. Regras e invariantes: <a href="estado-atual.html">Estado atual</a>, seção 3.3.</p>
+</section>
+
+<section id="cenarios-por-assunto"><h2>Cenários por assunto</h2>
+<p class="nota">Os mesmos cenários das quatro seções do site, agrupados pelo que explicam. A etiqueta <b>em aberto</b> marca os cenários do
+parking lot, ainda sem decisão fechada.</p>
+<div class="assuntos"><div class="assunto"><h3>Escrita</h3><p class="nota">Do PutItem ao ACK: encaminhamento, admissão, gate, apply, prazos e lote.</p><ul><li><a href="success-path/C03-escrita-strong.html"><b>C03</b> Caminho feliz: escrita (apply depois do gate, paralelo por chave)</a></li><li><a href="success-path/C06-follower-encaminha.html"><b>C06</b> Requisição chega numa célula que não é a líder</a></li><li><a href="fail-path/C07-timeout-depois-do-commit.html"><b>C07</b> Prazo estoura depois do commit, antes do ACK (retry do SDK)</a></li><li><a href="success-path/C23-batchwriteitem-lote-uma-entrada.html"><b>C23</b> BatchWriteItem: o lote é uma entrada e o apply é por item (antes R15)</a></li><li><a href="fail-path/C24-orcamento-de-50ms-e-escrita-no-dynamodb.html"><b>C24</b> Orçamento de 50 ms e a escrita no DynamoDB dentro do ACK (antes R21)</a></li><li><a href="fail-path/C27-encaminhamento-sem-lider-conhecida.html"><b>C27</b> Loop de encaminhamento e espera pela líder durante a eleição (antes R05)</a></li><li><a href="complex-path/X05-timeouts-e-idempotencia.html"><b>X05</b> Timeouts em cascata e idempotência do retry</a></li><li><a href="complex-path/X07-gate-explicado-com-exemplos.html"><b>X07</b> O gate explicado com exemplos</a></li><li><a href="parking-lot/R22-memoria-da-janela-de-dedupe.html"><b>R22</b> Memória da janela de dedupe</a> <span class="selo parking-lot">em aberto</span></li></ul></div><div class="assunto"><h3>Leitura forte</h3><p class="nota">Barreira min(ReadIndex, gate), leitura em qualquer célula e erros da leitura.</p><ul><li><a href="success-path/C05-leitura-strong.html"><b>C05</b> Caminho feliz: leitura strong</a></li><li><a href="complex-path/X08-leitura-forte-com-exemplos.html"><b>X08</b> Leitura forte explicada com dados mock</a></li><li><a href="parking-lot/R16-leitura-forte-em-celulas-follower.html"><b>R16</b> Leitura forte em células follower (ReadIndex e gate)</a> <span class="selo parking-lot">em aberto</span></li></ul></div><div class="assunto"><h3>Liderança, gate e quórum</h3><p class="nota">Eleição, troca de líder, transferência planejada e estados do shard.</p><ul><li><a href="complex-path/X01-gate-e-troca-de-lider.html"><b>X01</b> Gate: definição, monotonicidade e troca de líder</a></li><li><a href="fail-path/C08-queda-de-celula-lider-ou-az-aws.html"><b>C08</b> Queda da célula líder ou de uma AZ na AWS</a></li><li><a href="success-path/C11-transferencia-planejada.html"><b>C11</b> Transferência planejada de liderança (manutenção)</a></li><li><a href="fail-path/C17-maquina-de-estados.html"><b>C17</b> Máquina de estados dos modos de operação de um shard</a></li><li><a href="parking-lot/R06-duas-azs-aws-caem.html"><b>R06</b> Duas AZs da AWS caem com a Azure saudável</a> <span class="selo parking-lot">em aberto</span></li></ul></div><div class="assunto"><h3>Logs, disco e falhas do nó</h3><p class="nota">Os dois logs, fsync, partida, recuperação e banco lento.</p><ul><li><a href="fail-path/C13-ressincronizacao-da-azure.html"><b>C13</b> Ressincronização da Azure</a></li><li><a href="success-path/C18-partida-e-recuperacao-do-no.html"><b>C18</b> Partida, recuperação e parada limpa do nó</a></li><li><a href="fail-path/C19-falha-do-datareplication.html"><b>C19</b> O DataReplication da célula cai ou reinicia</a></li><li><a href="fail-path/C21-disco-fsync-e-reconstrucao.html"><b>C21</b> Falha de fsync, corrupção, disco lento e disco perdido</a></li><li><a href="fail-path/C29-disco-do-log-em-degradacao-longa.html"><b>C29</b> Disco do log esgota durante uma degradação longa (antes R08)</a></li><li><a href="fail-path/C35-banco-lento-nao-derruba-a-lideranca.html"><b>C35</b> Banco lento numa célula não derruba a liderança</a></li><li><a href="complex-path/X04-partida-recuperacao-e-dois-logs.html"><b>X04</b> Partida, recuperação e coerência entre os dois logs</a></li><li><a href="parking-lot/R09-resincronizacao-lenta-ou-bloqueada.html"><b>R09</b> Ressincronização da Azure lenta ou que nunca termina</a> <span class="selo parking-lot">em aberto</span></li></ul></div><div class="assunto"><h3>Azure, link e modo degradado</h3><p class="nota">Faixa cinzenta, DEGRADE com lease, política reject e ressincronização.</p><ul><li><a href="fail-path/C09-queda-de-az-azure.html"><b>C09</b> Queda de uma AZ na Azure</a></li><li><a href="fail-path/C12-modo-degradado.html"><b>C12</b> Link AWS↔Azure cai ou Azure cai: modo degradado com lease</a></li><li><a href="fail-path/C25-link-lento-faixa-cinzenta.html"><b>C25</b> Link lento ou saturado (faixa cinzenta): só alertar (antes R01)</a></li><li><a href="fail-path/C32-particao-e-lease-do-modo-degradado.html"><b>C32</b> Partição entre AWS e Azure: lease do modo degradado e promoção da Azure</a></li><li><a href="complex-path/X02-modo-degradado.html"><b>X02</b> Modo degradado: entrada, permanência, lease e saída</a></li><li><a href="parking-lot/R03-backlog-de-apply-no-cosmos.html"><b>R03</b> Backlog de apply no Cosmos (429 e RU insuficiente)</a> <span class="selo parking-lot">em aberto</span></li><li><a href="parking-lot/R07-link-oscilando.html"><b>R07</b> Link oscilando (flapping)</a> <span class="selo parking-lot">em aberto</span></li></ul></div><div class="assunto"><h3>Desastre e promoção da Azure</h3><p class="nota">Perda da AWS, promoção humana depois de D + M, retorno e órfãs.</p><ul><li><a href="fail-path/C14-aws-cai-sem-degradacao.html"><b>C14</b> AWS cai por inteiro sem degradação prévia</a></li><li><a href="fail-path/C15-aws-cai-em-degradacao.html"><b>C15</b> AWS cai durante o modo degradado</a></li><li><a href="fail-path/C16-aws-volta-apos-promocao.html"><b>C16</b> AWS volta depois da promoção da Azure</a></li><li><a href="fail-path/C30-aws-que-volta-boot-cercado.html"><b>C30</b> Fencing: o DynamoDB e o applier da AWS que voltam depois da promoção (antes R14)</a></li><li><a href="complex-path/X03-desastre-e-promocao-da-azure.html"><b>X03</b> Desastre: promoção da Azure, fencing e reconciliação</a></li><li><a href="parking-lot/R10-operador-lento-no-desastre.html"><b>R10</b> Tempo de decisão humana no desastre</a> <span class="selo parking-lot">em aberto</span></li><li><a href="parking-lot/R11-api-de-promocao-depende-da-aws.html"><b>R11</b> A API de promoção depende de algo que estava na AWS</a> <span class="selo parking-lot">em aberto</span></li><li><a href="parking-lot/R12-promocao-com-aws-viva.html"><b>R12</b> Promoção da Azure com a AWS viva (split-brain, PEND-01)</a> <span class="selo parking-lot">em aberto</span></li><li><a href="parking-lot/R13-escritas-orfas-reconciliacao.html"><b>R13</b> Escritas órfãs: reconciliação depois da promoção (PEND-03)</a> <span class="selo parking-lot">em aberto</span></li><li><a href="parking-lot/R18-rto-nao-quantificado.html"><b>R18</b> RTO (Delta-T) ainda sem número</a> <span class="selo parking-lot">em aberto</span></li></ul></div><div class="assunto"><h3>Dados: DELETE, TTL, item venenoso e rebuild</h3><p class="nota">Versão, DELETE real, TTL local, SKIP por item e tabela sombra.</p><ul><li><a href="fail-path/C26-entrada-venenosa.html"><b>C26</b> Entrada venenosa: um item que o banco recusa para sempre (antes R02)</a></li><li><a href="fail-path/C33-reconstrucao-em-tabela-sombra.html"><b>C33</b> Reconstrução do banco de uma célula em tabela sombra</a></li><li><a href="complex-path/X06-delete-ttl-gsi.html"><b>X06</b> DELETE, TTL, Scan e GSI</a></li><li><a href="parking-lot/R17-atributo-de-versao-e-limite-400kb.html"><b>R17</b> Atributo de versão: limite de 400 KB e ausência nas respostas</a> <span class="selo parking-lot">em aberto</span></li></ul></div><div class="assunto"><h3>Implantação, segurança e API</h3><p class="nota">Célula, instalação por cliente, mTLS, bypass, SDKs e custo.</p><ul><li><a href="success-path/C01-visao-geral.html"><b>C01</b> Visão geral da arquitetura</a></li><li><a href="success-path/C02-dentro-da-celula.html"><b>C02</b> Dentro da célula: apps do cliente e DataReplication</a></li><li><a href="fail-path/C10-celulas-de-app-aws-fora.html"><b>C10</b> Apps da AWS fora, replicação viva: tráfego vai para a Azure</a></li><li><a href="fail-path/C20-bypass-de-escrita-direta.html"><b>C20</b> Aplicação escreve direto no banco (bypass)</a></li><li><a href="fail-path/C22-cliente-com-sdk-nao-suportado.html"><b>C22</b> Cliente com SDK ou versão não suportada</a></li><li><a href="success-path/C31-implantacao-por-cliente-e-identidade.html"><b>C31</b> Uma instalação por cliente e identificação na API (antes R19)</a></li><li><a href="fail-path/C34-autorizacao-por-aplicacao.html"><b>C34</b> Autorização por aplicação: mTLS e lista de permissões por identidade</a></li><li><a href="parking-lot/R20-custo-6x.html"><b>R20</b> Custo: cada escrita lógica vira seis gravações</a> <span class="selo parking-lot">em aberto</span></li><li><a href="parking-lot/R23-hipoteses-gerais.html"><b>R23</b> Hipóteses gerais em aberto</a> <span class="selo parking-lot">em aberto</span></li></ul></div></div>
 </section>
 
 <section id="requisitos"><h2>Requisitos e capabilities</h2>

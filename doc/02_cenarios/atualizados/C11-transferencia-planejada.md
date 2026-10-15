@@ -40,7 +40,7 @@ sequenceDiagram
 1. **Pedido:** o Agent pede a transferência para A2. Fase 0 confere trava por shard, cooldown, quórum e votante substituto (add-then-remove).
 2. **Fase 1:** A2 alcança o log e o apply até o lag ficar abaixo do limiar, sem pausa.
 3. **Fase 2:** A1 enfileira escritas novas, replica até L e envia `TimeoutNow`; A2 vence a eleição no termo T+1 e grava o no-op.
-4. **Fase 3:** as escritas voltam em A2 e a fila é reenviada; o dedupe evita duplicação. A2 reconstrói o gate (ADR-029) só com respostas do termo T+1 (ADR-046) e abre as leituras fortes depois disso.
+4. **Fase 3:** A2 volta a aceitar escritas e a fila é reenviada; o dedupe evita duplicação. A2 só **confirma** depois de reconstruir o gate (ADR-029) com respostas do termo T+1 (ADR-046) e de aplicar no próprio banco (ADR-057); as leituras fortes abrem depois do gate reconstruído (ADR-049). A líder antiga não precisa de fencing no banco: sem quórum no termo T+1 ela não commita, e nada é aplicado antes do gate (ADR-013, revisado em 14/10).
 5. **Fase 4:** o Agent roteia para A2; A1 vira follower e entra em manutenção.
 
 ## Falhas e tratativas

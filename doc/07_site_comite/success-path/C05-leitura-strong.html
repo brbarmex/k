@@ -21,6 +21,8 @@ Gerado em 14/10/2026 a partir do pacote DataReplication_Versao_1.
 <nav class="sidebar" aria-label="Navegação">
 <a class="marca" href="../index.html">DataReplication v1<span>Comitê técnico</span></a>
 <a class="nav-inicio" href="../index.html">Resumo e requisitos</a>
+<a class="nav-inicio" href="../estado-atual.html">Estado atual</a>
+<a class="nav-inicio" href="../inventario-adrs.html">Inventário dos ADRs</a>
 <details class="grupo" open><summary>Success path <span class="qtd">9</span></summary><ul>
 <li><a class="idx" href="index.html">Índice da seção</a></li>
 <li><a href="C01-visao-geral.html"><b>C01</b> Visão geral da arquitetura</a></li>
@@ -92,7 +94,7 @@ Gerado em 14/10/2026 a partir do pacote DataReplication_Versao_1.
 <main>
 <div class="migalhas"><a href="../index.html">Início</a> / <a href="index.html">Success path</a> / C05</div>
 <h1>C05 — Caminho feliz: leitura strong</h1>
-<div class="meta"><span class="selo success-path">Success path</span><div><b>Status na fonte:</b> ✅ Atualizado (modo único strong, 13/10/2026)</div></div>
+<div class="meta"><span class="selo success-path">Success path</span><div><b>Status na fonte:</b> ✅ Atualizado (modo único strong, 13/10/2026; falha rápida com o applier parado em 14/10/2026)</div></div>
 <section id="visao-geral"><h2>1. Visão geral do cenário</h2>
 <p>O <code>DataReplication</code> tem um único modo, strong consistency (<a href="../../03_adr/ADR-057-um-unico-modo-strong-consistency.md">ADR-057</a>). As aplicações enviam <code>ConsistentRead=true</code>; uma leitura de tabela base que chegue sem o parâmetro é servida da mesma forma, porque não há outro caminho. A leitura pede à líder o <strong>ReadIndex e o gate</strong> e espera o <code>appliedIndex</code> local alcançar <strong><code>min(ReadIndex, gate)</code></strong>. Um cliente só pode ter visto escritas já ACKadas, e toda escrita ACKada está abaixo do gate, então a leitura-do-que-escrevi continua garantida <strong>sem depender da saúde da Azure</strong>. <code>Query</code> em GSI é recusada (<a href="../../03_adr/ADR-050-query-em-gsi-recusada.md">ADR-050</a>).</p>
 </section>
@@ -223,24 +225,24 @@ Gerado em 14/10/2026 a partir do pacote DataReplication_Versao_1.
 </article>
 </section>
 <section id="adrs"><h2>5. ADRs relacionados</h2>
-<div class="tabela"><table><thead><tr><th>ADR</th><th>Título</th><th>Decisão resumida</th><th>Arquivo</th></tr></thead><tbody>
-<tr><td class="nw"><a href="../../03_adr/ADR-057-um-unico-modo-strong-consistency.md">ADR-057</a></td><td>Um único modo: strong consistency</td><td>Um único modo, strong consistency, na escrita, na replicação e no Raft; leitura sempre forte; sem variável de modo.</td><td><a href="../../03_adr/ADR-057-um-unico-modo-strong-consistency.md">ADR-057-um-unico-modo-strong-consistency.md</a></td></tr>
-<tr><td class="nw"><a href="../../03_adr/ADR-049-barreira-da-leitura-forte-e-o-gate.md">ADR-049</a></td><td>A leitura forte espera <code>min(ReadIndex, gate)</code></td><td>A leitura forte espera min(ReadIndex, gate), obtidos da líder na mesma resposta.</td><td><a href="../../03_adr/ADR-049-barreira-da-leitura-forte-e-o-gate.md">ADR-049-barreira-da-leitura-forte-e-o-gate.md</a></td></tr>
-<tr><td class="nw"><a href="../../03_adr/ADR-050-query-em-gsi-recusada.md">ADR-050</a></td><td><code>Query</code> em GSI é recusada</td><td>Toda Query ou Scan em GSI é recusada com 400 (ValidationException); a tabela sombra nasce sem GSI.</td><td><a href="../../03_adr/ADR-050-query-em-gsi-recusada.md">ADR-050-query-em-gsi-recusada.md</a></td></tr>
-<tr><td class="nw"><a href="../../03_adr/ADR-024-delete-real-ttl-local-gsi.md">ADR-024</a></td><td>DELETE real com ordem por chave; TTL local; GSI</td><td>DELETE real com ordem por chave; TTL expira local em cada célula; Query em GSI recusada (<a href="../../03_adr/ADR-050-query-em-gsi-recusada.md">ADR-050</a>).</td><td><a href="../../03_adr/ADR-024-delete-real-ttl-local-gsi.md">ADR-024-delete-real-ttl-local-gsi.md</a></td></tr>
-<tr><td class="nw"><a href="../../03_adr/ADR-046-gate-so-conta-progresso-validado-pelo-raft.md">ADR-046</a></td><td>O gate só conta progresso validado pelo Raft no termo atual</td><td>O gate só conta progresso da Azure confirmado pelo AppendEntries no termo atual.</td><td><a href="../../03_adr/ADR-046-gate-so-conta-progresso-validado-pelo-raft.md">ADR-046-gate-so-conta-progresso-validado-pelo-raft.md</a></td></tr>
+<div class="tabela"><table><thead><tr><th>ADR</th><th>Título</th><th>Status efetivo</th><th>Decisão resumida</th><th>Arquivo</th></tr></thead><tbody>
+<tr><td class="nw"><a href="../../03_adr/ADR-057-um-unico-modo-strong-consistency.md">ADR-057</a></td><td>Um único modo: strong consistency</td><td><span class="ef ef-ok">Vigente, complementado</span></td><td>Um único modo, strong consistency, na escrita, na replicação e no Raft; leitura sempre forte; sem variável de modo.</td><td><a href="../../03_adr/ADR-057-um-unico-modo-strong-consistency.md">ADR-057-um-unico-modo-strong-consistency.md</a></td></tr>
+<tr><td class="nw"><a href="../../03_adr/ADR-049-barreira-da-leitura-forte-e-o-gate.md">ADR-049</a></td><td>A leitura forte espera <code>min(ReadIndex, gate)</code></td><td><span class="ef ef-ok">Vigente</span></td><td>A leitura forte espera min(ReadIndex, gate), obtidos da líder na mesma resposta; com o applier parado responde 503 APPLIER_STOPPED na hora.</td><td><a href="../../03_adr/ADR-049-barreira-da-leitura-forte-e-o-gate.md">ADR-049-barreira-da-leitura-forte-e-o-gate.md</a></td></tr>
+<tr><td class="nw"><a href="../../03_adr/ADR-050-query-em-gsi-recusada.md">ADR-050</a></td><td><code>Query</code> em GSI é recusada</td><td><span class="ef ef-ok">Vigente</span></td><td>Toda Query ou Scan em GSI é recusada com 400 (ValidationException); a tabela sombra nasce sem GSI.</td><td><a href="../../03_adr/ADR-050-query-em-gsi-recusada.md">ADR-050-query-em-gsi-recusada.md</a></td></tr>
+<tr><td class="nw"><a href="../../03_adr/ADR-024-delete-real-ttl-local-gsi.md">ADR-024</a></td><td>DELETE real com ordem por chave; TTL local; GSI</td><td><span class="ef ef-ok">Vigente, complementado</span></td><td>DELETE real com ordem por chave; TTL expira local em cada célula; Query em GSI recusada (<a href="../../03_adr/ADR-050-query-em-gsi-recusada.md">ADR-050</a>).</td><td><a href="../../03_adr/ADR-024-delete-real-ttl-local-gsi.md">ADR-024-delete-real-ttl-local-gsi.md</a></td></tr>
+<tr><td class="nw"><a href="../../03_adr/ADR-046-gate-so-conta-progresso-validado-pelo-raft.md">ADR-046</a></td><td>O gate só conta progresso validado pelo Raft no termo atual</td><td><span class="ef ef-ok">Vigente</span></td><td>O gate só conta progresso da Azure confirmado pelo AppendEntries no termo atual.</td><td><a href="../../03_adr/ADR-046-gate-so-conta-progresso-validado-pelo-raft.md">ADR-046-gate-so-conta-progresso-validado-pelo-raft.md</a></td></tr>
 </tbody></table></div>
-<p class="nota">Lista extraída do cabeçalho “ADRs” do arquivo fonte. A decisão resumida condensa a seção “Decisão” de cada ADR.</p>
+<p class="nota">Lista extraída do cabeçalho “ADRs” do arquivo fonte. A decisão resumida condensa a seção “Decisão” de cada ADR. <b>Status efetivo</b> vem do <a href="../inventario-adrs.html">inventário dos ADRs</a>: <b>Vigente</b> vale como está escrito; <b>Vigente, complementado</b> vale, mas outros ADRs acrescentam regras; <b>Vigente em parte</b> tem item revertido ou em conflito; <b>Sem uso</b>, <b>Substituído</b> e <b>Descartado</b> são só registro; <b>Pendente</b> aguarda decisão. A regra consolidada está no <a href="../estado-atual.html">Estado atual</a>.</p>
 </section>
 <section id="anexo"><h2>Anexo: texto original da fonte</h2><p class="nota">Seções do .md fonte reproduzidas sem reescrita, para conferência.</p>
 <details class="anexo"><summary>Falhas e tratativas</summary><ul>
 <li><strong>Líder isolada que ainda não sabe que perdeu.</strong> O ReadIndex exige quórum: sem ele a líder não responde.</li>
 <li><strong>Sem líder conhecida</strong> (eleição, partição): espera até 1 s e <code>503</code>, como a escrita (<a href="../../03_adr/ADR-039-sem-lider-conhecida-espera-ate-1s-e-503.md">ADR-039</a>).</li>
-<li><strong>Applier parado</strong> (entrada venenosa, <a href="../fail-path/C26-entrada-venenosa.html">C26</a>). O <code>appliedIndex</code> não chega ao alvo: a leitura do shard falha rápido com <code>503</code>, em vez de esperar até o prazo.</li>
+<li><strong>Applier parado</strong> (entrada venenosa, <a href="../fail-path/C26-entrada-venenosa.html">C26</a>). O <code>appliedIndex</code> não chega ao alvo: a leitura falha na hora com <code>503</code> e <code>x-dr-code: APPLIER_STOPPED</code>, em vez de esperar até o prazo, inclusive para quem já esperava quando o applier parou (<a href="../../03_adr/ADR-049-barreira-da-leitura-forte-e-o-gate.md">ADR-049</a>, item 4; implementado na POC em 14/10).</li>
+<li><strong>Prazo vence esperando o applier</strong> sem ele estar parado: <code>503 READ_TIMEOUT</code>, e o SDK repete.</li>
 <li><strong>Modo degradado:</strong> as células da Azure não alcançam a líder e recusam com <code>503</code>; nunca devolvem dado defasado.</li>
 <li><strong>Scan.</strong> A barreira vale antes de cada página, mas não há instantâneo entre páginas: dois Scans consecutivos podem divergir.</li>
 <li><strong>TTL.</strong> Cada célula expira por conta própria e com atraso; a aplicação filtra pelo atributo de TTL (<a href="../complex-path/X06-delete-ttl-gsi.html">X06</a>).</li>
-<li><strong>Prazo vence esperando o applier.</strong> Erro recuperável (o SDK retenta).</li>
 <li><strong>Líder recém-eleita com a Azure fora</strong> (cenário oculto, T7 de <a href="../complex-path/X08-leitura-forte-com-exemplos.html">X08</a>). A líder nova não fica com o gate pronto enquanto 2 learners Azure não confirmarem no termo dela: toda leitura forte do shard responde <code>503 GATE_NOT_READY</code> até o link voltar. Usar o gate recebido da líder antiga poderia esconder uma escrita já ACKada. Tratamento em avaliação (pergunta 3 de X08).</li>
 </ul></details>
 <details class="anexo"><summary>Pontos em aberto</summary><ul>

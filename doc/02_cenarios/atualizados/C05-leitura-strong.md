@@ -1,6 +1,6 @@
 # C05 — Caminho feliz: leitura strong
 
-**Status:** ✅ Atualizado (modo único strong, 13/10/2026) · **ADRs:** [ADR-057](../../03_adr/ADR-057-um-unico-modo-strong-consistency.md), [ADR-049](../../03_adr/ADR-049-barreira-da-leitura-forte-e-o-gate.md), [ADR-050](../../03_adr/ADR-050-query-em-gsi-recusada.md), [ADR-024](../../03_adr/ADR-024-delete-real-ttl-local-gsi.md), [ADR-046](../../03_adr/ADR-046-gate-so-conta-progresso-validado-pelo-raft.md)
+**Status:** ✅ Atualizado (modo único strong, 13/10/2026; falha rápida com o applier parado em 14/10/2026) · **ADRs:** [ADR-057](../../03_adr/ADR-057-um-unico-modo-strong-consistency.md), [ADR-049](../../03_adr/ADR-049-barreira-da-leitura-forte-e-o-gate.md), [ADR-050](../../03_adr/ADR-050-query-em-gsi-recusada.md), [ADR-024](../../03_adr/ADR-024-delete-real-ttl-local-gsi.md), [ADR-046](../../03_adr/ADR-046-gate-so-conta-progresso-validado-pelo-raft.md)
 
 ## Cenário
 
@@ -45,11 +45,11 @@ sequenceDiagram
 
 - **Líder isolada que ainda não sabe que perdeu.** O ReadIndex exige quórum: sem ele a líder não responde.
 - **Sem líder conhecida** (eleição, partição): espera até 1 s e `503`, como a escrita ([ADR-039](../../03_adr/ADR-039-sem-lider-conhecida-espera-ate-1s-e-503.md)).
-- **Applier parado** (entrada venenosa, [C26](C26-entrada-venenosa.md)). O `appliedIndex` não chega ao alvo: a leitura do shard falha rápido com `503`, em vez de esperar até o prazo.
+- **Applier parado** (entrada venenosa, [C26](C26-entrada-venenosa.md)). O `appliedIndex` não chega ao alvo: a leitura falha na hora com `503` e `x-dr-code: APPLIER_STOPPED`, em vez de esperar até o prazo, inclusive para quem já esperava quando o applier parou ([ADR-049](../../03_adr/ADR-049-barreira-da-leitura-forte-e-o-gate.md), item 4; implementado na POC em 14/10).
+- **Prazo vence esperando o applier** sem ele estar parado: `503 READ_TIMEOUT`, e o SDK repete.
 - **Modo degradado:** as células da Azure não alcançam a líder e recusam com `503`; nunca devolvem dado defasado.
 - **Scan.** A barreira vale antes de cada página, mas não há instantâneo entre páginas: dois Scans consecutivos podem divergir.
 - **TTL.** Cada célula expira por conta própria e com atraso; a aplicação filtra pelo atributo de TTL ([X06](../complexos/X06-delete-ttl-gsi.md)).
-- **Prazo vence esperando o applier.** Erro recuperável (o SDK retenta).
 - **Líder recém-eleita com a Azure fora** (cenário oculto, T7 de [X08](../complexos/X08-leitura-forte-com-exemplos.md)). A líder nova não fica com o gate pronto enquanto 2 learners Azure não confirmarem no termo dela: toda leitura forte do shard responde `503 GATE_NOT_READY` até o link voltar. Usar o gate recebido da líder antiga poderia esconder uma escrita já ACKada. Tratamento em avaliação (pergunta 3 de X08).
 
 ## Pontos em aberto

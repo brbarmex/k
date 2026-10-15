@@ -21,6 +21,8 @@ Gerado em 14/10/2026 a partir do pacote DataReplication_Versao_1.
 <nav class="sidebar" aria-label="Navegação">
 <a class="marca" href="../index.html">DataReplication v1<span>Comitê técnico</span></a>
 <a class="nav-inicio" href="../index.html">Resumo e requisitos</a>
+<a class="nav-inicio" href="../estado-atual.html">Estado atual</a>
+<a class="nav-inicio" href="../inventario-adrs.html">Inventário dos ADRs</a>
 <details class="grupo"><summary>Success path <span class="qtd">9</span></summary><ul>
 <li><a class="idx" href="../success-path/index.html">Índice da seção</a></li>
 <li><a href="../success-path/C01-visao-geral.html"><b>C01</b> Visão geral da arquitetura</a></li>
@@ -129,9 +131,12 @@ Gerado em 14/10/2026 a partir do pacote DataReplication_Versao_1.
     SDK[&quot;SDK do cliente: 30 s por tentativa, até 3 tentativas&quot;] --&gt; API[&quot;REQUEST_DEADLINE 7,5 s&quot;]
     API --&gt; FWD[&quot;Forward para a líder: até 3 s&quot;]
     API --&gt; DEG[&quot;DEGRADE_AFTER 2 s, só com accept&quot;]
-    API --&gt; APPLY[&quot;Cliente do banco: 1 s por tentativa, até 2&quot;]
+    API --&gt; APPLY[&quot;Cliente do banco: 1 s por tentativa, até 2&lt;br/&gt;(no caminho da requisição; o applier repete sem limite, a confirmar)&quot;]
     API --&gt; MARGEM[&quot;Margem de resposta: 500 ms ou mais&quot;]
     API --&gt;|&quot;buffer não persistido acima de 32 MiB no shard&quot;| THR[&quot;400 ThrottlingException imediato: nada entrou no log, o SDK repete com backoff&quot;]
+    API --&gt;|&quot;apply local mais de APPLY_LAG_MAX atrás do gate&quot;| THR
+    FWD --&gt;|&quot;sem líder conhecida depois de WAIT_LEADER 1 s&quot;| NL[&quot;503 NO_LEADER: nada foi proposto&quot;]
+    API --&gt;|&quot;leitura: barreira não alcançada no prazo&quot;| RT[&quot;503 READ_TIMEOUT: nunca dado velho&quot;]
     API --&gt;|&quot;estourou depois do commit&quot;| PEND[&quot;503 PENDING: não perdeu, o retry é absorvido pelo dedupe&quot;]
     PEND --&gt; DD[&quot;Dedupe de 5 min por requisição e versão condicional&quot;]
     DEG --&gt;|&quot;DEGRADE commitado&quot;| LEASE[&quot;Lease D, valor a definir: fora da cascata de 30 s&quot;]
@@ -215,13 +220,13 @@ Gerado em 14/10/2026 a partir do pacote DataReplication_Versao_1.
 </article>
 </section>
 <section id="adrs"><h2>5. ADRs relacionados</h2>
-<div class="tabela"><table><thead><tr><th>ADR</th><th>Título</th><th>Decisão resumida</th><th>Arquivo</th></tr></thead><tbody>
-<tr><td class="nw"><a href="../../03_adr/ADR-026-dedupe-de-retry-id-estavel.md">ADR-026</a></td><td>Dedupe de retry na líder por identificador estável</td><td>Dedupe de retry na líder por identificador estável do SDK, hash como último recurso, janela de 5 min.</td><td><a href="../../03_adr/ADR-026-dedupe-de-retry-id-estavel.md">ADR-026-dedupe-de-retry-id-estavel.md</a></td></tr>
-<tr><td class="nw"><a href="../../03_adr/ADR-028-timeouts-em-cascata.md">ADR-028</a></td><td>Prazos em cascata dentro do timeout do SDK</td><td>Prazos em cascata: REQUEST_DEADLINE 7,5 s, DEGRADE_AFTER 2 s, forward até 3 s; valores a validar.</td><td><a href="../../03_adr/ADR-028-timeouts-em-cascata.md">ADR-028-timeouts-em-cascata.md</a></td></tr>
-<tr><td class="nw"><a href="../../03_adr/ADR-045-politica-de-degradacao-por-instalacao.md">ADR-045</a></td><td><code>DEGRADED_POLICY</code> obrigatória por instalação</td><td>DEGRADED_POLICY obrigatória por instalação: accept (degradado com lease) ou reject (RPO 0 sempre).</td><td><a href="../../03_adr/ADR-045-politica-de-degradacao-por-instalacao.md">ADR-045-politica-de-degradacao-por-instalacao.md</a></td></tr>
-<tr><td class="nw"><a href="../../03_adr/ADR-051-compatibilidade-dynamodb-inventario-conformidade-e-idempotencia.md">ADR-051</a></td><td>Compatibilidade com o DynamoDB: inventário, conformidade e limite da idempotência</td><td>Compatibilidade com o DynamoDB por inventário de chamadas, suíte de conformidade e limite de idempotência documentado.</td><td><a href="../../03_adr/ADR-051-compatibilidade-dynamodb-inventario-conformidade-e-idempotencia.md">ADR-051-compatibilidade-dynamodb-inventario-conformidade-e-idempotencia.md</a></td></tr>
+<div class="tabela"><table><thead><tr><th>ADR</th><th>Título</th><th>Status efetivo</th><th>Decisão resumida</th><th>Arquivo</th></tr></thead><tbody>
+<tr><td class="nw"><a href="../../03_adr/ADR-026-dedupe-de-retry-id-estavel.md">ADR-026</a></td><td>Dedupe de retry na líder por identificador estável</td><td><span class="ef ef-ok">Vigente, complementado</span></td><td>Dedupe de retry na líder por identificador estável do SDK, hash como último recurso, janela de 5 min.</td><td><a href="../../03_adr/ADR-026-dedupe-de-retry-id-estavel.md">ADR-026-dedupe-de-retry-id-estavel.md</a></td></tr>
+<tr><td class="nw"><a href="../../03_adr/ADR-028-timeouts-em-cascata.md">ADR-028</a></td><td>Prazos em cascata dentro do timeout do SDK</td><td><span class="ef ef-ok">Vigente (valores a validar)</span></td><td>Prazos em cascata: REQUEST_DEADLINE 7,5 s, DEGRADE_AFTER 2 s, forward até 3 s; valores a validar.</td><td><a href="../../03_adr/ADR-028-timeouts-em-cascata.md">ADR-028-timeouts-em-cascata.md</a></td></tr>
+<tr><td class="nw"><a href="../../03_adr/ADR-045-politica-de-degradacao-por-instalacao.md">ADR-045</a></td><td><code>DEGRADED_POLICY</code> obrigatória por instalação</td><td><span class="ef ef-ok">Vigente</span></td><td>DEGRADED_POLICY obrigatória por instalação: accept (degradado com lease) ou reject (RPO 0 sempre).</td><td><a href="../../03_adr/ADR-045-politica-de-degradacao-por-instalacao.md">ADR-045-politica-de-degradacao-por-instalacao.md</a></td></tr>
+<tr><td class="nw"><a href="../../03_adr/ADR-051-compatibilidade-dynamodb-inventario-conformidade-e-idempotencia.md">ADR-051</a></td><td>Compatibilidade com o DynamoDB: inventário, conformidade e limite da idempotência</td><td><span class="ef ef-ok">Vigente</span></td><td>Compatibilidade com o DynamoDB por inventário de chamadas, suíte de conformidade e limite de idempotência documentado.</td><td><a href="../../03_adr/ADR-051-compatibilidade-dynamodb-inventario-conformidade-e-idempotencia.md">ADR-051-compatibilidade-dynamodb-inventario-conformidade-e-idempotencia.md</a></td></tr>
 </tbody></table></div>
-<p class="nota">Lista extraída do cabeçalho “ADRs” do arquivo fonte. A decisão resumida condensa a seção “Decisão” de cada ADR.</p>
+<p class="nota">Lista extraída do cabeçalho “ADRs” do arquivo fonte. A decisão resumida condensa a seção “Decisão” de cada ADR. <b>Status efetivo</b> vem do <a href="../inventario-adrs.html">inventário dos ADRs</a>: <b>Vigente</b> vale como está escrito; <b>Vigente, complementado</b> vale, mas outros ADRs acrescentam regras; <b>Vigente em parte</b> tem item revertido ou em conflito; <b>Sem uso</b>, <b>Substituído</b> e <b>Descartado</b> são só registro; <b>Pendente</b> aguarda decisão. A regra consolidada está no <a href="../estado-atual.html">Estado atual</a>.</p>
 </section>
 <section id="anexo"><h2>Anexo: texto original da fonte</h2><p class="nota">Seções do .md fonte reproduzidas sem reescrita, para conferência.</p>
 <details class="anexo"><summary>Falhas e tratativas</summary><ul>

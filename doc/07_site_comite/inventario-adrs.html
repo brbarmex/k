@@ -1,0 +1,713 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Inventário dos ADRs · DataReplication v1</title>
+<link rel="stylesheet" href="assets/site.css">
+</head>
+<body>
+<!--
+Fonte(s) usada(s) nesta página (rastreabilidade), relativas à raiz do pacote:
+  03_adr/INVENTARIO.md
+Gerado em 14/10/2026 a partir do pacote DataReplication_Versao_1.
+-->
+<header class="topo">
+<button class="menu" type="button" aria-label="Abrir navegação" onclick="document.body.classList.toggle('nav-aberta')">☰</button>
+<a href="index.html">DataReplication v1</a><span class="sep">·</span><span>Apresentação ao comitê técnico</span>
+</header>
+<div class="layout">
+<nav class="sidebar" aria-label="Navegação">
+<a class="marca" href="index.html">DataReplication v1<span>Comitê técnico</span></a>
+<a class="nav-inicio" href="index.html">Resumo e requisitos</a>
+<a class="nav-inicio" href="estado-atual.html">Estado atual</a>
+<a class="nav-inicio atual" href="inventario-adrs.html">Inventário dos ADRs</a>
+<details class="grupo"><summary>Success path <span class="qtd">9</span></summary><ul>
+<li><a class="idx" href="success-path/index.html">Índice da seção</a></li>
+<li><a href="success-path/C01-visao-geral.html"><b>C01</b> Visão geral da arquitetura</a></li>
+<li><a href="success-path/C02-dentro-da-celula.html"><b>C02</b> Dentro da célula: apps do cliente e DataReplication</a></li>
+<li><a href="success-path/C03-escrita-strong.html"><b>C03</b> Caminho feliz: escrita (apply depois do gate, paralelo por chave)</a></li>
+<li><a href="success-path/C05-leitura-strong.html"><b>C05</b> Caminho feliz: leitura strong</a></li>
+<li><a href="success-path/C06-follower-encaminha.html"><b>C06</b> Requisição chega numa célula que não é a líder</a></li>
+<li><a href="success-path/C11-transferencia-planejada.html"><b>C11</b> Transferência planejada de liderança (manutenção)</a></li>
+<li><a href="success-path/C18-partida-e-recuperacao-do-no.html"><b>C18</b> Partida, recuperação e parada limpa do nó</a></li>
+<li><a href="success-path/C23-batchwriteitem-lote-uma-entrada.html"><b>C23</b> BatchWriteItem: o lote é uma entrada e o apply é por item (antes R15)</a></li>
+<li><a href="success-path/C31-implantacao-por-cliente-e-identidade.html"><b>C31</b> Uma instalação por cliente e identificação na API (antes R19)</a></li>
+</ul></details>
+<details class="grupo"><summary>Fail path <span class="qtd">24</span></summary><ul>
+<li><a class="idx" href="fail-path/index.html">Índice da seção</a></li>
+<li><a href="fail-path/C07-timeout-depois-do-commit.html"><b>C07</b> Prazo estoura depois do commit, antes do ACK (retry do SDK)</a></li>
+<li><a href="fail-path/C08-queda-de-celula-lider-ou-az-aws.html"><b>C08</b> Queda da célula líder ou de uma AZ na AWS</a></li>
+<li><a href="fail-path/C09-queda-de-az-azure.html"><b>C09</b> Queda de uma AZ na Azure</a></li>
+<li><a href="fail-path/C10-celulas-de-app-aws-fora.html"><b>C10</b> Apps da AWS fora, replicação viva: tráfego vai para a Azure</a></li>
+<li><a href="fail-path/C12-modo-degradado.html"><b>C12</b> Link AWS↔Azure cai ou Azure cai: modo degradado com lease</a></li>
+<li><a href="fail-path/C13-ressincronizacao-da-azure.html"><b>C13</b> Ressincronização da Azure</a></li>
+<li><a href="fail-path/C14-aws-cai-sem-degradacao.html"><b>C14</b> AWS cai por inteiro sem degradação prévia</a></li>
+<li><a href="fail-path/C15-aws-cai-em-degradacao.html"><b>C15</b> AWS cai durante o modo degradado</a></li>
+<li><a href="fail-path/C16-aws-volta-apos-promocao.html"><b>C16</b> AWS volta depois da promoção da Azure</a></li>
+<li><a href="fail-path/C17-maquina-de-estados.html"><b>C17</b> Máquina de estados dos modos de operação de um shard</a></li>
+<li><a href="fail-path/C19-falha-do-datareplication.html"><b>C19</b> O DataReplication da célula cai ou reinicia</a></li>
+<li><a href="fail-path/C20-bypass-de-escrita-direta.html"><b>C20</b> Aplicação escreve direto no banco (bypass)</a></li>
+<li><a href="fail-path/C21-disco-fsync-e-reconstrucao.html"><b>C21</b> Falha de fsync, corrupção, disco lento e disco perdido</a></li>
+<li><a href="fail-path/C22-cliente-com-sdk-nao-suportado.html"><b>C22</b> Cliente com SDK ou versão não suportada</a></li>
+<li><a href="fail-path/C24-orcamento-de-50ms-e-escrita-no-dynamodb.html"><b>C24</b> Orçamento de 50 ms e a escrita no DynamoDB dentro do ACK (antes R21)</a></li>
+<li><a href="fail-path/C25-link-lento-faixa-cinzenta.html"><b>C25</b> Link lento ou saturado (faixa cinzenta): só alertar (antes R01)</a></li>
+<li><a href="fail-path/C26-entrada-venenosa.html"><b>C26</b> Entrada venenosa: um item que o banco recusa para sempre (antes R02)</a></li>
+<li><a href="fail-path/C27-encaminhamento-sem-lider-conhecida.html"><b>C27</b> Loop de encaminhamento e espera pela líder durante a eleição (antes R05)</a></li>
+<li><a href="fail-path/C29-disco-do-log-em-degradacao-longa.html"><b>C29</b> Disco do log esgota durante uma degradação longa (antes R08)</a></li>
+<li><a href="fail-path/C30-aws-que-volta-boot-cercado.html"><b>C30</b> Fencing: o DynamoDB e o applier da AWS que voltam depois da promoção (antes R14)</a></li>
+<li><a href="fail-path/C32-particao-e-lease-do-modo-degradado.html"><b>C32</b> Partição entre AWS e Azure: lease do modo degradado e promoção da Azure</a></li>
+<li><a href="fail-path/C33-reconstrucao-em-tabela-sombra.html"><b>C33</b> Reconstrução do banco de uma célula em tabela sombra</a></li>
+<li><a href="fail-path/C34-autorizacao-por-aplicacao.html"><b>C34</b> Autorização por aplicação: mTLS e lista de permissões por identidade</a></li>
+<li><a href="fail-path/C35-banco-lento-nao-derruba-a-lideranca.html"><b>C35</b> Banco lento numa célula não derruba a liderança</a></li>
+</ul></details>
+<details class="grupo"><summary>Complex path <span class="qtd">8</span></summary><ul>
+<li><a class="idx" href="complex-path/index.html">Índice da seção</a></li>
+<li><a href="complex-path/X01-gate-e-troca-de-lider.html"><b>X01</b> Gate: definição, monotonicidade e troca de líder</a></li>
+<li><a href="complex-path/X02-modo-degradado.html"><b>X02</b> Modo degradado: entrada, permanência, lease e saída</a></li>
+<li><a href="complex-path/X03-desastre-e-promocao-da-azure.html"><b>X03</b> Desastre: promoção da Azure, fencing e reconciliação</a></li>
+<li><a href="complex-path/X04-partida-recuperacao-e-dois-logs.html"><b>X04</b> Partida, recuperação e coerência entre os dois logs</a></li>
+<li><a href="complex-path/X05-timeouts-e-idempotencia.html"><b>X05</b> Timeouts em cascata e idempotência do retry</a></li>
+<li><a href="complex-path/X06-delete-ttl-gsi.html"><b>X06</b> DELETE, TTL, Scan e GSI</a></li>
+<li><a href="complex-path/X07-gate-explicado-com-exemplos.html"><b>X07</b> O gate explicado com exemplos</a></li>
+<li><a href="complex-path/X08-leitura-forte-com-exemplos.html"><b>X08</b> Leitura forte explicada com dados mock</a></li>
+</ul></details>
+<details class="grupo"><summary>Parking lot <span class="qtd">14</span></summary><ul>
+<li><a class="idx" href="parking-lot/index.html">Índice da seção</a></li>
+<li><a href="parking-lot/R03-backlog-de-apply-no-cosmos.html"><b>R03</b> Backlog de apply no Cosmos (429 e RU insuficiente)</a></li>
+<li><a href="parking-lot/R06-duas-azs-aws-caem.html"><b>R06</b> Duas AZs da AWS caem com a Azure saudável</a></li>
+<li><a href="parking-lot/R07-link-oscilando.html"><b>R07</b> Link oscilando (flapping)</a></li>
+<li><a href="parking-lot/R09-resincronizacao-lenta-ou-bloqueada.html"><b>R09</b> Ressincronização da Azure lenta ou que nunca termina</a></li>
+<li><a href="parking-lot/R10-operador-lento-no-desastre.html"><b>R10</b> Tempo de decisão humana no desastre</a></li>
+<li><a href="parking-lot/R11-api-de-promocao-depende-da-aws.html"><b>R11</b> A API de promoção depende de algo que estava na AWS</a></li>
+<li><a href="parking-lot/R12-promocao-com-aws-viva.html"><b>R12</b> Promoção da Azure com a AWS viva (split-brain, PEND-01)</a></li>
+<li><a href="parking-lot/R13-escritas-orfas-reconciliacao.html"><b>R13</b> Escritas órfãs: reconciliação depois da promoção (PEND-03)</a></li>
+<li><a href="parking-lot/R16-leitura-forte-em-celulas-follower.html"><b>R16</b> Leitura forte em células follower (ReadIndex e gate)</a></li>
+<li><a href="parking-lot/R17-atributo-de-versao-e-limite-400kb.html"><b>R17</b> Atributo de versão: limite de 400 KB e ausência nas respostas</a></li>
+<li><a href="parking-lot/R18-rto-nao-quantificado.html"><b>R18</b> RTO (Delta-T) ainda sem número</a></li>
+<li><a href="parking-lot/R20-custo-6x.html"><b>R20</b> Custo: cada escrita lógica vira seis gravações</a></li>
+<li><a href="parking-lot/R22-memoria-da-janela-de-dedupe.html"><b>R22</b> Memória da janela de dedupe</a></li>
+<li><a href="parking-lot/R23-hipoteses-gerais.html"><b>R23</b> Hipóteses gerais em aberto</a></li>
+</ul></details>
+</nav>
+<main>
+<div class="migalhas"><a href="index.html">Início</a> / Inventário dos ADRs</div>
+<h1>Inventário dos ADRs: status efetivo, cadeias e pontos a decidir</h1><p><strong>Feito em:</strong> 14/10/2026; perguntas respondidas pelo Bruno no mesmo dia (1a 2a 3a 4a 5a 6b 7a 8a) · <strong>Cobre:</strong> ADR-001 a ADR-063 (58 arquivos) · <strong>Para que serve:</strong> base do <a href="estado-atual.html">ESTADO_ATUAL.md</a>. Cada ADR foi lido inteiro, e a coluna "Na POC" foi conferida no código de <code>DataReplicationApp</code> e no escopo da <a href="../../spec/SPEC_POC_LOCAL.md">spec da POC</a> (R.3 e R.4).</p>
+<p>Os números 009, 012, 023, 040 e 053 não existem: eram ADRs do antigo modo Eventual, removidos pelo <a href="../03_adr/ADR-057-um-unico-modo-strong-consistency.md">ADR-057</a>.</p>
+<h2 id="legenda">Legenda</h2>
+<p><strong>Status efetivo</strong>, que nem sempre é o que está escrito no cabeçalho do ADR:</p>
+<div class="tabela"><table>
+<thead>
+<tr>
+<th>Status efetivo</th>
+<th>Quer dizer</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Requisito</strong></td>
+<td>Restrição ou requisito confirmado; não é escolha de desenho</td>
+</tr>
+<tr>
+<td><strong>Vigente</strong></td>
+<td>Vale como está escrito</td>
+</tr>
+<tr>
+<td><strong>Vigente, complementado</strong></td>
+<td>Vale, mas outros ADRs acrescentam regras; a regra completa está na cadeia do tema</td>
+</tr>
+<tr>
+<td><strong>Vigente em parte</strong></td>
+<td>Algum item foi revertido ou contradiz um ADR posterior; ver "Pontos a decidir"</td>
+</tr>
+<tr>
+<td><strong>Sem uso</strong></td>
+<td>Não foi revogado, mas nenhum ADR posterior nem o desenho atual o usa</td>
+</tr>
+<tr>
+<td><strong>Substituído</strong> / <strong>Descartado</strong></td>
+<td>Só registro histórico</td>
+</tr>
+<tr>
+<td><strong>Pendente</strong></td>
+<td>Proposta aguardando decisão do Bruno</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>Na POC:</strong> <strong>Sim</strong> (implementado) · <strong>Parcial</strong> (parte implementada; o que falta está na observação) · <strong>Fora</strong> (fora do escopo da POC, R.4) · <strong>Divergente</strong> (a POC faz diferente do ADR) · <strong>—</strong> (não se aplica a código).</p>
+<h2 id="inventario">Inventário</h2>
+<div class="tabela"><table>
+<thead>
+<tr>
+<th>ADR</th>
+<th>Tema</th>
+<th>Status efetivo</th>
+<th>Alterado por / altera</th>
+<th>Na POC</th>
+<th>Observação</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><a href="../03_adr/ADR-001-camada-intermediaria-agnostica.md">001</a></td>
+<td>Estrutura</td>
+<td>Requisito</td>
+<td>—</td>
+<td>Sim</td>
+<td>API do DynamoDB na frente do banco</td>
+</tr>
+<tr>
+<td><a href="../03_adr/ADR-002-shards-logicos-celulas-ativo-passivo.md">002</a></td>
+<td>Estrutura</td>
+<td>Requisito</td>
+<td>—</td>
+<td>Parcial</td>
+<td>3 votantes; sem learners; um shard só. Divisão de shard aberta (H11), relevante para o <a href="../03_adr/ADR-062-banco-com-versao-de-outra-historia-do-log.md">ADR-062</a></td>
+</tr>
+<tr>
+<td><a href="../03_adr/ADR-003-aws-primaria-azure-failover.md">003</a></td>
+<td>Estrutura</td>
+<td>Requisito</td>
+<td>—</td>
+<td>—</td>
+<td>Restrição dura: só AWS e Azure em São Paulo</td>
+</tr>
+<tr>
+<td><a href="../03_adr/ADR-004-dynamodb-primeiro-adaptador.md">004</a></td>
+<td>API</td>
+<td>Requisito</td>
+<td>—</td>
+<td>Parcial</td>
+<td>API DynamoDB sim; Cosmos e Cloud-Adapter fora</td>
+</tr>
+<tr>
+<td><a href="../03_adr/ADR-005-ack-exige-gate.md">005</a></td>
+<td>Escrita e gate</td>
+<td>Vigente, complementado</td>
+<td>017, 029, 046; 057 (o ACK também espera o apply)</td>
+<td>Parcial</td>
+<td>Sem Azure, gate = commit</td>
+</tr>
+<tr>
+<td><a href="../03_adr/ADR-006-consenso-por-shard-eleicao-na-aws.md">006</a></td>
+<td>Consenso</td>
+<td>Vigente</td>
+<td>—</td>
+<td>Sim</td>
+<td></td>
+</tr>
+<tr>
+<td><a href="../03_adr/ADR-007-sidecar-e-coordenacao-compartilhada.md">007</a></td>
+<td>Estrutura</td>
+<td>Substituído</td>
+<td>por 016</td>
+<td>—</td>
+<td></td>
+</tr>
+<tr>
+<td><a href="../03_adr/ADR-008-terceiro-dominio.md">008</a></td>
+<td>Estrutura</td>
+<td>Descartado</td>
+<td>autoridade única vem do lease (044)</td>
+<td>—</td>
+<td></td>
+</tr>
+<tr>
+<td><a href="../03_adr/ADR-010-follower-encaminha-para-lider.md">010</a></td>
+<td>Operação</td>
+<td>Vigente, complementado</td>
+<td>039 (um salto, termo, <code>WAIT_LEADER</code>)</td>
+<td>Sim</td>
+<td>Critério de "líder degradada" pendente (PEND-11). Cabeçalho fora do padrão ("Estado" em vez de "Status")</td>
+</tr>
+<tr>
+<td><a href="../03_adr/ADR-011-witness-manifesto-snapshots.md">011</a></td>
+<td>Operação</td>
+<td><strong>Sem uso</strong></td>
+<td>marcado pela resposta 3a</td>
+<td>—</td>
+<td>Nenhum ADR posterior usa o witness; o snapshot virou só marcador (063)</td>
+</tr>
+<tr>
+<td><a href="../03_adr/ADR-013-transferencia-planejada-de-lideranca.md">013</a></td>
+<td>Operação</td>
+<td>Vigente, complementado</td>
+<td>fases 2 e 3 alinhadas a 015, 029, 042, 046, 049, 057 (respostas 1a 2a)</td>
+<td>Parcial</td>
+<td>Só <code>TransferLeadership</code> exposto; o protocolo de 5 fases não existe</td>
+</tr>
+<tr>
+<td><a href="../03_adr/ADR-014-modo-degradado-opcao-b.md">014</a></td>
+<td>Modo degradado</td>
+<td>Vigente, complementado</td>
+<td>044 (lease), 045 (política), 027</td>
+<td>Fora</td>
+<td>Política fixa <code>reject</code> na POC</td>
+</tr>
+<tr>
+<td><a href="../03_adr/ADR-015-wal-post-image-e-versao.md">015</a></td>
+<td>Dados</td>
+<td>Vigente, complementado</td>
+<td>035, 058; 062 (pendente)</td>
+<td>Sim</td>
+<td><code>PutItem</code> condicional por <code>_dr_v</code></td>
+</tr>
+<tr>
+<td><a href="../03_adr/ADR-016-app-unico-por-celula-monolito-modular.md">016</a></td>
+<td>Estrutura</td>
+<td>Vigente</td>
+<td>substitui 007</td>
+<td>Sim</td>
+<td></td>
+</tr>
+<tr>
+<td><a href="../03_adr/ADR-017-azure-learners-e-gate.md">017</a></td>
+<td>Escrita e gate</td>
+<td>Vigente, complementado</td>
+<td>046</td>
+<td>Parcial</td>
+<td>Gate com learners só em teste de unidade</td>
+</tr>
+<tr>
+<td><a href="../03_adr/ADR-018-dois-logs-raft-e-replicacao.md">018</a></td>
+<td>Logs</td>
+<td>Vigente, complementado</td>
+<td>055 (truncamento até o <code>DurableIndex</code>)</td>
+<td>Sim</td>
+<td></td>
+</tr>
+<tr>
+<td><a href="../03_adr/ADR-019-wal-proprio-volume-dedicado.md">019</a></td>
+<td>Logs</td>
+<td>Vigente, complementado</td>
+<td>055 (WAL do etcd e log segmentado), 056 (IOPS)</td>
+<td>Sim</td>
+<td>Dois volumes por célula</td>
+</tr>
+<tr>
+<td><a href="../03_adr/ADR-020-raft-etcd-io-camada-multigrupo.md">020</a></td>
+<td>Consenso</td>
+<td>Vigente</td>
+<td>—</td>
+<td>Parcial</td>
+<td><code>etcd-io/raft</code> sim; camada multi-grupo não (um shard)</td>
+</tr>
+<tr>
+<td><a href="../03_adr/ADR-021-grpc-entre-celulas.md">021</a></td>
+<td>Transporte</td>
+<td>Vigente</td>
+<td>—</td>
+<td>Parcial</td>
+<td>gRPC sim; <strong>sem mTLS</strong> (<code>insecure</code>)</td>
+</tr>
+<tr>
+<td><a href="../03_adr/ADR-022-banco-por-celula-nome-logico.md">022</a></td>
+<td>Dados</td>
+<td>Vigente, complementado</td>
+<td>054 (mantido), 047 (geração no nome)</td>
+<td>Parcial</td>
+<td>Nome lógico com <code>{cell}</code> sim; geração não</td>
+</tr>
+<tr>
+<td><a href="../03_adr/ADR-024-delete-real-ttl-local-gsi.md">024</a></td>
+<td>Dados</td>
+<td>Vigente, complementado</td>
+<td>047, 050, 058</td>
+<td>Fora</td>
+<td><code>DeleteItem</code> é fase 2; TTL fora</td>
+</tr>
+<tr>
+<td><a href="../03_adr/ADR-025-escopo-da-api-v1-e-sdks.md">025</a></td>
+<td>API</td>
+<td>Vigente, complementado</td>
+<td>051</td>
+<td>Parcial</td>
+<td>PutItem, GetItem e Scan; o resto responde 400</td>
+</tr>
+<tr>
+<td><a href="../03_adr/ADR-026-dedupe-de-retry-id-estavel.md">026</a></td>
+<td>Idempotência</td>
+<td>Vigente, complementado</td>
+<td>051</td>
+<td>Fora</td>
+<td></td>
+</tr>
+<tr>
+<td><a href="../03_adr/ADR-027-sinalizacao-do-modo-degradado.md">027</a></td>
+<td>Modo degradado</td>
+<td>Vigente, complementado</td>
+<td>044, 045 (o header não é aceite de risco)</td>
+<td>Fora</td>
+<td></td>
+</tr>
+<tr>
+<td><a href="../03_adr/ADR-028-timeouts-em-cascata.md">028</a></td>
+<td>Prazos</td>
+<td>Vigente (valores a validar)</td>
+<td>esclarecido pela resposta 5a</td>
+<td>Sim</td>
+<td>O limite do cliente do banco vale só no caminho da requisição; o applier repete sem limite</td>
+</tr>
+<tr>
+<td><a href="../03_adr/ADR-029-gate-monotonico-na-troca-de-lider.md">029</a></td>
+<td>Escrita e gate</td>
+<td>Vigente, complementado</td>
+<td>046, 049</td>
+<td>Fora</td>
+<td>Sem Azure</td>
+</tr>
+<tr>
+<td><a href="../03_adr/ADR-030-verificacao-formal-tla.md">030</a></td>
+<td>Verificação</td>
+<td>Vigente, complementado</td>
+<td>escopo ampliado por 044, 046, 047, 049, 056</td>
+<td>Fora</td>
+<td>O modelo não existe no repositório. Pela resposta 8a, a regra vale para o gate com learners reais; o gate da POC (= commit) não conta</td>
+</tr>
+<tr>
+<td><a href="../03_adr/ADR-031-hexagonal-e-bibliotecas.md">031</a></td>
+<td>Código</td>
+<td>Vigente</td>
+<td>—</td>
+<td>Parcial</td>
+<td>Hexagonal e bibliotecas sim; <strong>sem <code>depguard</code></strong> (não há linter configurado)</td>
+</tr>
+<tr>
+<td><a href="../03_adr/ADR-032-parse-json-completo-e-rust.md">032</a></td>
+<td>Código</td>
+<td>Vigente (problema conhecido)</td>
+<td>—</td>
+<td>Sim</td>
+<td></td>
+</tr>
+<tr>
+<td><a href="../03_adr/ADR-033-promocao-da-azure-humana.md">033</a></td>
+<td>Promoção</td>
+<td>Vigente, complementado</td>
+<td>044</td>
+<td>Fora</td>
+<td></td>
+</tr>
+<tr>
+<td><a href="../03_adr/ADR-034-fsync-fatal-e-identidade-nova.md">034</a></td>
+<td>Falhas</td>
+<td>Vigente, complementado</td>
+<td>056</td>
+<td>Parcial</td>
+<td>Fsync fatal sim; identidade nova e <code>drctl rebuild</code> não</td>
+</tr>
+<tr>
+<td><a href="../03_adr/ADR-035-lote-batchwriteitem-uma-entrada-e-apply-condicional.md">035</a></td>
+<td>Apply</td>
+<td>Vigente, complementado</td>
+<td>048, 058</td>
+<td>Parcial</td>
+<td>Apply condicional por item sim; <code>BatchWriteItem</code> é fase 2</td>
+</tr>
+<tr>
+<td><a href="../03_adr/ADR-036-slo-de-50ms-exclui-a-escrita-no-banco.md">036</a></td>
+<td>Latência</td>
+<td>Vigente</td>
+<td>—</td>
+<td>—</td>
+<td></td>
+</tr>
+<tr>
+<td><a href="../03_adr/ADR-037-faixa-cinzenta-do-link-so-alerta.md">037</a></td>
+<td>Modo degradado</td>
+<td>Vigente</td>
+<td>—</td>
+<td>Fora</td>
+<td></td>
+</tr>
+<tr>
+<td><a href="../03_adr/ADR-038-skip-de-entrada-venenosa-sempre-humano.md">038</a></td>
+<td>Apply</td>
+<td>Vigente, complementado</td>
+<td>048</td>
+<td>Parcial</td>
+<td>Estaciona no item venenoso; o <code>SKIP</code> não existe</td>
+</tr>
+<tr>
+<td><a href="../03_adr/ADR-039-sem-lider-conhecida-espera-ate-1s-e-503.md">039</a></td>
+<td>Operação</td>
+<td>Vigente</td>
+<td>complementa 010</td>
+<td>Sim</td>
+<td></td>
+</tr>
+<tr>
+<td><a href="../03_adr/ADR-041-disco-do-log-teto-de-70-por-cento-sem-s3-na-v1.md">041</a></td>
+<td>Logs</td>
+<td>Vigente, complementado</td>
+<td>055</td>
+<td>Fora</td>
+<td>Truncamento fora da POC</td>
+</tr>
+<tr>
+<td><a href="../03_adr/ADR-042-aws-que-volta-boot-cercado-e-recriacao-da-celula.md">042</a></td>
+<td>Promoção</td>
+<td>Vigente, complementado</td>
+<td>044 (gatilho); 062 propõe o mecanismo (pendente)</td>
+<td>Fora</td>
+<td></td>
+</tr>
+<tr>
+<td><a href="../03_adr/ADR-043-uma-instalacao-por-cliente-identidade-por-configuracao.md">043</a></td>
+<td>Implantação</td>
+<td>Vigente, complementado</td>
+<td>052 reverte a alternativa "mTLS por aplicação" (nota da resposta 4a)</td>
+<td>—</td>
+<td></td>
+</tr>
+<tr>
+<td><a href="../03_adr/ADR-044-lease-do-modo-degradado-e-promocao-da-azure.md">044</a></td>
+<td>Modo degradado</td>
+<td>Vigente (D depende da PEND-02; prova no TLA+)</td>
+<td>—</td>
+<td>Fora</td>
+<td><code>domain/lease.go</code> com testes, não ligado</td>
+</tr>
+<tr>
+<td><a href="../03_adr/ADR-045-politica-de-degradacao-por-instalacao.md">045</a></td>
+<td>Modo degradado</td>
+<td>Vigente</td>
+<td>—</td>
+<td>Parcial</td>
+<td>Política fixa <code>reject</code></td>
+</tr>
+<tr>
+<td><a href="../03_adr/ADR-046-gate-so-conta-progresso-validado-pelo-raft.md">046</a></td>
+<td>Escrita e gate</td>
+<td>Vigente</td>
+<td>—</td>
+<td>Parcial</td>
+<td><code>SetAzureDurable(termo, índice, learner)</code> no domínio, com teste; sem learners reais</td>
+</tr>
+<tr>
+<td><a href="../03_adr/ADR-047-delete-real-invariante-e-reconstrucao-em-tabela-sombra.md">047</a></td>
+<td>Dados</td>
+<td>Vigente</td>
+<td>058 (I-DEL por chave)</td>
+<td>Fora</td>
+<td></td>
+</tr>
+<tr>
+<td><a href="../03_adr/ADR-048-skip-por-item.md">048</a></td>
+<td>Apply</td>
+<td>Vigente</td>
+<td>—</td>
+<td>Parcial</td>
+<td>Progresso (índice, ordem) sim; <code>SKIP</code> e consulta por item não</td>
+</tr>
+<tr>
+<td><a href="../03_adr/ADR-049-barreira-da-leitura-forte-e-o-gate.md">049</a></td>
+<td>Leitura</td>
+<td>Vigente</td>
+<td>—</td>
+<td>Sim</td>
+<td>Item 4 implementado em 14/10 (resposta 7a): <code>503 APPLIER_STOPPED</code> na hora</td>
+</tr>
+<tr>
+<td><a href="../03_adr/ADR-050-query-em-gsi-recusada.md">050</a></td>
+<td>Leitura</td>
+<td>Vigente</td>
+<td>revisa a revisão crítica</td>
+<td>Sim</td>
+<td><code>IndexName</code> recusado</td>
+</tr>
+<tr>
+<td><a href="../03_adr/ADR-051-compatibilidade-dynamodb-inventario-conformidade-e-idempotencia.md">051</a></td>
+<td>API</td>
+<td>Vigente</td>
+<td>—</td>
+<td>Parcial</td>
+<td><code>_dr_v</code> fora das respostas sim; inventário e suíte de conformidade fora</td>
+</tr>
+<tr>
+<td><a href="../03_adr/ADR-052-autorizacao-por-aplicacao-com-mtls.md">052</a></td>
+<td>Segurança</td>
+<td>Vigente</td>
+<td>completa 043</td>
+<td>Fora</td>
+<td></td>
+</tr>
+<tr>
+<td><a href="../03_adr/ADR-054-banco-por-celula-mantido.md">054</a></td>
+<td>Dados</td>
+<td>Vigente</td>
+<td>mantém 022</td>
+<td>Sim</td>
+<td>Um LocalStack por célula desde 14/10</td>
+</tr>
+<tr>
+<td><a href="../03_adr/ADR-055-log-de-replicacao-segmentado-derivado-do-raft.md">055</a></td>
+<td>Logs</td>
+<td>Vigente, complementado</td>
+<td>059; revisa 018 e 019</td>
+<td>Parcial</td>
+<td>Log segmentado, checkpoint e <code>DurableIndex</code> sim; compactação e truncamento não</td>
+</tr>
+<tr>
+<td><a href="../03_adr/ADR-056-group-commit-por-shard-e-nada-sai-antes-do-fsync.md">056</a></td>
+<td>Logs</td>
+<td>Vigente, complementado</td>
+<td>060 (risco 35)</td>
+<td>Parcial</td>
+<td>F3 sim (<code>SplitBeforeSync</code>). Pela resposta 6b, o lote da POC vem só do <code>Ready</code>; o <code>raftstore.Writer</code> entra com o <code>AsyncStorageWrites</code> (S1b)</td>
+</tr>
+<tr>
+<td><a href="../03_adr/ADR-057-um-unico-modo-strong-consistency.md">057</a></td>
+<td>Consistência</td>
+<td>Vigente, complementado</td>
+<td>058 (o que "serial" quer dizer)</td>
+<td>Sim</td>
+<td></td>
+</tr>
+<tr>
+<td><a href="../03_adr/ADR-058-apply-paralelo-por-chave-com-marca-dagua.md">058</a></td>
+<td>Apply</td>
+<td>Vigente</td>
+<td>mantido depois do 061</td>
+<td>Sim</td>
+<td></td>
+</tr>
+<tr>
+<td><a href="../03_adr/ADR-059-checkpoint-do-log-de-replicacao-sem-trava-no-append.md">059</a></td>
+<td>Logs</td>
+<td>Vigente</td>
+<td>complementa 055</td>
+<td>Sim</td>
+<td></td>
+</tr>
+<tr>
+<td><a href="../03_adr/ADR-060-laco-do-raft-nunca-espera-o-apply-e-admissao-por-atraso.md">060</a></td>
+<td>Raft e apply</td>
+<td>Vigente</td>
+<td>atualiza 056 e 059</td>
+<td>Sim</td>
+<td></td>
+</tr>
+<tr>
+<td><a href="../03_adr/ADR-061-ack-e-getitem-esperam-a-marca-dagua-do-slot-da-chave.md">061</a></td>
+<td>Apply</td>
+<td>Descartado</td>
+<td>—</td>
+<td>—</td>
+<td>Revertido em 14/10</td>
+</tr>
+<tr>
+<td><a href="../03_adr/ADR-062-banco-com-versao-de-outra-historia-do-log.md">062</a></td>
+<td>Dados</td>
+<td>Pendente</td>
+<td>complementaria 042 e 015</td>
+<td>—</td>
+<td></td>
+</tr>
+<tr>
+<td><a href="../03_adr/ADR-063-snapshot-e-compactacao-do-log-do-raft.md">063</a></td>
+<td>Raft</td>
+<td>Pendente</td>
+<td>fecharia o RT-11</td>
+<td>—</td>
+<td>Hoje <code>Compact</code> não faz nada</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>Contagem:</strong> 4 requisitos · 23 vigentes · 25 vigentes e complementados · 0 vigentes em parte · 1 sem uso · 1 substituído · 2 descartados · 2 pendentes.</p>
+<h2 id="cadeias-onde-a-regra-exige-ler-mais-de-um-adr">Cadeias: onde a regra exige ler mais de um ADR</h2>
+<p>A regra vigente de cada linha está consolidada no <a href="estado-atual.html">ESTADO_ATUAL.md</a>.</p>
+<div class="tabela"><table>
+<thead>
+<tr>
+<th>Tema</th>
+<th>Ler, nesta ordem</th>
+<th>A regra em uma linha</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Quando sai o ACK</td>
+<td>005 → 017 → 029 → 046 → 057 → 058</td>
+<td>Commit 2/3 AWS, gate com 2/3 Azure no termo atual, apply na líder (marca d'água contígua), lease conferido</td>
+</tr>
+<tr>
+<td>Os dois logs e o fsync</td>
+<td>018 → 019 → 055 → 056 → 059 → 060</td>
+<td>Só o fsync do Raft no caminho do ACK; o log de replicação é derivado, sem fsync por entrada, com checkpoint</td>
+</tr>
+<tr>
+<td>Retenção e compactação</td>
+<td>018 → 041 → 055 → 063 (pendente)</td>
+<td>Raft só até o <code>DurableIndex</code>; o log de replicação retém para a Azure com teto de 70%</td>
+</tr>
+<tr>
+<td>Apply</td>
+<td>015 → 035 → 038 → 048 → 057 → 058 → 060</td>
+<td>Depois do gate, paralelo por chave, condicional por versão, estaciona no item venenoso, admissão por atraso</td>
+</tr>
+<tr>
+<td>Leitura forte</td>
+<td>049 → 050 → 057</td>
+<td>Espera <code>applied ≥ min(ReadIndex, gate)</code>; sem GSI; sem leitura eventual</td>
+</tr>
+<tr>
+<td>Modo degradado</td>
+<td>014 → 027 → 037 → 044 → 045</td>
+<td>Política por instalação; com <code>accept</code>, lease D desde <code>t_c</code>; com <code>reject</code>, nunca degrada</td>
+</tr>
+<tr>
+<td>Promoção e retorno da AWS</td>
+<td>033 → 044 → 042 → 062 (pendente)</td>
+<td>Humana, só depois de D + M; a AWS volta cercada e com o banco recriado</td>
+</tr>
+<tr>
+<td>DELETE, TTL e GSI</td>
+<td>024 → 047 → 050 → 058</td>
+<td>DELETE real com ordem por chave; TTL local; GSI recusado; I-DEL por chave</td>
+</tr>
+<tr>
+<td>Encaminhamento e liderança</td>
+<td>010 → 039 → 013</td>
+<td>Um salto, com termo; sem líder, espera 1 s e 503; transferência planejada em 5 fases</td>
+</tr>
+<tr>
+<td>Identidade e segurança</td>
+<td>043 → 052 → 021</td>
+<td>Uma instalação por cliente; mTLS por aplicação com lista de permissões; mTLS entre células</td>
+</tr>
+<tr>
+<td>Compatibilidade da API</td>
+<td>025 → 026 → 051</td>
+<td>Recorte da v1, dedupe por requisição em 5 min, inventário e suíte antes de cada cliente</td>
+</tr>
+</tbody>
+</table></div>
+<h2 id="pontos-a-decidir-perguntas-para-o-bruno">Pontos a decidir (perguntas para o Bruno)</h2>
+<p>Contradições e lacunas que o inventário encontrou. <strong>Respondidas pelo Bruno em 14/10/2026: 1a 2a 3a 4a 5a 6b 7a 8a.</strong> Cada resposta foi registrada como "Atualização de 14/10/2026" no ADR correspondente, e o ESTADO_ATUAL já reflete todas.</p>
+<ol>
+<li><strong>[Decidido: 1a] ADR-013, fase 2, item 4:</strong> "o termo T+1 passa a ser exigido nas escritas condicionais dos appliers". O 015 e o 035 definem a condição só pela versão, e o 042 diz que a epoch é checada "no boot e periodicamente, <strong>não por escrita</strong>". (a) Retirar o item do 013: o fencing da líder antiga vem do Raft (ela não commita sem quórum) e do gate; (b) incluir o termo na condição de escrita.</li>
+<li><strong>[Decidido: 2a] ADR-013, fase 3:</strong> "as escritas voltam assim que a nova líder confirma o no-op; elas não dependem do apply". É anterior aos ADRs 029 e 046 (a líder nova reconstrói o gate antes de ACKar) e 057 (o ACK espera o apply). (a) Atualizar o texto apontando para eles; (b) manter, se a fase 3 fala de aceitar a escrita e não do ACK.</li>
+<li><strong>[Decidido: 3a] ADR-011 (witness):</strong> nenhum ADR posterior o usa, e o snapshot virou só marcador (<a href="../03_adr/ADR-063-snapshot-e-compactacao-do-log-do-raft.md">ADR-063</a>). (a) Marcar como sem uso, ou descartado; (b) manter, e dizer onde o witness entra no desenho.</li>
+<li><strong>[Decidido: 4a] ADR-043:</strong> a alternativa "mTLS por aplicação: custo de certificados sem ganho" foi revertida pelo 052; a atualização do 043 só cita o item 3. (a) Acrescentar a nota no 043.</li>
+<li><strong>[Decidido: 5a] ADR-028 x AP-07:</strong> o 028 limita o cliente do banco a "1 s por tentativa e no máximo 2"; o applier repete erro transitório <strong>sem limite</strong>, com espera de até 5 s (<a href="../03_adr/ADR-058-apply-paralelo-por-chave-com-marca-dagua.md">ADR-058</a>, AP-07 da spec). (a) O limite do 028 vale só no caminho da requisição (GetItem, Scan); o applier repete sem limite; (b) o applier também tem limite.</li>
+<li><strong>[Decidido: 6b] ADR-056 na POC:</strong> o <code>raftstore.Writer</code> (coalescência, teto de 1 MiB, respostas só depois do fsync) tem testes, mas o nó usa <code>wal.Save</code> direto no <code>Ready</code>. (a) Ligar o escritor na POC; (b) registrar que o lote da POC vem só do <code>Ready</code>, e o escritor entra com o <code>AsyncStorageWrites</code> (S1b).</li>
+<li><strong>[Decidido: 7a] ADR-049, item 4, na POC:</strong> com o applier estacionado, a leitura forte espera até o prazo (7,5 s) em vez de responder 503 na hora. (a) Implementar a falha rápida na POC; (b) deixar para a fase AWS.</li>
+<li><strong>[Decidido: 8a] ADR-030 x código do gate:</strong> o ADR pede o modelo TLA+ antes do código do gate, e o gate já tem código e testes. (a) A regra vale para o gate com learners reais (fase AWS); a POC usa gate = commit e não conta; (b) escrever o modelo antes de continuar o gate.</li>
+</ol>
+<h2 id="desatualizacoes-encontradas-fora-dos-adrs">Desatualizações encontradas fora dos ADRs</h2>
+<ul>
+<li><code>00_COMECE_AQUI.md</code> dizia "54 decisões"; são 58 arquivos, até o ADR-063.</li>
+<li>O cabeçalho do <code>INDEX.md</code> dizia "ADR-016 a 060"; vai até o 063.</li>
+<li><code>07_site_comite/_gerador/adr_resumo.py</code> não tinha os ADRs 061 a 063.</li>
+</ul>
+<footer class="rodape">
+Gerado em 14/10/2026 a partir de <code>DataReplication_Versao_1/</code>. O conteúdo vem dos arquivos .md citados no código-fonte desta página;
+textos marcados como <em>sugestão</em> são inferência do arquiteto e não decisões registradas.
+</footer>
+</main>
+</div>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@11.4.1/dist/mermaid.min.js"></script>
+<script>mermaid.initialize({startOnLoad: true, theme: "neutral", securityLevel: "strict", flowchart: {htmlLabels: true, useMaxWidth: true}, sequence: {useMaxWidth: true}});</script>
+</body>
+</html>

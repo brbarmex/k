@@ -12,7 +12,7 @@
 | Opção | Pró | Contra |
 |---|---|---|
 | **W1. Pacote `wal` do etcd, um por shard** | Muito testado | Um fsync por shard; sem group commit entre shards; peso por shard |
-| **W2. WAL próprio, segmentado e compartilhado** (recomendado) | Um fsync serve vários shards; formato sob nosso controle (post-image e versão); poucas linhas de código | **Risco de bug de armazenamento é o maior risco de perda de dado do projeto** |
+| **W2. WAL próprio, segmentado e compartilhado** (recomendado em 12/10; substituído pelo ADR-055) | Um fsync serve vários shards; formato sob nosso controle (post-image e versão); poucas linhas de código | **Risco de bug de armazenamento é o maior risco de perda de dado do projeto** |
 | **W3. Pebble/LSM** | Pronto | Escrita amplificada, memtable e cache pesam; log Raft é *append + truncar*, não é carga de LSM |
 | **W4. bbolt (raft-boltdb)** | Simples | Lento para log; fsync por transação |
 
@@ -30,7 +30,7 @@
 
 **Conclusão (12/10, substituída em 13/10 pela 6.0 e 6.9):** manter o WAL segmentado próprio (W2). O que reduz o fsync é o **meio de armazenamento** (volume dedicado e provisionado; o NVMe local foi descartado pelo Bruno), medido no spike S1.
 
-**Recomendação:** W2 **atrás da interface `ReplicationLog` (5.5)**, para poder trocar por W1 se os testes de falha ou o spike mostrarem problema. Eu **não** recomendo W2 sem a bateria de testes da seção 13: o WAL próprio só é aceitável se o orçamento de teste for tão sério quanto o de código.
+**Recomendação de 12/10, substituída em 13/10 pelo [ADR-055](../03_adr/ADR-055-log-de-replicacao-segmentado-derivado-do-raft.md) (W1 para o Raft e log de replicação segmentado fora do caminho do ACK):** W2 **atrás da interface `ReplicationLog` (5.5)**, para poder trocar por W1 se os testes de falha ou o spike mostrarem problema. Eu **não** recomendo W2 sem a bateria de testes da seção 13: o WAL próprio só é aceitável se o orçamento de teste for tão sério quanto o de código.
 
 ### 6.3 Desenho do WAL (W2) — substituído em 13/10 (ver 6.9)
 

@@ -23,6 +23,27 @@ CATS = [
 ]
 CAT_NOME = {c[0]: c[1] for c in CATS}
 
+# Cenários por assunto, para a página inicial (quem quer entender a escrita, a leitura...).
+# Um cenário sem assunto aparece em "Outros"; um id aqui que não exista é ignorado.
+ASSUNTOS = [
+    ("Escrita", "Do PutItem ao ACK: encaminhamento, admissão, gate, apply, prazos e lote.",
+     ["C03", "C06", "C07", "C23", "C24", "C27", "X05", "X07", "R22"]),
+    ("Leitura forte", "Barreira min(ReadIndex, gate), leitura em qualquer célula e erros da leitura.",
+     ["C05", "X08", "R16"]),
+    ("Liderança, gate e quórum", "Eleição, troca de líder, transferência planejada e estados do shard.",
+     ["X01", "C08", "C11", "C17", "R06"]),
+    ("Logs, disco e falhas do nó", "Os dois logs, fsync, partida, recuperação e banco lento.",
+     ["C13", "C18", "C19", "C21", "C29", "C35", "X04", "R09"]),
+    ("Azure, link e modo degradado", "Faixa cinzenta, DEGRADE com lease, política reject e ressincronização.",
+     ["C09", "C12", "C25", "C32", "X02", "R03", "R07"]),
+    ("Desastre e promoção da Azure", "Perda da AWS, promoção humana depois de D + M, retorno e órfãs.",
+     ["C14", "C15", "C16", "C30", "X03", "R10", "R11", "R12", "R13", "R18"]),
+    ("Dados: DELETE, TTL, item venenoso e rebuild", "Versão, DELETE real, TTL local, SKIP por item e tabela sombra.",
+     ["C26", "C33", "X06", "R17"]),
+    ("Implantação, segurança e API", "Célula, instalação por cliente, mTLS, bypass, SDKs e custo.",
+     ["C01", "C02", "C10", "C20", "C22", "C31", "C34", "R20", "R23"]),
+]
+
 # Diagrama de arquitetura geral relacionado (04_diagramas): (arquivo D, índice do bloco mermaid).
 # Escolha do site, não indicada pelos cenários.
 D_REL = {
@@ -82,6 +103,25 @@ def status_texto(status):
     s = re.sub(r"^\*\*Status:\*\*\s*", "", s).strip()
     return s
 
+ESTADO_MD = os.path.join(PKG, "ESTADO_ATUAL.md")
+INVENTARIO_MD = os.path.join(PKG, "03_adr", "INVENTARIO.md")
+# Documentos consolidados com página própria no site: md -> (html, título na navegação)
+DOCS_SITE = {
+    os.path.realpath(ESTADO_MD): ("estado-atual.html", "Estado atual"),
+    os.path.realpath(INVENTARIO_MD): ("inventario-adrs.html", "Inventário dos ADRs"),
+}
+
+def status_efetivo():
+    """Status efetivo de cada ADR, da tabela do inventário (03_adr/INVENTARIO.md)."""
+    st = {}
+    for l in ler(INVENTARIO_MD).split("\n"):
+        m = re.match(r"\| \[(\d{3})\]\(ADR-[^)]*\) \| [^|]* \| ([^|]*) \|", l)
+        if m:
+            st[m.group(1)] = m.group(2).replace("**", "").strip()
+    return st
+
+STATUS_EF = status_efetivo()
+
 ADR_ARQ = {}
 ADR_TIT = {}
 for p in sorted(glob.glob(os.path.join(PKG, "03_adr", "ADR-*.md"))):
@@ -123,6 +163,9 @@ def reescrever_links(md, md_dir, pagina_dir):
         if abs_ in MD_PARA_ID:
             dest = os.path.join(OUT, PAGINAS[MD_PARA_ID[abs_]]["html"])
             return f"[{texto}]({href_de(pagina_dir, dest)})"
+        if abs_ in DOCS_SITE:
+            dest = os.path.join(OUT, DOCS_SITE[abs_][0])
+            return f"[{texto}]({href_de(pagina_dir, dest)}{'#' + ancora if ancora else ''})"
         if abs_.endswith("DataReplication_Versao_1.md") and os.path.dirname(abs_) == PKG:
             pass
         return f"[{texto}]({href_de(pagina_dir, abs_)}{'#' + ancora if ancora else ''})"
@@ -131,7 +174,7 @@ def reescrever_links(md, md_dir, pagina_dir):
 def mermaid_pre(codigo):
     return f'<div class="diagrama"><pre class="mermaid">{html.escape(codigo.strip())}</pre></div>'
 
-def md_html(md, md_dir, pagina_dir):
+def md_html(md, md_dir, pagina_dir, ancoras=False):
     """Converte markdown em HTML, com links reescritos e blocos mermaid como <pre class="mermaid">."""
     md = reescrever_links(md, md_dir, pagina_dir)
     blocos = []
@@ -139,7 +182,8 @@ def md_html(md, md_dir, pagina_dir):
         blocos.append(m.group(1))
         return f"\n\nMERMAIDBLOCO{len(blocos) - 1}FIM\n\n"
     md = re.sub(r"```mermaid\n(.*?)```", guarda, md, flags=re.S)
-    h = markdown.markdown(md, extensions=["tables", "fenced_code", "sane_lists"])
+    ext = ["tables", "fenced_code", "sane_lists"] + (["toc"] if ancoras else [])
+    h = markdown.markdown(md, extensions=ext)
     for k, b in enumerate(blocos):
         h = re.sub(rf"<p>MERMAIDBLOCO{k}FIM</p>", lambda _m, b=b: mermaid_pre(b), h)
     h = h.replace("<table>", '<div class="tabela"><table>').replace("</table>", "</table></div>")
@@ -179,6 +223,8 @@ def nav(pagina_dir, atual=None, atual_cat=None):
     out = [f'<nav class="sidebar" aria-label="Navegação">',
            f'<a class="marca" href="{r("index.html")}">DataReplication v1<span>Comitê técnico</span></a>',
            f'<a class="nav-inicio{" atual" if atual == "index" else ""}" href="{r("index.html")}">Resumo e requisitos</a>']
+    for arq, nome in DOCS_SITE.values():
+        out.append(f'<a class="nav-inicio{" atual" if atual == arq else ""}" href="{r(arq)}">{nome}</a>')
     for cat, nome, _ in CATS:
         ids = [i for i in sorted(PAGINAS) if PAGINAS[i]["cat"] == cat]
         aberto = " open" if cat == atual_cat else ""
@@ -354,17 +400,25 @@ def pagina_cenario(ident):
     corpo.append('<section id="adrs"><h2>5. ADRs relacionados</h2>')
     ids = adrs_do_cabecalho(info["status"])
     if ids:
-        corpo.append('<div class="tabela"><table><thead><tr><th>ADR</th><th>Título</th><th>Decisão resumida</th><th>Arquivo</th></tr></thead><tbody>')
+        corpo.append('<div class="tabela"><table><thead><tr><th>ADR</th><th>Título</th><th>Status efetivo</th><th>Decisão resumida</th><th>Arquivo</th></tr></thead><tbody>')
         for n in ids:
             if n not in ADR_ARQ:
-                corpo.append(f'<tr><td>ADR-{n}</td><td colspan="3" class="nd">Citado na fonte, mas sem arquivo em 03_adr/.</td></tr>')
+                corpo.append(f'<tr><td>ADR-{n}</td><td colspan="4" class="nd">Citado na fonte, mas sem arquivo em 03_adr/.</td></tr>')
                 continue
             href = href_de(pdir, ADR_ARQ[n])
+            ef = STATUS_EF.get(n, "Fora do inventário")
             corpo.append(f'<tr><td class="nw"><a href="{href}">ADR-{n}</a></td><td>{inline_md(html.escape(ADR_TIT[n], quote=False), pdir)}</td>'
+                         f'<td><span class="ef {classe_ef(ef)}">{html.escape(ef)}</span></td>'
                          f'<td>{inline_md(RESUMO.get(n, "Não resumido."), pdir)}</td>'
                          f'<td><a href="{href}">{html.escape(os.path.basename(ADR_ARQ[n]))}</a></td></tr>')
         corpo.append("</tbody></table></div>")
-        corpo.append('<p class="nota">Lista extraída do cabeçalho “ADRs” do arquivo fonte. A decisão resumida condensa a seção “Decisão” de cada ADR.</p>')
+        inv = href_de(pdir, os.path.join(OUT, "inventario-adrs.html"))
+        est = href_de(pdir, os.path.join(OUT, "estado-atual.html"))
+        corpo.append('<p class="nota">Lista extraída do cabeçalho “ADRs” do arquivo fonte. A decisão resumida condensa a seção “Decisão” de cada ADR. '
+                     f'<b>Status efetivo</b> vem do <a href="{inv}">inventário dos ADRs</a>: <b>Vigente</b> vale como está escrito; '
+                     '<b>Vigente, complementado</b> vale, mas outros ADRs acrescentam regras; <b>Vigente em parte</b> tem item revertido ou em conflito; '
+                     '<b>Sem uso</b>, <b>Substituído</b> e <b>Descartado</b> são só registro; <b>Pendente</b> aguarda decisão. '
+                     f'A regra consolidada está no <a href="{est}">Estado atual</a>.</p>')
     else:
         corpo.append('<p class="nd">O cabeçalho do arquivo fonte não lista ADRs.</p>')
     corpo.append("</section>")
@@ -380,6 +434,28 @@ def pagina_cenario(ident):
 
     mig = [("Início", "index.html"), (CAT_NOME[d["cat"]], d["cat"] + "/index.html"), (ident, None)]
     pagina(d["html"], titulo, "\n".join(corpo), fontes, atual=ident, atual_cat=d["cat"], migalhas=mig)
+
+def classe_ef(ef):
+    e = ef.lower()
+    if e.startswith(("substituído", "descartado", "sem uso")):
+        return "ef-hist"
+    if e.startswith("vigente em parte"):
+        return "ef-parte"
+    if e.startswith("pendente"):
+        return "ef-pend"
+    return "ef-ok"
+
+def pagina_documento(md_path):
+    """Página do site para um documento consolidado (ESTADO_ATUAL.md, inventário)."""
+    arq, nome = DOCS_SITE[os.path.realpath(md_path)]
+    destino = os.path.join(OUT, arq)
+    pdir = os.path.dirname(destino)
+    linhas = ler(md_path).split("\n")
+    titulo = linhas[0].lstrip("# ").strip()
+    # sem o título (vira h1) e sem a linha de navegação entre arquivos .md
+    resto = [l for l in linhas[1:] if not l.startswith("[Início](")]
+    corpo = f'<h1>{html.escape(titulo)}</h1>' + md_html("\n".join(resto), os.path.dirname(md_path), pdir, ancoras=True)
+    pagina(arq, nome, corpo, [md_path], atual=arq, migalhas=[("Início", "index.html"), (nome, None)])
 
 # ---------------------------------------------------------------- índices
 
@@ -415,15 +491,36 @@ def secao_central(txt, numero):
     m = re.search(rf"^## {numero}\. .*?$(.*?)(?=^## |\Z)", txt, flags=re.M | re.S)
     return m.group(1).strip()
 
+def cenarios_por_assunto(pagina_dir):
+    """Seção da página inicial: cada assunto com os seus cenários, marcados pela categoria."""
+    vistos, blocos = set(), []
+    grupos = list(ASSUNTOS)
+    resto = [i for i in sorted(PAGINAS) if all(i not in ids for _, _, ids in ASSUNTOS)]
+    if resto:
+        grupos.append(("Outros", "Cenários ainda sem assunto.", resto))
+    for nome, desc, ids in grupos:
+        itens = []
+        for i in ids:
+            if i not in PAGINAS or i in vistos:
+                continue
+            vistos.add(i)
+            d = PAGINAS[i]
+            t = re.sub(r"^[CXR]\d{2}\s*—\s*", "", d["info"]["titulo"])
+            aberto = ' <span class="selo parking-lot">em aberto</span>' if d["cat"] == "parking-lot" else ""
+            itens.append(f'<li><a href="{href_de(pagina_dir, os.path.join(OUT, d["html"]))}"><b>{i}</b> {html.escape(t)}</a>{aberto}</li>')
+        blocos.append(f'<div class="assunto"><h3>{html.escape(nome)}</h3><p class="nota">{html.escape(desc)}</p><ul>{"".join(itens)}</ul></div>')
+    return "".join(blocos)
+
 def pagina_inicio():
     central = os.path.join(PKG, "DataReplication_Versao_1.md")
     txt = ler(central)
     conv = lambda m: md_html(m, PKG, OUT)
     s1, s2, s3 = secao_central(txt, 1), secao_central(txt, 2), secao_central(txt, 3)
-    s10, s11 = secao_central(txt, 10), secao_central(txt, 11)
+    s6, s10, s11 = secao_central(txt, 6), secao_central(txt, 10), secao_central(txt, 11)
     fora = re.search(r"^> \*\*Não é objetivo da v1:\*\*(.*)$", s1, flags=re.M).group(1).strip()
     s1_sem_fora = re.sub(r"^> \*\*Não é objetivo da v1:\*\*.*$", "", s1, flags=re.M)
     estado = re.search(r"^\*\*Estado:\*\*(.*?)·", txt, flags=re.M).group(1).strip()
+    estado = re.sub(r"\[([^\]]*)\]\([^)]*\)", r"\1", estado)
 
     cont = {c[0]: sum(1 for d in PAGINAS.values() if d["cat"] == c[0]) for c in CATS}
     cartoes = "".join(
@@ -442,6 +539,10 @@ durável na AWS (DynamoDB) e na Azure (Cosmos DB). Estado da documentação: {ht
 <div><b>~3.000 TPS</b><span>PutItem e BatchWriteItem</span></div>
 <div><b>P99 ≤ 50 ms</b><span>overhead, sem a escrita no banco</span></div>
 </div>
+<div class="caixa destaque"><h3>Primeira leitura: <a href="estado-atual.html">Estado atual</a></h3>
+<p><a href="#como-funciona">Como funciona a escrita e a leitura</a> · <a href="#cenarios-por-assunto">Cenários por assunto</a></p>
+<p>Como o sistema é hoje, em cerca de 15 minutos: invariantes de segurança, regras vigentes por tema com o status de cada uma na POC,
+o que mudou e o que está em aberto. O <a href="inventario-adrs.html">inventário dos ADRs</a> traz o status efetivo de cada decisão e as contradições a decidir.</p></div>
 <nav class="cartoes secoes" aria-label="Seções do site">{cartoes}</nav>
 
 <section id="resumo"><h2>Resumo executivo</h2>
@@ -449,6 +550,18 @@ durável na AWS (DynamoDB) e na Azure (Cosmos DB). Estado da documentação: {ht
 {conv(s1_sem_fora)}
 <h3>A solução em uma página</h3>
 {conv(s2)}
+</section>
+
+<section id="como-funciona"><h2>Como funciona: escrita, estados do shard e leitura</h2>
+<p class="nota">Seção 6 do documento principal. As regras completas, com as invariantes de segurança e o status de cada uma na POC,
+estão no <a href="estado-atual.html">Estado atual</a> (seções 2, 3.2 e 3.3).</p>
+{conv(s6)}
+</section>
+
+<section id="cenarios-por-assunto"><h2>Cenários por assunto</h2>
+<p class="nota">Os mesmos cenários das quatro seções do site, agrupados pelo que explicam. A etiqueta <b>em aberto</b> marca os cenários do
+parking lot, ainda sem decisão fechada.</p>
+<div class="assuntos">{cenarios_por_assunto(OUT)}</div>
 </section>
 
 <section id="requisitos"><h2>Requisitos e capabilities</h2>
@@ -532,6 +645,16 @@ th{background:#f0f2f4}td.nw{white-space:nowrap}
 .aviso{background:var(--pkbg);border-left:4px solid var(--pk);padding:8px 12px;border-radius:6px}
 .caixa{background:var(--papel);border:1px solid var(--linha);border-radius:10px;padding:4px 16px 10px;margin:14px 0}
 .caixa.decisao{border-left:4px solid var(--acento)}
+.assuntos{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:12px}
+.assunto{background:var(--papel);border:1px solid var(--linha);border-radius:10px;padding:4px 14px 10px}
+.assunto h3{margin:10px 0 2px}.assunto p{margin:0 0 6px}
+.assunto ul{list-style:none;margin:0;padding:0}.assunto li{padding:3px 0;font-size:14px}
+.assunto li a{text-decoration:none}.assunto li a b{color:var(--tx2);margin-right:4px}
+.assunto .selo{font-size:10px;padding:1px 6px;margin-left:4px;vertical-align:middle}
+.caixa.destaque{border-left:4px solid var(--acento);background:var(--acento2)}
+.ef{display:inline-block;font-size:12px;font-weight:600;padding:1px 8px;border-radius:99px;white-space:nowrap}
+.ef-ok{background:var(--okbg);color:var(--ok)}.ef-parte{background:var(--falhabg);color:var(--falha)}
+.ef-pend{background:var(--pkbg);color:var(--pk)}.ef-hist{background:#eef0f2;color:var(--tx2)}
 .caixa.dentro{border-top:4px solid var(--ok)}.caixa.fora{border-top:4px solid var(--falha)}
 .duas{display:grid;grid-template-columns:1fr 1fr;gap:16px}
 .ponto{background:var(--papel);border:1px solid var(--linha);border-radius:10px;padding:10px 16px;margin:12px 0}
@@ -574,6 +697,8 @@ def main():
     with open(os.path.join(OUT, CSS_REL), "w", encoding="utf-8") as f:
         f.write(CSS.strip() + "\n")
     pagina_inicio()
+    for md in (ESTADO_MD, INVENTARIO_MD):
+        pagina_documento(md)
     for c, n, d in CATS:
         pagina_indice_cat(c, n, d)
     for i in sorted(PAGINAS):

@@ -1,8 +1,8 @@
 # DataReplication v1: documento principal
 
-[Início](00_COMECE_AQUI.md) · [Arquitetura](01_arquitetura/README.md) · [Cenários](02_cenarios/INDEX.md) · [ADRs](03_adr/INDEX.md) · [Diagramas](04_diagramas/INDEX.md) · [Implementação](05_implementacao/README.md) · [Pendências](06_pendencias_e_riscos/README.md) · [Glossário](01_arquitetura/00_glossario.md)
+[Início](00_COMECE_AQUI.md) · [Estado atual](ESTADO_ATUAL.md) · [Arquitetura](01_arquitetura/README.md) · [Cenários](02_cenarios/INDEX.md) · [ADRs](03_adr/INDEX.md) · [Diagramas](04_diagramas/INDEX.md) · [Implementação](05_implementacao/README.md) · [Pendências](06_pendencias_e_riscos/README.md) · [Glossário](01_arquitetura/00_glossario.md)
 
-**Estado:** 14/10/2026, com as decisões da revisão crítica (ADR-044 a ADR-054), o log de replicação segmentado (ADR-055), o group commit por shard (ADR-056), o apply paralelo por chave (ADR-058), o checkpoint sem trava (ADR-059) e o laço do Raft que nunca espera o apply, depois do teste de carga da POC (ADR-060) · **Dono:** Bruno · **Papel deste documento:** reunir tudo o que importa sobre o `DataReplication` v1 e apontar, a cada assunto, o arquivo com o detalhe. Cada seção termina com os links para o aprofundamento.
+**Estado:** 14/10/2026, com as decisões da revisão crítica (ADR-044 a ADR-054), o log de replicação segmentado (ADR-055), o group commit por shard (ADR-056), o apply paralelo por chave (ADR-058), o checkpoint sem trava (ADR-059) e o laço do Raft que nunca espera o apply, depois do teste de carga da POC (ADR-060); ADR-061 descartado e ADR-062 e ADR-063 pendentes. As regras vigentes estão consolidadas no [Estado atual](ESTADO_ATUAL.md) · **Dono:** Bruno · **Papel deste documento:** reunir tudo o que importa sobre o `DataReplication` v1 e apontar, a cada assunto, o arquivo com o detalhe. Cada seção termina com os links para o aprofundamento.
 
 ## Sumário
 
@@ -102,82 +102,11 @@ Detalhe: [01_forma_do_app_e_escopo](01_arquitetura/01_forma_do_app_e_escopo.md) 
 
 ## 4. Decisões (ADRs)
 
-Um arquivo por decisão, com contexto, decisão e consequências. Índice completo: [03_adr/INDEX.md](03_adr/INDEX.md).
+As regras vigentes, consolidadas por tema e com o status de cada uma na POC, estão no **[Estado atual](ESTADO_ATUAL.md)**. É o documento para saber como o sistema funciona hoje sem ler os ADRs um a um.
 
-### Estrutura e escopo
-
-| ADR | Decisão | Status |
-|---|---|---|
-| [ADR-001](03_adr/ADR-001-camada-intermediaria-agnostica.md) | Camada intermediária agnóstica a cloud e a banco | Confirmado (requisito) |
-| [ADR-002](03_adr/ADR-002-shards-logicos-celulas-ativo-passivo.md) | Shards lógicos, células e ativo/passivo | Confirmado (requisito) |
-| [ADR-003](03_adr/ADR-003-aws-primaria-azure-failover.md) | AWS primária e Azure como failover, ambas só em São Paulo | Confirmado (restrição dura) |
-| [ADR-004](03_adr/ADR-004-dynamodb-primeiro-adaptador.md) | DynamoDB como primeiro adaptador; Cosmos pelo Cloud-Adapter | Confirmado (requisito) |
-| [ADR-016](03_adr/ADR-016-app-unico-por-celula-monolito-modular.md) | Um único app DataReplication por célula, monolito modular | Decidido (Bruno) |
-| [ADR-031](03_adr/ADR-031-hexagonal-e-bibliotecas.md) | Arquitetura hexagonal e bibliotecas | Decidido (Bruno) |
-| [ADR-032](03_adr/ADR-032-parse-json-completo-e-rust.md) | Parse completo do JSON na v1; Rust como alternativa registrada | Decidido (Bruno); problema conhecido |
-| [ADR-043](03_adr/ADR-043-uma-instalacao-por-cliente-identidade-por-configuracao.md) | Uma instalação por cliente; o cliente é conhecido na configuração | Decidido (Bruno) |
-| [ADR-052](03_adr/ADR-052-autorizacao-por-aplicacao-com-mtls.md) | Autorização por aplicação com mTLS | Decidido (Bruno) |
-| [ADR-054](03_adr/ADR-054-banco-por-celula-mantido.md) | Um banco por célula mantido, com o trade-off registrado | Decidido (Bruno) |
-
-### Consenso, durabilidade e gate
-
-| ADR | Decisão | Status |
-|---|---|---|
-| [ADR-005](03_adr/ADR-005-ack-exige-gate.md) | ACK só depois do gate (Raft AWS e maioria durável Azure) | Aceito (reformulado na v1) |
-| [ADR-006](03_adr/ADR-006-consenso-por-shard-eleicao-na-aws.md) | Consenso por shard; eleição só na AWS | Aceito |
-| [ADR-017](03_adr/ADR-017-azure-learners-e-gate.md) | Azure como learners, com gate | Decidido (Bruno) |
-| [ADR-018](03_adr/ADR-018-dois-logs-raft-e-replicacao.md) | Dois logs separados: o do Raft e o de replicação | Decidido (Bruno) |
-| [ADR-019](03_adr/ADR-019-wal-proprio-volume-dedicado.md) | Log do Raft em volume de bloco dedicado; sem ACK em memória | Decidido (Bruno); revisado pelo ADR-055 |
-| [ADR-055](03_adr/ADR-055-log-de-replicacao-segmentado-derivado-do-raft.md) | Log de replicação segmentado, derivado do Raft, sem fsync no caminho do ACK e em volume separado | Decidido (Bruno, 1a 2b 3b e opção a); checkpoint precisado pelo ADR-059 |
-| [ADR-056](03_adr/ADR-056-group-commit-por-shard-e-nada-sai-antes-do-fsync.md) | Group commit por shard; nada sai antes do fsync; `AsyncStorageWrites` decidido por spike | Decidido (Bruno, 1a 2a 3b 4a 5a 6a) |
-| [ADR-059](03_adr/ADR-059-checkpoint-do-log-de-replicacao-sem-trava-no-append.md) | Checkpoint do log de replicação sem trava no `Append`; `Append` fora da goroutine do gate | Decidido (Bruno, 2a) |
-| [ADR-060](03_adr/ADR-060-laco-do-raft-nunca-espera-o-apply-e-admissao-por-atraso.md) | O laço do Raft nunca espera o apply (commit como sinal, `CommitPump` por faixa), admissão por atraso do apply (`APPLY_LAG_MAX`), `ELECTION_TICKS`, partida sem reaplicar o log, métricas de causa e HTTP | Decidido (Bruno, 1a 2a 3a 4a 5a 6a) |
-| [ADR-020](03_adr/ADR-020-raft-etcd-io-camada-multigrupo.md) | Raft: etcd-io/raft com camada multi-grupo própria | Decidido (Bruno) |
-| [ADR-021](03_adr/ADR-021-grpc-entre-celulas.md) | gRPC entre as células | Decidido (Bruno) |
-| [ADR-029](03_adr/ADR-029-gate-monotonico-na-troca-de-lider.md) | O gate nunca recua; líder nova reconstrói antes de ACKar | Decidido (Bruno) |
-| [ADR-030](03_adr/ADR-030-verificacao-formal-tla.md) | Modelo TLA+ do gate antes do código do gate (escopo ampliado em 13/10) | Decidido (Bruno) |
-| [ADR-046](03_adr/ADR-046-gate-so-conta-progresso-validado-pelo-raft.md) | O gate só conta progresso validado pelo Raft no termo atual | Decidido (Bruno) |
-| [ADR-049](03_adr/ADR-049-barreira-da-leitura-forte-e-o-gate.md) | A leitura forte espera `min(ReadIndex, gate)` | Decidido (Bruno) |
-| [ADR-034](03_adr/ADR-034-fsync-fatal-e-identidade-nova.md) | Falha de fsync é fatal; disco perdido volta com identidade nova | Decidido (Bruno) |
-| [ADR-007](03_adr/ADR-007-sidecar-e-coordenacao-compartilhada.md) | Sidecar com coordenação compartilhada | Substituído pelo ADR-016 |
-| [ADR-008](03_adr/ADR-008-terceiro-dominio.md) | Terceiro domínio com WAL integral | Descartado |
-| [ADR-011](03_adr/ADR-011-witness-manifesto-snapshots.md) | Witness = manifesto assinado, snapshots e WAL | Mantido |
-
-### Dados, modos e API
-
-| ADR | Decisão | Status |
-|---|---|---|
-| [ADR-057](03_adr/ADR-057-um-unico-modo-strong-consistency.md) | Um único modo: strong consistency; leitura sempre forte, apply depois do gate | Decidido (Bruno); "serial" esclarecido pelo ADR-058 |
-| [ADR-058](03_adr/ADR-058-apply-paralelo-por-chave-com-marca-dagua.md) | Apply paralelo por chave (`APPLY_WORKERS`), mesma chave na ordem do log; `applied` = marca d'água contígua | Decidido (Bruno, 1a) |
-| [ADR-015](03_adr/ADR-015-wal-post-image-e-versao.md) | O log guarda a post-image e a versão do item | Aceito |
-| [ADR-022](03_adr/ADR-022-banco-por-celula-nome-logico.md) | Um banco por célula; nome lógico com {cell} | Decidido (Bruno) |
-| [ADR-024](03_adr/ADR-024-delete-real-ttl-local-gsi.md) | DELETE real com ordem por chave; TTL local; GSI | Decidido (Bruno) |
-| [ADR-025](03_adr/ADR-025-escopo-da-api-v1-e-sdks.md) | Escopo da API v1 e SDKs suportados | Decidido (Bruno) |
-| [ADR-026](03_adr/ADR-026-dedupe-de-retry-id-estavel.md) | Dedupe de retry na líder por identificador estável | Decidido (Bruno) |
-| [ADR-035](03_adr/ADR-035-lote-batchwriteitem-uma-entrada-e-apply-condicional.md) | BatchWriteItem vira uma entrada; o apply é por item e condicional | Decidido (Bruno) |
-| [ADR-036](03_adr/ADR-036-slo-de-50ms-exclui-a-escrita-no-banco.md) | O SLO de 50 ms exclui a escrita no banco; publicado como overhead + banco | Decidido (Bruno) |
-| [ADR-047](03_adr/ADR-047-delete-real-invariante-e-reconstrucao-em-tabela-sombra.md) | DELETE real com invariante formal; reconstrução em tabela sombra | Decidido (Bruno) |
-| [ADR-048](03_adr/ADR-048-skip-por-item.md) | O SKIP identifica o item: (índice, ordem) | Decidido (Bruno) |
-| [ADR-050](03_adr/ADR-050-query-em-gsi-recusada.md) | `ConsistentRead=true` em GSI é recusada, como no DynamoDB | Decidido (Bruno) |
-| [ADR-051](03_adr/ADR-051-compatibilidade-dynamodb-inventario-conformidade-e-idempotencia.md) | Compatibilidade com o DynamoDB: inventário, conformidade e limite da idempotência | Decidido (Bruno) |
-
-### Operação e falhas
-
-| ADR | Decisão | Status |
-|---|---|---|
-| [ADR-010](03_adr/ADR-010-follower-encaminha-para-lider.md) | Follower encaminha para a líder | Aceito (Bruno, 11/10/2026) |
-| [ADR-013](03_adr/ADR-013-transferencia-planejada-de-lideranca.md) | Transferência planejada de liderança | Aceito (pausa como janela de exceção) |
-| [ADR-014](03_adr/ADR-014-modo-degradado-opcao-b.md) | Modo degradado: a AWS segue quando a Azure fica inalcançável (opção B) | Decidido (Bruno, 11/10/2026) |
-| [ADR-027](03_adr/ADR-027-sinalizacao-do-modo-degradado.md) | Modo degradado sinalizado por header e métrica | Decidido (Bruno) |
-| [ADR-028](03_adr/ADR-028-timeouts-em-cascata.md) | Prazos em cascata dentro do timeout do SDK | Decidido (Bruno); valores a validar |
-| [ADR-033](03_adr/ADR-033-promocao-da-azure-humana.md) | Promoção da Azure sempre humana, só depois de D + M | Decidido o desenho; PEND-01 fecha com D e o TLA+ |
-| [ADR-044](03_adr/ADR-044-lease-do-modo-degradado-e-promocao-da-azure.md) | Modo degradado com lease: a AWS para sozinha e a Azure só promove depois de D mais margem | Decidido (Bruno); D depende da PEND-02 |
-| [ADR-045](03_adr/ADR-045-politica-de-degradacao-por-instalacao.md) | `DEGRADED_POLICY` obrigatória por instalação (`accept` ou `reject`) | Decidido (Bruno) |
-| [ADR-037](03_adr/ADR-037-faixa-cinzenta-do-link-so-alerta.md) | Link lento na faixa cinzenta: só alertar, RPO continua 0 | Decidido (Bruno) |
-| [ADR-038](03_adr/ADR-038-skip-de-entrada-venenosa-sempre-humano.md) | O SKIP de uma entrada venenosa é sempre aprovado por uma pessoa | Decidido (Bruno) |
-| [ADR-039](03_adr/ADR-039-sem-lider-conhecida-espera-ate-1s-e-503.md) | Sem líder conhecida: esperar até 1 s no servidor e então 503 | Decidido (Bruno) |
-| [ADR-041](03_adr/ADR-041-disco-do-log-teto-de-70-por-cento-sem-s3-na-v1.md) | Disco do log: teto de 70% e reconstrução completa; sem S3 na v1 | Decidido (Bruno) |
-| [ADR-042](03_adr/ADR-042-aws-que-volta-boot-cercado-e-recriacao-da-celula.md) | AWS que volta depois da promoção: boot cercado, credenciais revogadas, célula recriada | Decidido (Bruno) |
+- **[Estado atual](ESTADO_ATUAL.md):** invariantes de segurança, regras por tema, o que mudou e o que está em aberto.
+- **[Inventário dos ADRs](03_adr/INVENTARIO.md):** status efetivo de cada ADR, quem altera quem, as cadeias de leitura por tema e as contradições a decidir.
+- **[Índice dos ADRs](03_adr/INDEX.md):** a lista completa, um arquivo por decisão, com contexto, decisão e consequências.
 
 ## 5. Arquitetura em resumo
 
@@ -263,8 +192,10 @@ flowchart TD
     A["App chama PutItem no DataReplication"] --> B["Parse, validação, nome lógico da tabela, dedupe"]
     B --> C{"Esta célula é a líder?"}
     C -->|"não"| D["Encaminha à líder, um salto"]
-    C -->|"sim"| E["Propose no Raft: 2 de 3 votantes AWS com fsync"]
-    D --> E
+    C -->|"sim"| AD{"Admissão: apply local e buffer do Raft em dia?"}
+    D --> AD
+    AD -->|"não"| T["400 ThrottlingException: nada entrou no log, o SDK repete"]
+    AD -->|"sim"| E["Propose no Raft: 2 de 3 votantes AWS com fsync"]
     E --> F["Learners Azure: 2 de 3 com fsync"]
     F --> G["Gate alcança o índice"]
     G --> H["Applier grava no banco da célula da líder, em paralelo por chave"]
@@ -276,7 +207,7 @@ flowchart TD
     J --> H
 ```
 
-Detalhe: [C03](02_cenarios/atualizados/C03-escrita-strong.md) (escrita), [C06](02_cenarios/atualizados/C06-follower-encaminha.md) (follower), [C32](02_cenarios/atualizados/C32-particao-e-lease-do-modo-degradado.md) (partição e lease).
+Detalhe: [C03](02_cenarios/atualizados/C03-escrita-strong.md) (escrita), [C06](02_cenarios/atualizados/C06-follower-encaminha.md) (follower), [C32](02_cenarios/atualizados/C32-particao-e-lease-do-modo-degradado.md) (partição e lease), [X07](02_cenarios/complexos/X07-gate-explicado-com-exemplos.md) (gate com exemplos). A admissão é do [ADR-060](03_adr/ADR-060-laco-do-raft-nunca-espera-o-apply-e-admissao-por-atraso.md) e do [ADR-056](03_adr/ADR-056-group-commit-por-shard-e-nada-sai-antes-do-fsync.md). Regras e invariantes: [Estado atual](ESTADO_ATUAL.md), seção 3.2.
 
 ### 6.2 Estados do shard
 
@@ -296,6 +227,29 @@ stateDiagram-v2
 ```
 
 Detalhe: [C17](02_cenarios/atualizados/C17-maquina-de-estados.md), [D06](04_diagramas/D06-estados-do-shard-e-do-no.md).
+
+### 6.3 Leitura forte
+
+Toda leitura é forte; não há leitura eventual nem consulta por GSI. A célula, líder ou não, pede à líder o `ReadIndex` e o gate na mesma resposta, espera o próprio banco ter aplicado até `min(ReadIndex, gate)` e só então lê. Assim a leitura nunca devolve estado anterior a uma escrita confirmada nem uma escrita ainda não confirmada, e uma Azure lenta não atrasa a leitura.
+
+```mermaid
+flowchart TD
+    A["App chama GetItem ou Scan na tabela base"] --> GSI{"Usa IndexName de GSI?"}
+    GSI -->|"sim"| V["400 ValidationException"]
+    GSI -->|"não"| L{"Líder conhecida em até 1 s?"}
+    L -->|"não"| NL["503 NO_LEADER"]
+    L -->|"sim"| GR{"Gate da líder pronto no termo atual?"}
+    GR -->|"não"| GNR["503 GATE_NOT_READY"]
+    GR -->|"sim"| B["Barreira: ReadIndex R e gate G da líder, na mesma resposta"]
+    B --> W{"Banco local aplicou até min de R e G?"}
+    W -->|"ainda não"| E["Espera o applier, até o prazo de 7,5 s"]
+    E --> W
+    E -.->|"prazo vencido"| RT["503 READ_TIMEOUT"]
+    E -.->|"applier parado num item venenoso"| AS["503 APPLIER_STOPPED, na hora"]
+    W -->|"sim"| R["Lê o banco da própria célula e responde, sem _dr_v"]
+```
+
+Detalhe: [C05](02_cenarios/atualizados/C05-leitura-strong.md) (leitura), [X08](02_cenarios/complexos/X08-leitura-forte-com-exemplos.md) (leitura forte com exemplos), [R16](02_cenarios/a_rever/R16-leitura-forte-em-celulas-follower.md) (custo na follower). Decisões: [ADR-049](03_adr/ADR-049-barreira-da-leitura-forte-e-o-gate.md), [ADR-050](03_adr/ADR-050-query-em-gsi-recusada.md), [ADR-057](03_adr/ADR-057-um-unico-modo-strong-consistency.md). Regras e invariantes: [Estado atual](ESTADO_ATUAL.md), seção 3.3.
 
 ## 7. Falhas e recuperação
 
@@ -380,7 +334,7 @@ A definição de pronto vale **por instalação** (uma por cliente) e é uma lis
 |---|---|
 | [`01_arquitetura/`](01_arquitetura/README.md) | Detalhe de arquitetura em 10 arquivos, mais o [glossário](01_arquitetura/00_glossario.md) |
 | [`02_cenarios/`](02_cenarios/INDEX.md) | `atualizados/` (C01–C35), `complexos/` (X01–X08), `a_rever/` (14 cenários ainda sem decisão completa), cada um com diagrama |
-| [`03_adr/`](03_adr/INDEX.md) | 54 decisões, um arquivo cada |
+| [`03_adr/`](03_adr/INDEX.md) | 58 decisões (ADR-001 a ADR-063), um arquivo cada, e o [inventário](03_adr/INVENTARIO.md) com o status efetivo de cada uma |
 | [`04_diagramas/`](04_diagramas/INDEX.md) | Diagramas de arquitetura e o catálogo de todos os 86 diagramas do pacote |
 | [`05_implementacao/`](05_implementacao/README.md) | Guia de código, exemplos compilados, structs, testes e spikes |
 | [`06_pendencias_e_riscos/`](06_pendencias_e_riscos/README.md) | Perguntas, pendências, riscos e revisão crítica |

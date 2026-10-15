@@ -34,6 +34,10 @@ Era preciso definir como a API identifica o cliente (`Access Key Id` do SigV4 ou
 
 O item 3 (NetworkPolicy como fronteira) é completado pela **autorização por aplicação com mTLS** ([ADR-052](ADR-052-autorizacao-por-aplicacao-com-mtls.md)): o ADR-043 resolve "quem é o cliente", não "quem pode escrever o quê".
 
+## Atualização de 14/10/2026 (inventário dos ADRs, resposta 4a)
+
+A alternativa "mTLS por aplicação: custo de certificados sem ganho, já que o namespace pertence ao cliente" foi **revertida** pelo [ADR-052](ADR-052-autorizacao-por-aplicacao-com-mtls.md): sem ela, qualquer pod do namespace escreveria em qualquer tabela. Deste ADR continua valendo a identificação do cliente pela configuração do deploy; quem pode escrever o quê é do [ADR-052](ADR-052-autorizacao-por-aplicacao-com-mtls.md).
+
 ## Onde está o detalhe
 
 - [C31-implantacao-por-cliente-e-identidade.md](../02_cenarios/atualizados/C31-implantacao-por-cliente-e-identidade.md)

@@ -4,18 +4,20 @@
 
 ## Leia nesta ordem
 
-1. **[DataReplication_Versao_1.md](DataReplication_Versao_1.md)** é o documento principal: problema, solução, decisões, arquitetura, fluxos, falhas e links para tudo o que tem mais detalhe.
-2. **[02_cenarios/INDEX.md](02_cenarios/INDEX.md)** mostra cada cenário (com diagrama) e a sua situação: atualizado, complexo ou **a rever**.
-3. **[06_pendencias_e_riscos/03_perguntas_para_o_bruno.md](06_pendencias_e_riscos/03_perguntas_para_o_bruno.md)** lista as decisões que dependem do Bruno, no formato `1a 2b`.
-4. **[06_pendencias_e_riscos/revisao_critica_13_10.md](06_pendencias_e_riscos/revisao_critica_13_10.md)** resume a revisão crítica de 13/10 (parecer: candidata a protótipo, não a produção) e onde cada achado foi tratado.
+1. **[ESTADO_ATUAL.md](ESTADO_ATUAL.md)** diz como o sistema é hoje, em cerca de 15 minutos: invariantes de segurança, regras vigentes por tema (com o status na POC), o que mudou e o que está em aberto. Abra um ADR só para saber o porquê de uma regra.
+2. **[DataReplication_Versao_1.md](DataReplication_Versao_1.md)** é o documento principal: problema, solução, decisões, arquitetura, fluxos, falhas e links para tudo o que tem mais detalhe.
+3. **[02_cenarios/INDEX.md](02_cenarios/INDEX.md)** mostra cada cenário (com diagrama) e a sua situação: atualizado, complexo ou **a rever**.
+4. **[06_pendencias_e_riscos/03_perguntas_para_o_bruno.md](06_pendencias_e_riscos/03_perguntas_para_o_bruno.md)** lista as decisões que dependem do Bruno, no formato `1a 2b`.
+5. **[06_pendencias_e_riscos/revisao_critica_13_10.md](06_pendencias_e_riscos/revisao_critica_13_10.md)** resume a revisão crítica de 13/10 (parecer: candidata a protótipo, não a produção) e onde cada achado foi tratado.
 
 ## Para cada perfil
 
 | Quem | Vá para |
 |---|---|
+| Acabou de chegar | [Estado atual](ESTADO_ATUAL.md) |
 | Quer entender o problema e a solução | [Documento principal](DataReplication_Versao_1.md), seções 1 e 2 |
 | Decide (negócio, risco) | [Perguntas](06_pendencias_e_riscos/03_perguntas_para_o_bruno.md) e [riscos](06_pendencias_e_riscos/02_riscos.md) |
-| Arquiteto | [01_arquitetura](01_arquitetura/README.md), [ADRs](03_adr/INDEX.md), [cenários complexos](02_cenarios/INDEX.md#complexos-detalhamento) |
+| Arquiteto | [Estado atual](ESTADO_ATUAL.md), [inventário dos ADRs](03_adr/INVENTARIO.md), [01_arquitetura](01_arquitetura/README.md), [ADRs](03_adr/INDEX.md), [cenários complexos](02_cenarios/INDEX.md#complexos-detalhamento) |
 | Vai implementar | [05_implementacao](05_implementacao/README.md) |
 | Opera (runbooks futuros) | Cenários [C08 a C16](02_cenarios/INDEX.md) e [X03](02_cenarios/complexos/X03-desastre-e-promocao-da-azure.md) |
 
@@ -25,7 +27,8 @@
 |---|---|
 | [`01_arquitetura/`](01_arquitetura/README.md) | Detalhe de arquitetura por assunto e o [glossário](01_arquitetura/00_glossario.md) |
 | [`02_cenarios/`](02_cenarios/INDEX.md) | `atualizados/` (C01–C35), `complexos/` (X01–X08) e `a_rever/` (14 cenários ainda sem decisão completa, R03 a R23) |
-| [`03_adr/`](03_adr/INDEX.md) | 54 decisões de arquitetura, um arquivo por decisão |
+| [`ESTADO_ATUAL.md`](ESTADO_ATUAL.md) | As regras vigentes, consolidadas a partir dos ADRs |
+| [`03_adr/`](03_adr/INDEX.md) | 58 decisões de arquitetura (ADR-001 a ADR-063), um arquivo por decisão, e o [inventário](03_adr/INVENTARIO.md) |
 | [`04_diagramas/`](04_diagramas/INDEX.md) | Diagramas de arquitetura (D01–D08) e catálogo de todos os diagramas |
 | [`05_implementacao/`](05_implementacao/README.md) | Guia de código, exemplos compilados, structs, testes e spikes |
 | [`06_pendencias_e_riscos/`](06_pendencias_e_riscos/README.md) | Perguntas, pendências, riscos e as revisões críticas de 12 e 13/10 |

@@ -1,6 +1,10 @@
 # Índice de ADRs
 
-Um arquivo por decisão. ADR-001 a 015 são herdados das versões anteriores da documentação (revisados); ADR-016 a 060 registram as decisões da v1 do DataReplication (12 a 14/10/2026; os ADRs 044 a 054 vêm da revisão crítica de 13/10; o ADR-055, do log de replicação segmentado; o ADR-056, do group commit e do `AsyncStorageWrites`; o ADR-057, do modo único strong; os ADRs 058 e 059, da revisão do apply e do checkpoint em 14/10; o ADR-060, do teste de carga da POC em 14/10). Os números 009, 012, 023, 040 e 053 ficaram vagos: tratavam do modo Eventual, removido pelo ADR-057. O status **Provisório** indica pendência aberta.
+Um arquivo por decisão. ADR-001 a 015 são herdados das versões anteriores da documentação (revisados); ADR-016 a 063 registram as decisões da v1 do DataReplication (12 a 14/10/2026; os ADRs 044 a 054 vêm da revisão crítica de 13/10; o ADR-055, do log de replicação segmentado; o ADR-056, do group commit e do `AsyncStorageWrites`; o ADR-057, do modo único strong; os ADRs 058 e 059, da revisão do apply e do checkpoint em 14/10; o ADR-060, do teste de carga da POC em 14/10; o ADR-061, descartado depois da medição; os ADRs 062 e 063, pendentes, da revisão geral de 14/10). Os números 009, 012, 023, 040 e 053 ficaram vagos: tratavam do modo Eventual, removido pelo ADR-057. O status **Provisório** indica pendência aberta.
+
+**As regras vigentes estão consolidadas no [Estado atual](../ESTADO_ATUAL.md)**, e o status efetivo de cada ADR (inclusive os alterados por ADRs posteriores) está no [inventário](INVENTARIO.md).
+
+**Ao criar ou mudar um ADR:** o cabeçalho leva o campo **Afeta o estado atual:** com a seção do [ESTADO_ATUAL.md](../ESTADO_ATUAL.md) que muda (ou "nenhuma"), e a mesma alteração atualiza aquela seção, o "cobre até" do cabeçalho dele, a linha do inventário e a do `adr_resumo.py` do site. `task check-estado` confere o mínimo.
 
 | ADR | Título | Status |
 |---|---|---|
@@ -13,8 +17,8 @@ Um arquivo por decisão. ADR-001 a 015 são herdados das versões anteriores da 
 | [ADR-007](ADR-007-sidecar-e-coordenacao-compartilhada.md) | Sidecar com coordenação compartilhada | Substituído pelo ADR-016 |
 | [ADR-008](ADR-008-terceiro-dominio.md) | Terceiro domínio com WAL integral | Descartado |
 | [ADR-010](ADR-010-follower-encaminha-para-lider.md) | Follower encaminha para a líder | Aceito (Bruno, 11/10/2026) |
-| [ADR-011](ADR-011-witness-manifesto-snapshots.md) | Witness = manifesto assinado, snapshots e WAL | Mantido |
-| [ADR-013](ADR-013-transferencia-planejada-de-lideranca.md) | Transferência planejada de liderança | Aceito (pausa como janela de exceção) |
+| [ADR-011](ADR-011-witness-manifesto-snapshots.md) | Witness = manifesto assinado, snapshots e WAL | Sem uso (Bruno, 14/10/2026); só registro |
+| [ADR-013](ADR-013-transferencia-planejada-de-lideranca.md) | Transferência planejada de liderança | Aceito; fases 2 e 3 alinhadas em 14/10/2026 (respostas 1a 2a) |
 | [ADR-014](ADR-014-modo-degradado-opcao-b.md) | Modo degradado: a AWS segue quando a Azure fica inalcançável (opção B) | Decidido (Bruno, 11/10/2026) |
 | [ADR-015](ADR-015-wal-post-image-e-versao.md) | O log guarda a post-image e a versão do item | Aceito |
 | [ADR-016](ADR-016-app-unico-por-celula-monolito-modular.md) | Um único app DataReplication por célula, monolito modular | Decidido (Bruno) |
@@ -59,3 +63,6 @@ Um arquivo por decisão. ADR-001 a 015 são herdados das versões anteriores da 
 | [ADR-058](ADR-058-apply-paralelo-por-chave-com-marca-dagua.md) | Apply paralelo por chave, com a marca d'água contígua como `applied` | Decidido (Bruno, 1a) |
 | [ADR-059](ADR-059-checkpoint-do-log-de-replicacao-sem-trava-no-append.md) | Checkpoint do log de replicação sem trava no `Append`, e `Append` fora da goroutine do gate | Decidido (Bruno, 2a); risco 3 da POC fechado pelo ADR-060 |
 | [ADR-060](ADR-060-laco-do-raft-nunca-espera-o-apply-e-admissao-por-atraso.md) | O laço do Raft nunca espera o apply (commit como sinal), admissão por atraso do apply, `ELECTION_TICKS`, partida sem reaplicar o log e métricas de causa | Decidido (Bruno, 1a 2a 3a 4a 5a 6a) |
+| [ADR-061](ADR-061-ack-e-getitem-esperam-a-marca-dagua-do-slot-da-chave.md) | O ACK e o GetItem esperam a marca d'água do slot da chave; Scan, admissão e progresso continuam na marca d'água global | Descartado (Bruno, 14/10): melhora a cauda abaixo da saturação, piora na saturação; o teto é a vazão do apply |
+| [ADR-062](ADR-062-banco-com-versao-de-outra-historia-do-log.md) | Banco com versão de outra história do log: detector no apply (versão gravada acima do gate estaciona o applier) e marcador de história conferido no boot | Pendente (aguarda o Bruno: decisões 1 a 4) |
+| [ADR-063](ADR-063-snapshot-e-compactacao-do-log-do-raft.md) | Snapshot e compactação do log do Raft: gatilho, estado derivado do log dentro do snapshot, par atrás da compactação e partida | Pendente (aguarda o Bruno: decisões 1 a 5) |

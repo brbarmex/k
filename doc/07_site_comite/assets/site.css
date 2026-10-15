@@ -45,6 +45,16 @@ th{background:#f0f2f4}td.nw{white-space:nowrap}
 .aviso{background:var(--pkbg);border-left:4px solid var(--pk);padding:8px 12px;border-radius:6px}
 .caixa{background:var(--papel);border:1px solid var(--linha);border-radius:10px;padding:4px 16px 10px;margin:14px 0}
 .caixa.decisao{border-left:4px solid var(--acento)}
+.assuntos{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:12px}
+.assunto{background:var(--papel);border:1px solid var(--linha);border-radius:10px;padding:4px 14px 10px}
+.assunto h3{margin:10px 0 2px}.assunto p{margin:0 0 6px}
+.assunto ul{list-style:none;margin:0;padding:0}.assunto li{padding:3px 0;font-size:14px}
+.assunto li a{text-decoration:none}.assunto li a b{color:var(--tx2);margin-right:4px}
+.assunto .selo{font-size:10px;padding:1px 6px;margin-left:4px;vertical-align:middle}
+.caixa.destaque{border-left:4px solid var(--acento);background:var(--acento2)}
+.ef{display:inline-block;font-size:12px;font-weight:600;padding:1px 8px;border-radius:99px;white-space:nowrap}
+.ef-ok{background:var(--okbg);color:var(--ok)}.ef-parte{background:var(--falhabg);color:var(--falha)}
+.ef-pend{background:var(--pkbg);color:var(--pk)}.ef-hist{background:#eef0f2;color:var(--tx2)}
 .caixa.dentro{border-top:4px solid var(--ok)}.caixa.fora{border-top:4px solid var(--falha)}
 .duas{display:grid;grid-template-columns:1fr 1fr;gap:16px}
 .ponto{background:var(--papel);border:1px solid var(--linha);border-radius:10px;padding:10px 16px;margin:12px 0}

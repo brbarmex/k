@@ -30,6 +30,9 @@ O escopo do modelo cresce: lease do modo degradado e promoção entre nuvens ([A
 
 O modelo separa **log volátil e log durável** por nó, com queda que perde o volátil em qualquer passo; `MsgAppResp`, voto e auto-ACK da líder dependem só do durável. Invariante nova: **toda entrada ACKada está no log durável de pelo menos 2 nós AWS e 2 nós Azure**. Cobre o modo síncrono com F3 (só a líder envia `MsgApp` antes de gravar) e o `AsyncStorageWrites`, antes do código do adaptador `etcdraft` ([ADR-056](ADR-056-group-commit-por-shard-e-nada-sai-antes-do-fsync.md)). O modelo do próprio `etcd-io/raft` (`tla/etcdraft.tla`) não cobre o gate nem o lease.
 
+## Atualização de 14/10/2026 (inventário dos ADRs, resposta 8a)
+
+"Antes do código do gate" vale para o **gate com learners reais** (fase AWS). A POC roda sem Azure, com gate = commit do Raft, e o código de domínio do gate (`domain/gate.go`, testado com learners simulados) não conta como o código do gate para esta regra. O modelo continua obrigatório antes de ligar learners reais.
 
 ## Onde está o detalhe
 

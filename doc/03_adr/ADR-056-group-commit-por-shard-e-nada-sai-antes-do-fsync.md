@@ -59,6 +59,10 @@ O Bruno pediu (1) fsync com group commit e buffer em memória enquanto as escrit
 - `internal/adapter/out/raftstore`: escritor com coalescência sem espera fixa, teto de bytes por lote, junção com reescrita de índices, respostas liberadas só depois do `Sync` e erro fatal sem liberar respostas, com testes.
 - `internal/domain/sendrule.go`: `CanSendBeforeSync`, a regra do que pode sair antes do fsync no modo síncrono, com testes.
 
+## Atualização de 14/10/2026 (inventário dos ADRs, resposta 6b)
+
+**Na POC o lote do log do Raft vem só do `Ready`:** cada `Ready` é gravado com um `wal.Save` e um `fdatasync`, o que já junta as propostas que chegaram durante o fsync anterior. O `raftstore.Writer` (coalescência entre `Ready`s, teto de 1 MiB, respostas só depois do fsync) fica pronto e testado e **entra junto com o `AsyncStorageWrites`**, se o spike S1b o aprovar. Sem ele, a regra "nada sai antes do fsync" continua garantida pela ordem do laço síncrono: `MsgApp` da líder, `Save` com fsync, e só então o resto das mensagens (`domain.SplitBeforeSync`).
+
 ## Onde está o detalhe
 
 - [04_wal_e_fsync.md](../01_arquitetura/04_wal_e_fsync.md) (6.8 e 6.10)

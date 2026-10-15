@@ -21,6 +21,8 @@ Gerado em 14/10/2026 a partir do pacote DataReplication_Versao_1.
 <nav class="sidebar" aria-label="Navegação">
 <a class="marca" href="../index.html">DataReplication v1<span>Comitê técnico</span></a>
 <a class="nav-inicio" href="../index.html">Resumo e requisitos</a>
+<a class="nav-inicio" href="../estado-atual.html">Estado atual</a>
+<a class="nav-inicio" href="../inventario-adrs.html">Inventário dos ADRs</a>
 <details class="grupo" open><summary>Success path <span class="qtd">9</span></summary><ul>
 <li><a class="idx" href="index.html">Índice da seção</a></li>
 <li><a href="C01-visao-geral.html"><b>C01</b> Visão geral da arquitetura</a></li>
@@ -146,7 +148,7 @@ Gerado em 14/10/2026 a partir do pacote DataReplication_Versao_1.
 <li><strong>Pedido:</strong> o Agent pede a transferência para A2. Fase 0 confere trava por shard, cooldown, quórum e votante substituto (add-then-remove).</li>
 <li><strong>Fase 1:</strong> A2 alcança o log e o apply até o lag ficar abaixo do limiar, sem pausa.</li>
 <li><strong>Fase 2:</strong> A1 enfileira escritas novas, replica até L e envia <code>TimeoutNow</code>; A2 vence a eleição no termo T+1 e grava o no-op.</li>
-<li><strong>Fase 3:</strong> as escritas voltam em A2 e a fila é reenviada; o dedupe evita duplicação. A2 reconstrói o gate (ADR-029) só com respostas do termo T+1 (ADR-046) e abre as leituras fortes depois disso.</li>
+<li><strong>Fase 3:</strong> A2 volta a aceitar escritas e a fila é reenviada; o dedupe evita duplicação. A2 só <strong>confirma</strong> depois de reconstruir o gate (ADR-029) com respostas do termo T+1 (ADR-046) e de aplicar no próprio banco (ADR-057); as leituras fortes abrem depois do gate reconstruído (ADR-049). A líder antiga não precisa de fencing no banco: sem quórum no termo T+1 ela não commita, e nada é aplicado antes do gate (ADR-013, revisado em 14/10).</li>
 <li><strong>Fase 4:</strong> o Agent roteia para A2; A1 vira follower e entra em manutenção.</li>
 </ol></div>
 </section>
@@ -186,13 +188,13 @@ Gerado em 14/10/2026 a partir do pacote DataReplication_Versao_1.
 </article>
 </section>
 <section id="adrs"><h2>5. ADRs relacionados</h2>
-<div class="tabela"><table><thead><tr><th>ADR</th><th>Título</th><th>Decisão resumida</th><th>Arquivo</th></tr></thead><tbody>
-<tr><td class="nw"><a href="../../03_adr/ADR-013-transferencia-planejada-de-lideranca.md">ADR-013</a></td><td>Transferência planejada de liderança (sincronizar antes de promover)</td><td>Transferência planejada sincroniza antes de promover, com pausa de cerca de 1 RTT, disparada pelo Agent.</td><td><a href="../../03_adr/ADR-013-transferencia-planejada-de-lideranca.md">ADR-013-transferencia-planejada-de-lideranca.md</a></td></tr>
-<tr><td class="nw"><a href="../../03_adr/ADR-010-follower-encaminha-para-lider.md">ADR-010</a></td><td>Follower encaminha para a líder; a liderança muda só por eleição de saúde</td><td>Follower encaminha a escrita à líder; a liderança muda só por eleição de saúde ou transferência planejada.</td><td><a href="../../03_adr/ADR-010-follower-encaminha-para-lider.md">ADR-010-follower-encaminha-para-lider.md</a></td></tr>
-<tr><td class="nw"><a href="../../03_adr/ADR-046-gate-so-conta-progresso-validado-pelo-raft.md">ADR-046</a></td><td>O gate só conta progresso validado pelo Raft no termo atual</td><td>O gate só conta progresso da Azure confirmado pelo AppendEntries no termo atual.</td><td><a href="../../03_adr/ADR-046-gate-so-conta-progresso-validado-pelo-raft.md">ADR-046-gate-so-conta-progresso-validado-pelo-raft.md</a></td></tr>
-<tr><td class="nw"><a href="../../03_adr/ADR-049-barreira-da-leitura-forte-e-o-gate.md">ADR-049</a></td><td>A leitura forte espera <code>min(ReadIndex, gate)</code></td><td>A leitura forte espera min(ReadIndex, gate), obtidos da líder na mesma resposta.</td><td><a href="../../03_adr/ADR-049-barreira-da-leitura-forte-e-o-gate.md">ADR-049-barreira-da-leitura-forte-e-o-gate.md</a></td></tr>
+<div class="tabela"><table><thead><tr><th>ADR</th><th>Título</th><th>Status efetivo</th><th>Decisão resumida</th><th>Arquivo</th></tr></thead><tbody>
+<tr><td class="nw"><a href="../../03_adr/ADR-013-transferencia-planejada-de-lideranca.md">ADR-013</a></td><td>Transferência planejada de liderança (sincronizar antes de promover)</td><td><span class="ef ef-ok">Vigente, complementado</span></td><td>Transferência planejada sincroniza antes de promover, com pausa de cerca de 1 RTT; a nova líder só confirma depois do gate reconstruído e do apply, e o fencing da antiga vem do Raft e do gate.</td><td><a href="../../03_adr/ADR-013-transferencia-planejada-de-lideranca.md">ADR-013-transferencia-planejada-de-lideranca.md</a></td></tr>
+<tr><td class="nw"><a href="../../03_adr/ADR-010-follower-encaminha-para-lider.md">ADR-010</a></td><td>Follower encaminha para a líder; a liderança muda só por eleição de saúde</td><td><span class="ef ef-ok">Vigente, complementado</span></td><td>Follower encaminha a escrita à líder; a liderança muda só por eleição de saúde ou transferência planejada.</td><td><a href="../../03_adr/ADR-010-follower-encaminha-para-lider.md">ADR-010-follower-encaminha-para-lider.md</a></td></tr>
+<tr><td class="nw"><a href="../../03_adr/ADR-046-gate-so-conta-progresso-validado-pelo-raft.md">ADR-046</a></td><td>O gate só conta progresso validado pelo Raft no termo atual</td><td><span class="ef ef-ok">Vigente</span></td><td>O gate só conta progresso da Azure confirmado pelo AppendEntries no termo atual.</td><td><a href="../../03_adr/ADR-046-gate-so-conta-progresso-validado-pelo-raft.md">ADR-046-gate-so-conta-progresso-validado-pelo-raft.md</a></td></tr>
+<tr><td class="nw"><a href="../../03_adr/ADR-049-barreira-da-leitura-forte-e-o-gate.md">ADR-049</a></td><td>A leitura forte espera <code>min(ReadIndex, gate)</code></td><td><span class="ef ef-ok">Vigente</span></td><td>A leitura forte espera min(ReadIndex, gate), obtidos da líder na mesma resposta; com o applier parado responde 503 APPLIER_STOPPED na hora.</td><td><a href="../../03_adr/ADR-049-barreira-da-leitura-forte-e-o-gate.md">ADR-049-barreira-da-leitura-forte-e-o-gate.md</a></td></tr>
 </tbody></table></div>
-<p class="nota">Lista extraída do cabeçalho “ADRs” do arquivo fonte. A decisão resumida condensa a seção “Decisão” de cada ADR.</p>
+<p class="nota">Lista extraída do cabeçalho “ADRs” do arquivo fonte. A decisão resumida condensa a seção “Decisão” de cada ADR. <b>Status efetivo</b> vem do <a href="../inventario-adrs.html">inventário dos ADRs</a>: <b>Vigente</b> vale como está escrito; <b>Vigente, complementado</b> vale, mas outros ADRs acrescentam regras; <b>Vigente em parte</b> tem item revertido ou em conflito; <b>Sem uso</b>, <b>Substituído</b> e <b>Descartado</b> são só registro; <b>Pendente</b> aguarda decisão. A regra consolidada está no <a href="../estado-atual.html">Estado atual</a>.</p>
 </section>
 <section id="anexo"><h2>Anexo: texto original da fonte</h2><p class="nota">Seções do .md fonte reproduzidas sem reescrita, para conferência.</p>
 <details class="anexo"><summary>Falhas e tratativas</summary><ul>

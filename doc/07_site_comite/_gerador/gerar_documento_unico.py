@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Gera DataReplication_Versao_1_Documento_Unico.html (raiz do pacote) a partir dos Markdown.
 
-Reúne num só arquivo o documento principal, a arquitetura, todos os cenários, os ADRs, os
+Reúne num só arquivo o estado atual, o documento principal, a arquitetura, todos os cenários, os ADRs, os
 diagramas, a implementação e as pendências. Links entre arquivos do pacote viram âncoras
 internas; links para outros arquivos (código) continuam relativos. Diagramas só em Mermaid,
 renderizados no navegador (mermaid 11.4.1, como o site do comitê).
@@ -30,13 +30,14 @@ def ordenados(padrao, sem_indice=True):
 
 # (id da parte, título, arquivos)
 PARTES = [
+    ("p-estado", "Estado atual", [os.path.join(PKG, "ESTADO_ATUAL.md")]),
     ("p-principal", "Documento principal", [os.path.join(PKG, "DataReplication_Versao_1.md")]),
     ("p-arquitetura", "Arquitetura", ordenados("01_arquitetura/*.md")),
     ("p-cenarios", "Cenários atualizados",
      [os.path.join(PKG, "02_cenarios", "INDEX.md")] + ordenados("02_cenarios/atualizados/*.md")),
     ("p-complexos", "Cenários complexos", ordenados("02_cenarios/complexos/*.md")),
     ("p-rever", "Cenários a rever", ordenados("02_cenarios/a_rever/*.md")),
-    ("p-adr", "ADRs", ordenados("03_adr/ADR-*.md")),
+    ("p-adr", "ADRs", [os.path.join(PKG, "03_adr", "INVENTARIO.md")] + ordenados("03_adr/ADR-*.md")),
     ("p-diagramas", "Diagramas de arquitetura", ordenados("04_diagramas/D*.md")),
     ("p-implementacao", "Implementação", ordenados("05_implementacao/*.md")),
     ("p-pendencias", "Pendências e riscos", ordenados("06_pendencias_e_riscos/*.md")),
