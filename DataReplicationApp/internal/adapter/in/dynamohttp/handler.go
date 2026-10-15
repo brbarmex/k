@@ -214,6 +214,8 @@ func resultOf(err error) string {
 		return "gate_not_ready"
 	case errors.Is(err, usecase.ErrReadTimeout):
 		return "read_timeout"
+	case errors.Is(err, usecase.ErrApplierStopped):
+		return "applier_stopped"
 	case errors.Is(err, usecase.ErrPending), errors.Is(err, context.DeadlineExceeded):
 		return "pending"
 	default:
@@ -240,6 +242,8 @@ func writeError(c *fasthttp.RequestCtx, err error) {
 		writeCoded(c, "GATE_NOT_READY", "gate not ready on the new leader, retry")
 	case errors.Is(err, usecase.ErrReadTimeout):
 		writeCoded(c, "READ_TIMEOUT", "strong read barrier not reached in time, retry")
+	case errors.Is(err, usecase.ErrApplierStopped):
+		writeCoded(c, "APPLIER_STOPPED", "the applier on this cell is stopped on a poison item; human action is required (ADR-038)")
 	case errors.Is(err, usecase.ErrPending), errors.Is(err, context.DeadlineExceeded):
 		writeCoded(c, "PENDING", "result unknown, retry") // o SDK retenta; a versão absorve
 	default:

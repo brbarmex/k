@@ -316,6 +316,10 @@ func (a *Applier) park(idx domain.Index, ord uint32, err error) {
 	if first {
 		close(a.parked)
 	}
+	if a.changed != nil { // acorda quem espera: quem está no item venenoso ou depois dele desiste
+		close(a.changed)
+		a.changed = nil
+	}
 	a.Log.Error().Err(err).Uint64("indice", uint64(idx)).Uint32("ordem", ord).
 		Msg("applier parado: saída humana (ADR-038)")
 }
@@ -341,12 +345,20 @@ func (a *Applier) WorkerCount() int { return max(a.Workers, 1) }
 func (a *Applier) InFlight() int { return int(a.queued.Load()) }
 
 // WaitApplied implementa port.AppliedWaiter: o ACK da líder espera o apply local (6.9).
+// Com o applier estacionado, um índice no item venenoso ou depois dele nunca será
+// alcançado: devolve ErrApplierStopped na hora, em vez de esperar o prazo (ADR-049, item 4).
+// Índices antes do item venenoso continuam sendo esperados, porque a marca d'água ainda
+// chega até logo antes dele.
 func (a *Applier) WaitApplied(ctx context.Context, idx domain.Index) error {
 	for {
 		a.mu.Lock()
 		if a.applied >= idx {
 			a.mu.Unlock()
 			return nil
+		}
+		if h := a.health; h.Stopped && idx >= h.Index {
+			a.mu.Unlock()
+			return ErrApplierStopped
 		}
 		if a.changed == nil {
 			a.changed = make(chan struct{})

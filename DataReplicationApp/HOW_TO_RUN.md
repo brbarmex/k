@@ -10,6 +10,7 @@ Passo a passo para subir as três células, escrever, ler e testar os cenários 
 | Task | v3 | `task --version` |
 | AWS CLI | v2 | `aws --version` |
 | curl | qualquer | `curl --version` |
+| k6 | testes `task k6-load` e `task k6-put-get-load` | `k6 version` |
 
 Não é preciso Go no host: o build e os testes rodam em container.
 
@@ -86,6 +87,22 @@ To exercise these signals, run `task test-leader-failover` or `task test-no-quor
 ## 4.1 Teste de carga
 
 Num notebook, o teste de carga mede o notebook tanto quanto o DR: os três WALs, os três logs de replicação, o LocalStack, o Prometheus e o gerador de carga dividem o mesmo disco e as mesmas CPUs. Antes de tirar conclusão:
+
+O teste k6 envia `PutItem` diretamente à líder descoberta em `/status`. Instale o k6 com `go install go.k6.io/k6@latest` e garanta que `$(go env GOPATH)/bin` esteja no `PATH`. Depois de `task start`, execute:
+
+```bash
+task k6-load
+```
+
+O perfil dura 3 minutos: 10 TPS no primeiro minuto, rampa de 10 a 50 TPS no segundo e 100 TPS sustentados no terceiro. O `pk` é único por escrita; os demais atributos mantêm o payload usado por `task write`. Se não houver líder no início, o teste falha sem enviar carga.
+
+Para testar leitura e escrita na mesma carga, execute:
+
+```bash
+task k6-put-get-load
+```
+
+O perfil usa a mesma descoberta da célula líder e a mesma rampa. Cada iteração grava um item com chave única e, em seguida, faz um `GetItem` forte para essa chave; os checks validam o sucesso de ambas as chamadas e que a leitura retornou o item escrito. A taxa do perfil é de pares por segundo: 10 no warmup, rampa até 50 e 100 sustentados (cada par gera uma chamada PutItem e uma GetItem).
 
 1. **Comece de volumes limpos.** `task clean` e depois `task start`. Volumes de testes anteriores deixam o apply com atraso desde o início (no teste de 14/10 eram cerca de 210 mil entradas).
 2. **Meça o disco** no diretório dos volumes do Docker: `fio --rw=write --ioengine=sync --fdatasync=1 --size=22m --bs=2300 --name=wal`. O P99 do fdatasync dá a ordem de grandeza do `ELECTION_TICKS` necessário.

@@ -11,6 +11,7 @@ Passo a passo completo, com os cenários de falha e problemas comuns: [HOW_TO_RU
 - Docker com Compose v2
 - [Task](https://taskfile.dev) v3
 - AWS CLI v2
+- k6 (para `task k6-load` e `task k6-put-get-load`)
 
 Não é preciso Go no host: o build e os testes rodam em container.
 
@@ -26,6 +27,8 @@ task e2e                      # verifies writes, reads, and replication end to e
 task load                     # continuous load for metrics and dashboard
 task load COUNT=20            # writes 20 items, then exits
 task load INTERVAL=0.5        # waits 500 ms between writes
+task k6-load                  # 3-minute PutItem load directly against the leader
+task k6-put-get-load          # 3-minute PutItem/GetItem load directly against the leader
 task dashboard                # opens Grafana
 task clean                    # stops Compose and removes the named volumes
 task test-follower-forwarding # checks follower forwarding (CA-04)
@@ -46,6 +49,8 @@ task test-invalid-requests    # checks invalid/unsupported operations (CA-10/13)
 | `read PK=…` | runs `get-item` through each cell | same item from all cells, without `_dr_v` |
 | `inspect` | scans LocalStack directly | same `_dr_v` in all three tables (may take up to 2 s, AP-09) |
 | `status` | requests `/status` from all cells | one leader, same `lider` and `termo`, `azure: "off"` |
+| `k6-load` | sends PutItem to the current leader: 10 TPS for 1 min, ramps from 10 to 50 TPS over 1 min, then sustains 100 TPS for 1 min | k6 checks each write returned HTTP 200 |
+| `k6-put-get-load` | sends a PutItem followed by a strongly consistent GetItem for that same item to the current leader at 10, ramping to 50, then 100 pairs/s | k6 checks both HTTP responses and that GetItem returns the written key |
 | `wal [CELL=N]` | lists both cell volumes | `.wal` in `/var/lib/dr/raft/wal`; `.seg` and `progress` in `/var/lib/dr/replog` |
 | `logs` | runs `docker compose logs -f` | leader changes, forwarding, stalled gate |
 | `stop` / `clean` | runs `down` / `down -v` | `clean` removes all six volumes |

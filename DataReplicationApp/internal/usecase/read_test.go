@@ -94,6 +94,34 @@ func TestLeaderReadWaitsMinOfReadIndexAndGate(t *testing.T) {
 	}
 }
 
+// stoppedApplied simula o applier estacionado num item venenoso (ADR-038).
+type stoppedApplied struct{}
+
+func (stoppedApplied) Applied() domain.Index                           { return 0 }
+func (stoppedApplied) WaitApplied(context.Context, domain.Index) error { return ErrApplierStopped }
+
+// ADR-049, item 4: com o applier estacionado, a leitura forte falha na hora com
+// ErrApplierStopped, e não com READ_TIMEOUT depois do prazo; o banco não é lido.
+func TestReadFailsFastWhenApplierIsStopped(t *testing.T) {
+	g := &domain.Gate{}
+	g.SetAzureOff(true)
+	g.SetRaftCommit(8)
+	s, st := newRead(true, 8, g, &recApplied{}, &fakeBarrierClient{})
+	s.Applied = stoppedApplied{}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	start := time.Now()
+	if _, err := s.Get(ctx, "t_{cell}", []byte("k")); !errors.Is(err, ErrApplierStopped) {
+		t.Fatalf("GetItem = %v, quer ErrApplierStopped", err)
+	}
+	if _, err := s.Scan(ctx, "t_{cell}", 0, nil); !errors.Is(err, ErrApplierStopped) {
+		t.Fatalf("Scan = %v, quer ErrApplierStopped", err)
+	}
+	if time.Since(start) > time.Second || st.calls != 0 {
+		t.Fatalf("levou %v e leu o banco %d vezes; devia falhar na hora sem ler", time.Since(start), st.calls)
+	}
+}
+
 // Na follower: usa a barreira da líder, nunca o gate local.
 func TestFollowerReadUsesLeaderBarrier(t *testing.T) {
 	g := &domain.Gate{}

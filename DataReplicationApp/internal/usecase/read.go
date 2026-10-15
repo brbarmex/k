@@ -16,6 +16,9 @@ var (
 	ErrGateNotReady = errors.New("gate ainda não está pronto nesta líder")
 	// ErrReadTimeout: a barreira de leitura ou o apply local não chegaram no prazo.
 	ErrReadTimeout = errors.New("leitura forte não alcançou a barreira no prazo")
+	// ErrApplierStopped: o applier da célula estacionou num item venenoso antes da barreira;
+	// ela nunca será alcançada sem ação humana (ADR-038), então a resposta é imediata (ADR-049).
+	ErrApplierStopped = errors.New("applier parado em item venenoso: a barreira não será alcançada sem ação humana")
 )
 
 // ReadService é a leitura forte (A.6, ADR-049, ADR-057). Toda leitura é forte e paga uma
@@ -79,6 +82,9 @@ func (s *ReadService) waitBarrier(ctx context.Context) error {
 		return err
 	}
 	if err := s.Applied.WaitApplied(ctx, b); err != nil {
+		if errors.Is(err, ErrApplierStopped) {
+			return ErrApplierStopped // falha rápida, sem esperar o prazo (ADR-049, item 4)
+		}
 		return ErrReadTimeout
 	}
 	port.MetricsOrNop(s.Metrics).ReadBarrier(time.Since(start))

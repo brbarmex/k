@@ -85,6 +85,7 @@ func TestErrorMapping(t *testing.T) {
 		{"deadline", fmt.Errorf("propose: %w", context.DeadlineExceeded), 503, "PENDING"},
 		{"lease", usecase.ErrLeaseExpired, 503, "LEASE_EXPIRED"},
 		{"noleader", usecase.ErrNoLeader, 503, "NO_LEADER"},
+		{"applier", usecase.ErrApplierStopped, 503, "APPLIER_STOPPED"},
 		{"backpressure", fmt.Errorf("propose: %w", usecase.ErrBackpressure), 400, ""},
 		{"outro", errors.New("boom"), 500, ""},
 	}

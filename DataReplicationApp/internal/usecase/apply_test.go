@@ -2,6 +2,7 @@ package usecase
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"testing"
@@ -130,6 +131,43 @@ func TestApplierResumesFromItemProgress(t *testing.T) {
 	}
 	if idx, ord, _ := prog.LoadProgress(); idx != 6 || ord != 1 {
 		t.Fatalf("progresso = (%d, %d), quer (6, 1)", idx, ord)
+	}
+}
+
+// ADR-049, item 4: com o applier estacionado, esperar um índice no item venenoso ou depois
+// dele falha na hora com ErrApplierStopped, inclusive para quem já esperava antes de
+// estacionar; um índice anterior ao item venenoso continua sendo atendido.
+func TestWaitAppliedFailsFastWhenParked(t *testing.T) {
+	g := &domain.Gate{}
+	releaseGate(g, 1, 10)
+	in := make(chan []domain.Entry, 1)
+	a := &Applier{Gate: g, Store: &fakeStore{failAt: 2}, Progress: &fakeProgress{}, In: in}
+	cancel, _ := startApplier(t, a)
+	defer cancel()
+
+	ctx, c := context.WithTimeout(context.Background(), 5*time.Second)
+	defer c()
+	early := make(chan error, 1)
+	go func() { early <- a.WaitApplied(ctx, 3) }() // espera antes de o applier estacionar
+	in <- []domain.Entry{write(1, 1), write(2, 1), write(3, 1)}
+
+	start := time.Now()
+	select {
+	case err := <-early:
+		if !errors.Is(err, ErrApplierStopped) {
+			t.Fatalf("quem já esperava recebeu %v, quer ErrApplierStopped", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("quem já esperava não foi acordado quando o applier estacionou")
+	}
+	if err := a.WaitApplied(ctx, 2); !errors.Is(err, ErrApplierStopped) {
+		t.Fatalf("WaitApplied(2) no item venenoso = %v, quer ErrApplierStopped", err)
+	}
+	if err := a.WaitApplied(ctx, 1); err != nil {
+		t.Fatalf("WaitApplied(1), antes do item venenoso = %v, quer nil", err)
+	}
+	if d := time.Since(start); d > time.Second {
+		t.Fatalf("as esperas levaram %v; deviam ser imediatas", d)
 	}
 }
 

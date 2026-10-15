@@ -235,6 +235,20 @@ tasks:
         rm -f "$LOG"
         echo "load: $OK succeeded, $FAILURES failed"
 
+  k6-load:
+    desc: Run the 3-minute k6 PutItem load against the current leader (10 TPS warmup, ramp to 50 TPS, then 100 TPS sustained)
+    vars:
+      K6_BIN: '{{.K6_BIN | default "k6"}}'
+    cmds:
+      - '{{.K6_BIN}} run k6/putitem-leader.js'
+
+  k6-put-get-load:
+    desc: Run 3-minute k6 PutItem/GetItem pairs against the current leader (10 TPS warmup, ramp to 50 TPS, then 100 TPS sustained)
+    vars:
+      K6_BIN: '{{.K6_BIN | default "k6"}}'
+    cmds:
+      - '{{.K6_BIN}} run k6/put-get-leader.js'
+
   test-follower-forwarding:
     desc: Verify that a follower forwards a write to the current leader (CA-04)
     cmds:
@@ -664,6 +678,11 @@ tasks:
     desc: Run go test -race in the test container (CA-14)
     cmds:
       - docker build --target test .
+
+  check-estado:
+    desc: Check that doc/ESTADO_ATUAL.md, the ADR inventory and the site summaries cover every ADR
+    cmds:
+      - python3 ../doc/07_site_comite/_gerador/checar_estado.py
 
   e2e:
     desc: Start the stack and verify write, scan, read, and replication (CA-03 to CA-05)
