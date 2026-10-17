@@ -296,7 +296,7 @@ Todos os cenários têm diagrama Mermaid. Totais: **34 atualizados**, **6 comple
 
 ## 9. Implementação
 
-- **Código:** Go 1.27, hexagonal, injeção por Fx (só no `bootstrap`), `fasthttp`, `grpc-go` + `vtprotobuf`, `zerolog`, `viper`, `etcd-io/raft/v3` com o `wal` do etcd e escritor de group commit por shard (`raftstore`, ADR-056), log de replicação segmentado próprio (`replog`). Guia: [05_implementacao/README.md](05_implementacao/README.md).
+- **Código:** Go 1.27, hexagonal, injeção por Fx (só no `bootstrap`), `fasthttp`, `grpc-go` + `vtprotobuf`, `zerolog`, `viper`, `etcd-io/raft/v3` com o `wal` do etcd e group commit por shard (ADR-056), log de replicação segmentado próprio (`replog`). Guia: [05_implementacao/README.md](05_implementacao/README.md).
 - **Estrutura de pastas e regras de lint:** [01_principios_bibliotecas_e_pastas](05_implementacao/01_principios_bibliotecas_e_pastas.md).
 - **Desenho e diagramas de processo e de fluxo:** [02_desenho_e_diagramas](05_implementacao/02_desenho_e_diagramas.md).
 - **Exemplos de código** (compilados) e **tabela de structs:** [03](05_implementacao/03_exemplos_de_codigo.md), [04](05_implementacao/04_tabela_de_structs.md), [codigo_exemplo/](05_implementacao/codigo_exemplo/README.md).

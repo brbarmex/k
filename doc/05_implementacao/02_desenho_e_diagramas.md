@@ -60,7 +60,7 @@ flowchart TD
     API --> WS["WriteService<br/>usecase"]
     WS -->|"Propose"| RAFT["RaftNode<br/>adaptador etcdraft"]
     subgraph RL["Log do Raft: interno, vida curta, volume do Raft"]
-        WR["raftstore.Writer<br/>group commit por shard, sem espera fixa"]
+        WR["Laço do Ready do shard<br/>group commit por shard, sem espera fixa"]
         RLOG[("raftlog: wal do etcd<br/>fsync ANTES do ACK")]
     end
     RAFT -->|"lote do Ready"| WR
@@ -82,7 +82,7 @@ flowchart TD
 
 **Passo a passo de uma escrita:**
 1. `WriteService` chama `Propose` no `RaftNode` (única porta que fala com o Raft).
-2. O Raft envia a entrada aos pares (só o `MsgApp` da líder sai antes do fsync, F3) e o `raftstore.Writer` grava o lote no **log do Raft** com um fsync; nenhuma resposta (`MsgAppResp`, voto, auto-ACK da líder) sai antes do fsync ([ADR-056](../03_adr/ADR-056-group-commit-por-shard-e-nada-sai-antes-do-fsync.md)). Na replicação por gRPC, 2 de 3 votantes AWS decidem o commit, e os 3 learners da Azure recebem a mesma entrada.
+2. O Raft envia a entrada aos pares (só o `MsgApp` da líder sai antes do fsync, F3) e o laço do `Ready` grava o lote no **log do Raft** com um fsync; nenhuma resposta (`MsgAppResp`, voto, auto-ACK da líder) sai antes do fsync ([ADR-056](../03_adr/ADR-056-group-commit-por-shard-e-nada-sai-antes-do-fsync.md)). Na replicação por gRPC, 2 de 3 votantes AWS decidem o commit, e os 3 learners da Azure recebem a mesma entrada.
 3. Cada learner informa o índice que já tornou durável **na resposta do `AppendEntries`**, com o termo e a identidade dele ([ADR-046](../03_adr/ADR-046-gate-so-conta-progresso-validado-pelo-raft.md)). Cada resposta alimenta o `Gate` na hora, sem esperar um commit novo; o gate só adota o termo atual e guarda `min(commit do Raft, maioria Azure)`. **Só aqui o ACK é liberado.**
 4. Os lotes commitados chegam ao `CommitPump`, que os entrega ao `Applier` **pela memória** e ao **log de replicação** em lote, fora do caminho do ACK. O progresso dos learners corre em outra goroutine do `CommitPump`: um `Append` lento não atrasa o gate.
 5. O `Applier` escreve no banco da célula com escrita condicional por versão, **sempre depois do gate** ([ADR-057](../03_adr/ADR-057-um-unico-modo-strong-consistency.md)) e **em paralelo por chave**, com a mesma chave na ordem do log ([ADR-058](../03_adr/ADR-058-apply-paralelo-por-chave-com-marca-dagua.md)); o `applied` é a marca d'água contígua, e o progresso salvo é ela `(índice, ordem)` ([ADR-048](../03_adr/ADR-048-skip-por-item.md)).

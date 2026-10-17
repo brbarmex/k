@@ -76,7 +76,7 @@ Os números 009, 012, 023, 040 e 053 não existem: eram ADRs do antigo modo Even
 | [052](ADR-052-autorizacao-por-aplicacao-com-mtls.md) | Segurança | Vigente | completa 043 | Fora | |
 | [054](ADR-054-banco-por-celula-mantido.md) | Dados | Vigente | mantém 022 | Sim | Um LocalStack por célula desde 14/10 |
 | [055](ADR-055-log-de-replicacao-segmentado-derivado-do-raft.md) | Logs | Vigente, complementado | 059; revisa 018 e 019 | Parcial | Log segmentado, checkpoint e `DurableIndex` sim; compactação e truncamento não |
-| [056](ADR-056-group-commit-por-shard-e-nada-sai-antes-do-fsync.md) | Logs | Vigente, complementado | 060 (risco 35) | Parcial | F3 sim (`SplitBeforeSync`). Pela resposta 6b, o lote da POC vem só do `Ready`; o `raftstore.Writer` entra com o `AsyncStorageWrites` (S1b) |
+| [056](ADR-056-group-commit-por-shard-e-nada-sai-antes-do-fsync.md) | Logs | Vigente, complementado | 060 (risco 35) | Parcial | F3 sim (`SplitBeforeSync`). Pela resposta 6b, o lote da POC vem só do `Ready`; o teto de 1 MiB entra com o `AsyncStorageWrites` (S1b) |
 | [057](ADR-057-um-unico-modo-strong-consistency.md) | Consistência | Vigente, complementado | 058 (o que "serial" quer dizer) | Sim | |
 | [058](ADR-058-apply-paralelo-por-chave-com-marca-dagua.md) | Apply | Vigente | mantido depois do 061 | Sim | |
 | [059](ADR-059-checkpoint-do-log-de-replicacao-sem-trava-no-append.md) | Logs | Vigente | complementa 055 | Sim | |
@@ -114,7 +114,7 @@ Contradições e lacunas que o inventário encontrou. **Respondidas pelo Bruno e
 3. **[Decidido: 3a] ADR-011 (witness):** nenhum ADR posterior o usa, e o snapshot virou só marcador ([ADR-063](ADR-063-snapshot-e-compactacao-do-log-do-raft.md)). (a) Marcar como sem uso, ou descartado; (b) manter, e dizer onde o witness entra no desenho.
 4. **[Decidido: 4a] ADR-043:** a alternativa "mTLS por aplicação: custo de certificados sem ganho" foi revertida pelo 052; a atualização do 043 só cita o item 3. (a) Acrescentar a nota no 043.
 5. **[Decidido: 5a] ADR-028 x AP-07:** o 028 limita o cliente do banco a "1 s por tentativa e no máximo 2"; o applier repete erro transitório **sem limite**, com espera de até 5 s ([ADR-058](ADR-058-apply-paralelo-por-chave-com-marca-dagua.md), AP-07 da spec). (a) O limite do 028 vale só no caminho da requisição (GetItem, Scan); o applier repete sem limite; (b) o applier também tem limite.
-6. **[Decidido: 6b] ADR-056 na POC:** o `raftstore.Writer` (coalescência, teto de 1 MiB, respostas só depois do fsync) tem testes, mas o nó usa `wal.Save` direto no `Ready`. (a) Ligar o escritor na POC; (b) registrar que o lote da POC vem só do `Ready`, e o escritor entra com o `AsyncStorageWrites` (S1b).
+6. **[Decidido: 6b] ADR-056 na POC:** o nó usa `wal.Save` direto no `Ready`, sem o teto de 1 MiB por lote. (a) Implementar o teto na POC; (b) registrar que o lote da POC vem só do `Ready`, e o teto entra com o `AsyncStorageWrites` (S1b).
 7. **[Decidido: 7a] ADR-049, item 4, na POC:** com o applier estacionado, a leitura forte espera até o prazo (7,5 s) em vez de responder 503 na hora. (a) Implementar a falha rápida na POC; (b) deixar para a fase AWS.
 8. **[Decidido: 8a] ADR-030 x código do gate:** o ADR pede o modelo TLA+ antes do código do gate, e o gate já tem código e testes. (a) A regra vale para o gate com learners reais (fase AWS); a POC usa gate = commit e não conta; (b) escrever o modelo antes de continuar o gate.
 

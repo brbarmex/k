@@ -154,4 +154,4 @@ Notação: `t_L`, `t_S`, `t_Z` = fsync da líder, de um seguidor AWS, de um lear
 - **04_wal_e_fsync** (6.8: F2 e F3 com o que o wal do etcd já faz e a regra de envio), **03_consenso** (5.5), **06_modos** (orçamento), **07_go_memoria** (buffer não persistido), **10_pontos_adicionais** (métricas).
 - **Spikes:** S1 ganha a medição de IOPS por número de shards; S1b novo. **Riscos:** IOPS de base e regra de envio no modo síncrono.
 - **Diagramas:** D04 (*thread* de escrita e coalescência), D05 (gate com auto-ACK da líder após fsync), D07 (prazos).
-- **Código de exemplo:** porta `LogStore`/escritor com coalescência e respostas presas ao lote, testes de "nenhuma resposta antes do fsync" e de junção de lotes com sobrescrita; comentário de `ConsensusEngine.Committed()`.
+- **Código de exemplo:** regra do que pode sair antes do fsync, com testes; comentário de `ConsensusEngine.Committed()`.

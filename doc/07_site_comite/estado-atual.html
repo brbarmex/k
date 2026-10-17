@@ -10,7 +10,7 @@
 <!--
 Fonte(s) usada(s) nesta página (rastreabilidade), relativas à raiz do pacote:
   ESTADO_ATUAL.md
-Gerado em 14/10/2026 a partir do pacote DataReplication_Versao_1.
+Gerado em 17/10/2026 a partir do pacote DataReplication_Versao_1.
 -->
 <header class="topo">
 <button class="menu" type="button" aria-label="Abrir navegação" onclick="document.body.classList.toggle('nav-aberta')">☰</button>
@@ -324,7 +324,7 @@ Gerado em 14/10/2026 a partir do pacote DataReplication_Versao_1.
 </ul>
 <h3 id="35-os-dois-logs-o-fsync-e-a-retencao">3.5 Os dois logs, o fsync e a retenção</h3>
 <ul>
-<li><strong>Log do Raft:</strong> pacote <code>wal</code> do etcd, um por shard, fsync antes de responder; é o <strong>único fsync no caminho do ACK</strong> <a href="../03_adr/ADR-019-wal-proprio-volume-dedicado.md">019</a> <a href="../03_adr/ADR-055-log-de-replicacao-segmentado-derivado-do-raft.md">055</a>. Group commit por shard sem espera fixa (teto de 1 MiB por lote); modo síncrono com F3; <code>AsyncStorageWrites</code> só se o spike S1b mostrar ganho <a href="../03_adr/ADR-056-group-commit-por-shard-e-nada-sai-antes-do-fsync.md">056</a>. <strong>POC: Parcial</strong> (o lote vem só do <code>Ready</code>; o <code>raftstore.Writer</code>, pronto e testado, entra junto com o <code>AsyncStorageWrites</code>, se o S1b aprovar).</li>
+<li><strong>Log do Raft:</strong> pacote <code>wal</code> do etcd, um por shard, fsync antes de responder; é o <strong>único fsync no caminho do ACK</strong> <a href="../03_adr/ADR-019-wal-proprio-volume-dedicado.md">019</a> <a href="../03_adr/ADR-055-log-de-replicacao-segmentado-derivado-do-raft.md">055</a>. Group commit por shard sem espera fixa (teto de 1 MiB por lote); modo síncrono com F3; <code>AsyncStorageWrites</code> só se o spike S1b mostrar ganho <a href="../03_adr/ADR-056-group-commit-por-shard-e-nada-sai-antes-do-fsync.md">056</a>. <strong>POC: Parcial</strong> (o lote vem só do <code>Ready</code>; o teto de 1 MiB entra junto com o <code>AsyncStorageWrites</code>, se o S1b aprovar).</li>
 <li><strong>Log de replicação:</strong> segmentado, nosso, derivado do Raft, gravado depois do commit <strong>sem fsync por entrada</strong>, em goroutine própria com fila limitada. Um checkpoint periódico faz o fsync fora da trava do <code>Append</code> e publica o <code>DurableIndex</code> <a href="../03_adr/ADR-055-log-de-replicacao-segmentado-derivado-do-raft.md">055</a> <a href="../03_adr/ADR-059-checkpoint-do-log-de-replicacao-sem-trava-no-append.md">059</a>. <strong>POC: Sim</strong>.</li>
 <li><strong>Retenção:</strong> o Raft guarda só uma folga (<code>RAFT_RETAIN_MAX</code>) e é compactado até o <code>DurableIndex</code> (I-08). A retenção longa para a Azure fica no log de replicação, com teto de 70% do volume; passado o teto, a Azure só volta por reconstrução completa. Sem S3 na v1 <a href="../03_adr/ADR-041-disco-do-log-teto-de-70-por-cento-sem-s3-na-v1.md">041</a> <a href="../03_adr/ADR-055-log-de-replicacao-segmentado-derivado-do-raft.md">055</a>. <strong>POC: Fora</strong> (compactação e truncamento desligados). ⏳ <a href="../03_adr/ADR-063-snapshot-e-compactacao-do-log-do-raft.md">063</a>.</li>
 <li><strong>Partida:</strong> retoma em <code>min(último do log de replicação + 1, progresso do applier)</code>, sem reaplicar o log inteiro <a href="../03_adr/ADR-060-laco-do-raft-nunca-espera-o-apply-e-admissao-por-atraso.md">060</a>. <strong>POC: Sim</strong>.</li>
@@ -592,7 +592,7 @@ Gerado em 14/10/2026 a partir do pacote DataReplication_Versao_1.
 <li><code>task check-estado</code> (em <code>DataReplicationApp/taskfile.yaml</code>) falha se um ADR "Decidido" não estiver citado aqui ou se o "cobre até" não for o último ADR. Pega o esquecimento, não o conteúdo errado.</li>
 </ul>
 <footer class="rodape">
-Gerado em 14/10/2026 a partir de <code>DataReplication_Versao_1/</code>. O conteúdo vem dos arquivos .md citados no código-fonte desta página;
+Gerado em 17/10/2026 a partir de <code>DataReplication_Versao_1/</code>. O conteúdo vem dos arquivos .md citados no código-fonte desta página;
 textos marcados como <em>sugestão</em> são inferência do arquiteto e não decisões registradas.
 </footer>
 </main>

@@ -239,7 +239,7 @@ Notas de modelagem (conservadoras):
 1. **Base de código e arquitetura**:
    - Copiar `doc/05_implementacao/codigo_exemplo` para `DataReplicationApp/` (o esboço permanece intacto como referência) e evoluir em `DataReplicationApp/`. Arquitetura hexagonal já usada: `domain` (só biblioteca padrão) ← `usecase` (depende de `port`) ← `adapter/in|out` ← `bootstrap` (único que importa `fx`) ← `cmd`.
    - Somente `adapter/out/etcdraft` importa `go.etcd.io/raft/v3` e o `wal` do etcd. O transporte (`peergrpc`, `peerclient`) trata mensagens do Raft como `[]byte`.
-   - `adapter/out/raftstore` é copiado sem mudanças e **não** é ligado no bootstrap: o laço do Ready segue a RT-04 no modo síncrono (cada `Ready` já agrupa entradas num único `wal.Save` com fdatasync). Registrar no README.
+   - O laço do Ready segue a RT-04 no modo síncrono: cada `Ready` já agrupa entradas num único `wal.Save` com fdatasync.
    - Uma única codificação de `Entry`: JSON via `encoding/json` (a mesma que o `replog` já usa), no payload do Raft e no log de replicação.
 
 2. **Gate (G-01 a G-10)**:
@@ -363,7 +363,7 @@ DataReplicationApp/
     ├── port/{ports.go, metrics.go}
     ├── usecase/{write.go, read.go, apply.go, replicate.go, checkpoint.go, degrade.go, gatesync.go, status.go}
     ├── adapter/in/{dynamohttp/{handler.go, parser.go, attr.go}, peergrpc/server.go, adminhttp/server.go}
-    ├── adapter/out/{etcdraft/{node.go, storage.go, codec.go}, peerclient/client.go, replog/, raftstore/ (copiado, não ligado), dynamodb/{store.go, convert.go, catalog.go}, prommetrics/{recorder.go, collector.go}}
+    ├── adapter/out/{etcdraft/{node.go, storage.go, codec.go}, peerclient/client.go, replog/, dynamodb/{store.go, convert.go, catalog.go}, prommetrics/{recorder.go, collector.go}}
     ├── platform/{config/config.go, logx/logx.go}
     └── bootstrap/app.go
 ```
@@ -598,7 +598,7 @@ DataReplicationApp/
 1. Pré-requisitos (Docker com Compose v2, Task v3, AWS CLI v2; sem Go no host).
 2. Tabela de tarefas e o que observar em cada uma.
 3. Roteiros manuais de CA-04, CA-07 (parar duas células, **esperar 3 s**, escrever → `NO_LEADER`, `/status` com `commit` e `gate` parados; religar; nova escrita OK; nota de que um `PENDING` pode aparecer depois), CA-08, CA-09, CA-10, CA-12, CA-13.
-4. Decisões da POC: modo sem Azure (G-08) e `POC_SEM_AZURE`; `raftstore` não ligado; codec JSON no gRPC; versões de `grpc`/`etcd` escolhidas; riscos 1 a 8 da especificação.
+4. Decisões da POC: modo sem Azure (G-08) e `POC_SEM_AZURE`; codec JSON no gRPC; versões de `grpc`/`etcd` escolhidas; riscos 1 a 8 da especificação.
 
 ### O-14 Create Port - `port/metrics.go` e quórum no `RaftInfo`
 1. Interface `Metrics` com os métodos (todos sem retorno, sem bloquear e seguros para uso concorrente):

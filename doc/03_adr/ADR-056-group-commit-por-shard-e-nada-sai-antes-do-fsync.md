@@ -13,12 +13,12 @@ O Bruno pediu (1) fsync com group commit e buffer em memória enquanto as escrit
 ## Decisão
 
 1. **Nada sai antes do fsync (1a).** O buffer em memória é **só a área de montagem do lote**. Nenhum ACK ao cliente, nenhum voto (`MsgVoteResp`) e nenhuma resposta de `AppendEntries` (`MsgAppResp`) sai antes do fsync que cobre a entrada, em nenhum dos 6 nós. A líder só se conta no quórum depois do próprio fsync. É uma **invariante** (vale no ADR, no TLA+ e nos testes), não uma configuração. A decisão de 12/10 (sem ACK em memória) continua.
-2. **Group commit por shard (2a).** Um `wal` do etcd por shard, como no ADR-055. O escritor de cada shard (`raftstore.Writer`) **junta tudo o que está pendente** num único `Save` com um `fdatasync` e só então libera as respostas, em ordem. Nada de WAL compartilhado na v1.
+2. **Group commit por shard (2a).** Um `wal` do etcd por shard, como no ADR-055. O laço do `Ready` de cada shard grava **tudo o que está pendente** num único `Save` com um `fdatasync` e só então libera as respostas, em ordem. Nada de WAL compartilhado na v1.
    - **IOPS provisionadas** no volume do Raft (io2 ou gp3 com IOPS acima da base na AWS; Premium SSD v2 com IOPS acima da base na Azure) e **teto de shards por nó** (`MAX_SHARDS_PER_NODE`, valor do S1).
    - **Gatilho do plano B** (WAL compartilhado entre shards, o W2): o S1 mede, na carga de 2x (6.000 TPS), fsync P99 acima do orçamento da seção 7 **ou** IOPS de escrita acima de 70% do provisionado. Se o gatilho disparar, a volta do W2 é uma decisão nova, com a bateria completa de testes de armazenamento.
 3. **Modo síncrono com F3 na fase 1; `AsyncStorageWrites` decidido no spike S1b (3b).**
    - Fase 1: `RawNode` síncrono. **Só a líder** pode enviar antes de gravar, e **só `MsgApp`**. Qualquer outra mensagem do `Ready` (em especial `MsgAppResp` e `MsgVoteResp`) sai depois do `Save` com fsync. `Advance` só depois do fsync.
-   - O escritor já nasce com a forma do modo assíncrono (fila de lotes, coalescência, respostas presas ao lote): trocar de modo muda só a ligação no adaptador `etcdraft`.
+   - Trocar de modo fica restrito ao adaptador `etcdraft`.
    - **Critério do S1b:** o assíncrono entra se reduzir o **P99 do commit em pelo menos 20%** **ou** eliminar eleições causadas por fsync lento (injeção de atraso de disco de 50 ms a 500 ms na líder). Sem isso, fica o síncrono.
    - Não haverá variável para escolher o modo em produção (a matriz de testes dobraria).
 4. **Sem espera fixa para formar lote (4a).** O lote é o que se acumulou enquanto o fsync anterior rodava, com **teto de 1 MiB** (`RAFT_BATCH_MAX_BYTES`); uma entrada maior que o teto vai sozinha. Espera adaptativa só volta à mesa se o S1 mostrar IOPS no limite.
@@ -27,7 +27,7 @@ O Bruno pediu (1) fsync com group commit e buffer em memória enquanto as escrit
 
 ## Regras de implementação
 
-- **Ordem no escritor:** `Save` (entradas e `HardState`) → `fdatasync` → `MemoryStorage.Append` → entregar respostas. Inverter quebra o envio de `MsgApp` a seguidores atrasados.
+- **Ordem no laço do `Ready`:** `Save` (entradas e `HardState`) → `fdatasync` → `MemoryStorage.Append` → entregar respostas. Inverter quebra o envio de `MsgApp` a seguidores atrasados.
 - **Junção de lotes:** uma escrita posterior pode reescrever entradas da anterior (troca de termo). A junção corta o lote anterior a partir do primeiro índice da nova, usa o último `HardState` e trata snapshot como fronteira de lote.
 - **Falha de escrita ou de fsync é fatal** ([ADR-034](ADR-034-fsync-fatal-e-identidade-nova.md)): o processo encerra **sem entregar nenhuma resposta do lote**.
 - **Gate:** o progresso dos learners continua vindo só do `MsgAppResp` no termo atual ([ADR-046](ADR-046-gate-so-conta-progresso-validado-pelo-raft.md)); como a resposta só sai depois do fsync do learner, o gate não conta durabilidade inexistente.
@@ -56,12 +56,11 @@ O Bruno pediu (1) fsync com group commit e buffer em memória enquanto as escrit
 
 ## Código de exemplo
 
-- `internal/adapter/out/raftstore`: escritor com coalescência sem espera fixa, teto de bytes por lote, junção com reescrita de índices, respostas liberadas só depois do `Sync` e erro fatal sem liberar respostas, com testes.
 - `internal/domain/sendrule.go`: `CanSendBeforeSync`, a regra do que pode sair antes do fsync no modo síncrono, com testes.
 
 ## Atualização de 14/10/2026 (inventário dos ADRs, resposta 6b)
 
-**Na POC o lote do log do Raft vem só do `Ready`:** cada `Ready` é gravado com um `wal.Save` e um `fdatasync`, o que já junta as propostas que chegaram durante o fsync anterior. O `raftstore.Writer` (coalescência entre `Ready`s, teto de 1 MiB, respostas só depois do fsync) fica pronto e testado e **entra junto com o `AsyncStorageWrites`**, se o spike S1b o aprovar. Sem ele, a regra "nada sai antes do fsync" continua garantida pela ordem do laço síncrono: `MsgApp` da líder, `Save` com fsync, e só então o resto das mensagens (`domain.SplitBeforeSync`).
+**Na POC o lote do log do Raft vem só do `Ready`:** cada `Ready` é gravado com um `wal.Save` e um `fdatasync`, o que já junta as propostas que chegaram durante o fsync anterior. O teto de 1 MiB por lote **entra junto com o `AsyncStorageWrites`**, se o spike S1b o aprovar. A regra "nada sai antes do fsync" continua garantida pela ordem do laço síncrono: `MsgApp` da líder, `Save` com fsync, e só então o resto das mensagens (`domain.SplitBeforeSync`).
 
 ## Onde está o detalhe
 

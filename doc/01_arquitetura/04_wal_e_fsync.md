@@ -111,7 +111,7 @@ No Raft comum, o snapshot é uma cópia da máquina de estados. Aqui o estado vi
 | # | Medida | Efeito | Observação |
 |---|---|---|---|
 | F1 | **Escolha do volume** do WAL: dedicado, com IOPS e vazão provisionados (sem créditos de burst) e sem outro uso | Maior alavanca | Comparar: EBS gp3 e io2 (AWS), Azure Premium SSD v2 e Ultra Disk (Azure). NVMe local descartado pelo Bruno (12/10) |
-| F2 | **Agrupamento natural** (group commit sem espera): enquanto um fsync está em andamento, os registros novos se acumulam e vão no próximo | Mantém a latência de 1 fsync por commit mesmo sob carga | **Decidido (ADR-056): por shard**, sem linger, teto de 1 MiB por lote. O `wal.Save` do etcd já faz um `fdatasync` por `Ready`; o escritor junta os lotes pendentes. Entre shards só pelo gatilho do S1 (6.10) |
+| F2 | **Agrupamento natural** (group commit sem espera): enquanto um fsync está em andamento, os registros novos se acumulam e vão no próximo | Mantém a latência de 1 fsync por commit mesmo sob carga | **Decidido (ADR-056): por shard**, sem linger, teto de 1 MiB por lote. O `wal.Save` do etcd já faz um `fdatasync` por `Ready`, que traz o que chegou durante o fsync anterior. Entre shards só pelo gatilho do S1 (6.10) |
 | F3 | **Líder grava em paralelo ao envio** aos seguidores | Tira o fsync do líder do caminho serial | **Decidido (ADR-056):** modo síncrono, só `MsgApp` da líder sai antes do fsync (o `doc.go` do `etcd-io/raft` permite, seção 10.2.1 da tese); `MsgAppResp` e votos só depois. O `AsyncStorageWrites` dá o mesmo ganho e entra só pelo critério do S1b |
 | F4 | **Arquivos pré-alocados e `fdatasync`**, sem mudar o tamanho do arquivo | Evita gravar metadados do sistema de arquivos a cada fsync | Já previsto em 6.3 |
 | F5 | **Escritas alinhadas ao bloco** (4 KiB) | Evita ler-modificar-gravar no dispositivo | Registros com preenchimento ou lotes alinhados; avaliar `O_DIRECT` + `O_DSYNC` no volume escolhido e comparar com `fdatasync` |
@@ -205,17 +205,15 @@ No Raft comum, o snapshot é uma cópia da máquina de estados. Aqui o estado vi
 | `wal.Save(st, ents)` | Grava as entradas e o `HardState` e faz **um** `fdatasync` se houver entradas ou se mudou termo ou voto (`MustSync`) |
 | Buffer | `PageWriter` que descarrega em fronteira de 4 KiB (F5) |
 | Segmentos | 64 MB pré-alocados; o próximo é preparado em segundo plano (F4) |
-| Entre chamadas | Cada `Save` faz o seu fsync: para juntar lotes, o escritor junta **antes** de chamar `Save` |
+| Entre chamadas | Cada `Save` faz o seu fsync: o lote é o que vem no `Ready` |
 | Entre shards | Um WAL por shard, um fsync por shard |
 
-**Escritor por shard (`raftstore.Writer`):**
-1. Recebe lotes (entradas, `HardState`, respostas a liberar) numa fila ordenada.
-2. Assim que o fsync anterior termina, junta **tudo o que está pendente**, até `RAFT_BATCH_MAX_BYTES` (1 MiB); uma entrada maior vai sozinha. Sem espera fixa: com pouco tráfego, o lote é de uma entrada.
-3. Na junção, uma escrita posterior que reescreve índices (troca de termo) corta o lote anterior a partir do primeiro índice dela; vale o último `HardState`; snapshot é fronteira de lote.
-4. Um `Save` com `fdatasync` → `MemoryStorage.Append` → libera as respostas, na ordem.
-5. Erro de escrita ou de fsync: o processo encerra **sem liberar nenhuma resposta** do lote (ADR-034).
+**Laço do Ready por shard (adaptador `etcdraft`):**
+1. Cada `Ready` traz as entradas novas e o `HardState`; o que chegou enquanto o fsync anterior rodava já vem junto no `Ready` seguinte. Sem espera fixa: com pouco tráfego, o lote é de uma entrada. Teto de lote: `RAFT_BATCH_MAX_BYTES` (1 MiB).
+2. Um `Save` com `fdatasync` → `MemoryStorage.Append` → envia as respostas, na ordem.
+3. Erro de escrita ou de fsync: o processo encerra **sem enviar nenhuma resposta** do lote (ADR-034).
 
-**Modo da biblioteca:** síncrono com F3 na fase 1 (só `MsgApp` da líder sai antes do fsync; regra em `domain.CanSendBeforeSync`). O `AsyncStorageWrites` entra se o S1b mostrar redução de pelo menos 20% no P99 do commit ou eliminar eleições causadas por fsync lento. O escritor acima já tem a forma do modo assíncrono.
+**Modo da biblioteca:** síncrono com F3 na fase 1 (só `MsgApp` da líder sai antes do fsync; regra em `domain.CanSendBeforeSync`). O `AsyncStorageWrites` entra se o S1b mostrar redução de pelo menos 20% no P99 do commit ou eliminar eleições causadas por fsync lento.
 
 **IOPS e o plano B entre shards.** Com agrupamento natural, um log faz cerca de `λ / (1 + λ·t)` fsyncs por segundo (`λ` = escritas por segundo naquele log, `t` = duração do fsync). A 3.000 TPS e fsync de 1,5 ms: ~545 fsyncs/s com um WAL compartilhado, ~1.900 com 8 shards, ~2.300 com 16. Por isso o volume do Raft tem IOPS provisionadas e há teto de shards por nó. **Gatilho do WAL compartilhado (W2):** no S1, na carga de 2x, fsync P99 acima do orçamento da seção 7 **ou** IOPS de escrita acima de 70% do provisionado. Se disparar, a volta do W2 é uma decisão nova, com a bateria completa de testes da seção 13.
 

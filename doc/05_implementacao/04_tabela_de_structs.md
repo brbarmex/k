@@ -39,7 +39,6 @@ Nomes, pacote e o que cada struct (ou interface) faz. Os nomes de pacote seguem 
 | `Checkpointer` | `usecase` | A cada intervalo: `Sync` do log de replicação, compacta o Raft até `RaftCompactLimit` e trunca o log até `ReplogTruncateLimit` |
 | `RaftNode` | `adapter/out/etcdraft` | Implementa `ConsensusEngine` sobre `etcd raft`; mantém os learners |
 | `RaftStorage` | `adapter/out/etcdraft` | Log do Raft: `wal` do etcd por shard mais `raft.MemoryStorage`, fsync antes do ACK; compacta só até o `DurableIndex` do `replog.Log`, com folga `RAFT_RETAIN_MAX` |
-| `Writer` | `adapter/out/raftstore` | Escritor do log do Raft de um shard ([ADR-056](../03_adr/ADR-056-group-commit-por-shard-e-nada-sai-antes-do-fsync.md)): junta os lotes pendentes num `Persist` (um `wal.Save` com `fdatasync`), teto de 1 MiB, sem espera fixa; `Publish` no `MemoryStorage` e só então `Release` das respostas, em ordem; erro de fsync fatal sem liberar nada |
 | `CanSendBeforeSync` (função) | `domain` | Regra do modo síncrono com F3: só `MsgApp` da líder sai antes do fsync; `SplitBeforeSync` separa as mensagens do `Ready` |
 | `CommitPump` | `usecase` | Duas goroutines: **progresso** (cada resposta de learner alimenta o gate e o `t_c` do lease na hora) e **commits** (distribui os lotes a gate, applier e log de replicação). Ignora lote vazio e devolve `ErrStreamClosed` com canal fechado |
 | `DynamoStore` | `adapter/out/dynamodb` | Implementa `StateStore` com escrita condicional por `_dr_v`; cria a tabela sombra e executa o cutover por geração |
