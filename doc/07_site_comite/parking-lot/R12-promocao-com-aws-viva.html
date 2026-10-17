@@ -67,7 +67,7 @@ Gerado em 17/10/2026 a partir do pacote DataReplication_Versao_1.
 <li><a href="../complex-path/X01-gate-e-troca-de-lider.html"><b>X01</b> Gate: definição, monotonicidade e troca de líder</a></li>
 <li><a href="../complex-path/X02-modo-degradado.html"><b>X02</b> Modo degradado: entrada, permanência, lease e saída</a></li>
 <li><a href="../complex-path/X03-desastre-e-promocao-da-azure.html"><b>X03</b> Desastre: promoção da Azure, fencing e reconciliação</a></li>
-<li><a href="../complex-path/X04-partida-recuperacao-e-dois-logs.html"><b>X04</b> Partida, recuperação e coerência entre os dois logs</a></li>
+<li><a href="../complex-path/X04-partida-e-recuperacao-do-no.html"><b>X04</b> Partida e recuperação do nó</a></li>
 <li><a href="../complex-path/X05-timeouts-e-idempotencia.html"><b>X05</b> Timeouts em cascata e idempotência do retry</a></li>
 <li><a href="../complex-path/X06-delete-ttl-gsi.html"><b>X06</b> DELETE, TTL, Scan e GSI</a></li>
 <li><a href="../complex-path/X07-gate-explicado-com-exemplos.html"><b>X07</b> O gate explicado com exemplos</a></li>
@@ -170,9 +170,9 @@ Gerado em 17/10/2026 a partir do pacote DataReplication_Versao_1.
 <article class="ponto">
 <h3><span class="num">4</span>Valores de D e M e aceite do negócio <span class="origem">Pontos em aberto</span></h3>
 <dl>
-<dt>Contexto</dt><dd>D define o teto de duração do RPO &gt; 0 e M a margem de segurança da promoção; sem esses valores aprovados, o modo degradado não pode ser ligado e a PEND-01 não fecha. Os valores afetam ao mesmo tempo o RPO em degradação, o RTO do desastre e o dimensionamento do log de replicação.</dd>
+<dt>Contexto</dt><dd>D define o teto de duração do RPO &gt; 0 e M a margem de segurança da promoção; sem esses valores aprovados, o modo degradado não pode ser ligado e a PEND-01 não fecha. Os valores afetam ao mesmo tempo o RPO em degradação, o RTO do desastre e o dimensionamento do volume do log do Raft.</dd>
 <dt>O que a fonte define</dt><dd class="nd-fonte">Não decidido na fonte. Proposta na fonte: aprovação de D e M pelo Bruno com o negócio e risco (PEND-02), que é bloqueante.</dd>
-<dt class="sug">Sugestão de encaminhamento <small>(inferência, não decidida)</small></dt><dd class="sug">Levar à reunião de aprovação um pacote único com D, M, prazo de decisão humana (<a href="R10-operador-lento-no-desastre.html">R10</a>) e dimensionamento do volume do log de replicação (<a href="../../03_adr/ADR-055-log-de-replicacao-segmentado-derivado-do-raft.md">ADR-055</a>), já que todos dependem de D. Pedir que a aprovação registre também quem pode fazer <code>RENEW</code> e o teto acumulado de prorrogações.</dd>
+<dt class="sug">Sugestão de encaminhamento <small>(inferência, não decidida)</small></dt><dd class="sug">Levar à reunião de aprovação um pacote único com D, M, prazo de decisão humana (<a href="R10-operador-lento-no-desastre.html">R10</a>) e dimensionamento do volume do log do Raft (<a href="../../03_adr/ADR-041-disco-do-log-teto-de-70-por-cento-sem-s3-na-v1.md">ADR-041</a>), já que todos dependem de D. Pedir que a aprovação registre também quem pode fazer <code>RENEW</code> e o teto acumulado de prorrogações.</dd>
 </dl>
 </article>
 <article class="ponto">

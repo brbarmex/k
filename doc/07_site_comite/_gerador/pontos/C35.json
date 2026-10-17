@@ -19,7 +19,7 @@
    "titulo": "Memória do Raft com o apply parado",
    "origem": "Falhas e tratativas",
    "contexto": "As entradas commitadas e não consumidas ficam no `MemoryStorage` até o `CommitPump` lê-las. Com o banco parado por muito tempo, a memória cresce.",
-   "na_fonte": "A fonte limita pela compactação até o `DurableIndex` e pelo teto de disco (ADR-041), com alerta em `dr_commit_undelivered`.",
+   "na_fonte": "A fonte limita pela compactação, que nunca passa do aplicado local, e pelo teto de disco do volume do Raft (ADR-041), com alerta em `dr_commit_undelivered`.",
    "sugestao": "Definir o alerta de `dr_commit_undelivered` junto com o teto de memória do pod."
   },
   {

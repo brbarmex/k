@@ -17,18 +17,16 @@ var ErrStreamClosed = errors.New("canal do consenso fechado")
 //
 //  1. progresso: cada resposta de learner da Azure (evento) alimenta o gate no momento
 //     em que chega, com termo e identidade (ADR-046), e registra o contato (t_c) que sustenta
-//     o lease do modo degradado (ADR-044). Não depende de haver commit novo,
-//     nem de o disco do log de replicação ou o applier estarem lentos;
-//  2. commits: cada lote commitado vai (a) para o gate (commit Raft), (b) para o Applier,
-//     da memória, e (c) para o log de replicação.
+//     o lease do modo degradado (ADR-044). Não depende de haver commit novo nem de o
+//     applier estar lento;
+//  2. commits: cada lote commitado vai (a) para o gate (commit Raft) e (b) para o
+//     Applier, pela memória.
 //
-// Ponto de atenção: Log.Append continua SÍNCRONO dentro da goroutine de commits (gravação
-// sem fsync no log de replicação, ADR-055). Ele atrasa a entrega do próximo lote ao Applier, mas não atrasa o
-// gate, que tem goroutine própria. Na versão final o Append roda numa goroutine com
-// fila limitada (backpressure), e o Applier espera o gate, não o Append.
+// Ponto de atenção: a entrega ao Applier é bloqueante dentro da goroutine de commits. Na
+// versão final (ADR-060) o commit é um sinal e o CommitPump lê as entradas por faixa da
+// memória do Raft, para o laço do Raft nunca esperar o Applier.
 type CommitPump struct {
 	Consensus port.ConsensusEngine
-	Log       port.ReplicationLog
 	Gate      *domain.Gate
 	Lease     *domain.Lease // opcional: recebe t_c (último contato com a maioria Azure)
 	ToApplier chan<- []domain.Entry
@@ -96,9 +94,6 @@ func (p *CommitPump) runCommits(ctx context.Context) error {
 			case p.ToApplier <- b.Entries: // memória: não espera o disco
 			case <-ctx.Done():
 				return ctx.Err()
-			}
-			if err := p.Log.Append(ctx, b.Entries); err != nil {
-				return err // erro de escrita no log de replicação é fatal (ADR-055)
 			}
 		}
 	}

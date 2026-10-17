@@ -47,11 +47,11 @@ flowchart LR
 
 ## Fase 3: núcleo mínimo verificável
 
-Gate, lease, dois logs e **um** caminho de banco, antes dos seis. É o que o esboço de [codigo_exemplo/](codigo_exemplo/README.md) começa a fixar.
+Gate, lease, log do Raft e **um** caminho de banco, antes dos seis. É o que o esboço de [codigo_exemplo/](codigo_exemplo/README.md) começa a fixar.
 
 | Item | Conteúdo |
 |---|---|
-| **Entregas** | `Gate` com termo; `Lease` (contado desde `t_c`) e `DegradeService` com relógio injetável; `CommitPump` com gate por evento; `raftlog` sobre o `wal` do etcd com group commit por shard no laço do `Ready` (nada sai antes do fsync, [ADR-056](../03_adr/ADR-056-group-commit-por-shard-e-nada-sai-antes-do-fsync.md)) e `replicationlog` segmentado próprio ([ADR-055](../03_adr/ADR-055-log-de-replicacao-segmentado-derivado-do-raft.md)); adaptador `etcdraft` no modo síncrono com F3; **um** `StateStore` (um banco por vez) com apply depois do gate, paralelo por chave e com marca d'água ([ADR-058](../03_adr/ADR-058-apply-paralelo-por-chave-com-marca-dagua.md)), e checkpoint por item; `dynamohttp` com os contratos da fase 1 |
+| **Entregas** | `Gate` com termo; `Lease` (contado desde `t_c`) e `DegradeService` com relógio injetável; `CommitPump` com gate por evento; `raftlog` sobre o `wal` do etcd com group commit por shard no laço do `Ready` (nada sai antes do fsync, [ADR-056](../03_adr/ADR-056-group-commit-por-shard-e-nada-sai-antes-do-fsync.md)) e o progresso do applier (registro com CRC, sem fsync, no volume do Raft); adaptador `etcdraft` no modo síncrono com F3; **um** `StateStore` (um banco por vez) com apply depois do gate, paralelo por chave e com marca d'água ([ADR-058](../03_adr/ADR-058-apply-paralelo-por-chave-com-marca-dagua.md)), e checkpoint por item; `dynamohttp` com os contratos da fase 1 |
 | **Testes** | Concorrência com `-race` em toda estrutura compartilhada; simulação determinística com os traces do modelo; propriedade do `I-DEL` (sequências aleatórias de Put e Delete com queda em qualquer ponto convergem para o mesmo estado); suíte de conformidade por porta; falhas no WAL |
 | **Spikes** | S1 (infraestrutura, com IOPS por número de shards), S1b (síncrono com F3 x `AsyncStorageWrites`), S2 (Raft e WAL mínimo), S4 (gate e degradado) |
 | **Portão para a fase 4** | Os testes de invariante passam; o lease é conferido a cada ACK; `reject` nunca degrada; a leitura forte usa `min(ReadIndex, gate)` e falha rápido com applier parado |

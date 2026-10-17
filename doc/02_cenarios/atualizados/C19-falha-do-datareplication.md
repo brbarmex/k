@@ -33,7 +33,7 @@ flowchart TD
 ## Falhas e tratativas
 
 - **Célula inteira sem DataReplication.** O Compass-Router (externo) pode desviar o tráfego; as apps toleram a indisponibilidade com retry do SDK.
-- **Reinício no meio do apply de um lote.** O progresso por item é lido do volume do log; os itens já aplicados são reaplicados de forma idempotente ([C23](C23-batchwriteitem-lote-uma-entrada.md)).
+- **Reinício no meio do apply de um lote.** O progresso por item é lido do volume do Raft; os itens já aplicados são reaplicados de forma idempotente ([C23](C23-batchwriteitem-lote-uma-entrada.md)).
 - **Sem identificador estável no SDK.** Hash do conteúdo como último recurso, com falso positivo possível.
 
 ## Pontos em aberto

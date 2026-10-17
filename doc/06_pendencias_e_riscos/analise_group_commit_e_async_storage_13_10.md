@@ -8,7 +8,7 @@
 
 1. **Buffer em memória só é aceitável como área de montagem do lote.** Nenhum ACK ao cliente, voto (`MsgVoteResp`) ou resposta de `AppendEntries` (`MsgAppResp`) pode sair antes do fsync que cobre aquela entrada. Se "buffer em memória" significar responder antes do disco, é o ACK em memória que o Bruno descartou em 12/10, e quebra o RPO = 0 numa falha correlacionada das réplicas (6.8 de [04_wal_e_fsync](../01_arquitetura/04_wal_e_fsync.md)). Com essa regra, o buffer não muda a semântica; muda só quantos fsyncs fazemos.
 2. **O group commit por shard já existe hoje, sem código novo.** O `etcd-io/raft` acumula as propostas que chegam enquanto o fsync anterior está em andamento, e o próximo `Ready` leva todas juntas; o `wal.Save` do etcd grava o lote e faz **um** `fdatasync`. É o "agrupamento natural" (F2) que o pacote já pedia.
-3. **O que não existe é group commit entre shards.** Um WAL do etcd por shard (ADR-055, item 7) significa um fsync por shard. Isso não piora a latência, mas **multiplica as IOPS** e pode encostar no limite de base dos volumes (seção 4). Group commit entre shards exige um WAL compartilhado, ou seja, **código próprio de armazenamento de volta ao caminho do ACK** (o W2, que era o maior risco de perda de dado e saiu em 13/10).
+3. **O que não existe é group commit entre shards.** Um WAL do etcd por shard (ADR-019) significa um fsync por shard. Isso não piora a latência, mas **multiplica as IOPS** e pode encostar no limite de base dos volumes (seção 4). Group commit entre shards exige um WAL compartilhado, ou seja, **código próprio de armazenamento de volta ao caminho do ACK** (o W2, que era o maior risco de perda de dado e saiu em 13/10).
 4. **`AsyncStorageWrites` é viável e seguro por construção, mas o ganho de latência é parecido com o de uma otimização mais simples.** O ganho real de latência (tirar o fsync da líder do caminho serial) também se obtém no modo síncrono com a líder enviando antes de gravar (F3, seção 10.2.1 da tese, permitido pelo `doc.go`). O que só o modo assíncrono dá: o laço do Raft não para durante um fsync lento (heartbeats, votos e ReadIndex continuam) e as respostas ficam presas à escrita de forma estrutural, o que tira do nosso código a decisão "qual mensagem pode sair antes do disco".
 5. **Recomendação:** 1a, 2a, 3b, 4a, 5a, 6a (seção 9). Em uma frase: manter a regra "nada sai antes do fsync", usar o group commit por shard que já existe com coalescência sem espera fixa, começar no modo síncrono com F3 e decidir o `AsyncStorageWrites` por um spike com critério numérico, com o modelo TLA+ ampliado para log volátil x durável nos dois casos.
 
@@ -90,7 +90,7 @@ Notação: `t_L`, `t_S`, `t_Z` = fsync da líder, de um seguidor AWS, de um lear
 - **O apply continua esperando o disco da líder.** O applier só recebe entrada estável localmente, então um disco lento na líder ainda atrasa o ACK quando o ACK espera o apply (Strong). F7 (transferir liderança quando o fsync da líder passa do limiar) continua necessário.
 - O que **só** o assíncrono dá: um fsync de 200 ms na líder não congela o laço do Raft. No modo síncrono, o laço parado não envia heartbeats; com `ElectionTick` curto, os seguidores podem iniciar eleição por causa de um disco, e o CheckQuorum da líder pode derrubá-la. Isso também se mitiga no modo síncrono com timeout de eleição bem acima do P99.9 de fsync e com F7, mas é atenuação, não eliminação.
 
-## 6. Interação com o gate, ReadIndex, eleição e o log de replicação
+## 6. Interação com o gate, ReadIndex e eleição
 
 | Tema | Efeito do `AsyncStorageWrites` | Precisa mudar? |
 |---|---|---|
@@ -100,7 +100,6 @@ Notação: `t_L`, `t_S`, `t_Z` = fsync da líder, de um seguidor AWS, de um lear
 | **Eleição** | Voto só sai depois de o `HardState` (termo e voto) estar no disco. A eleição fica mais lenta em um fsync, o que é desprezível | Não |
 | **Transferência planejada** (ADR-013) | `TimeoutNow` e a eleição seguem o mesmo contrato | Não |
 | **Lease do modo degradado** (ADR-044) | O lease conta desde o último contato com a maioria Azure. No síncrono, um fsync longo na líder atrasa o processamento das respostas e pode fazer o lease parecer vencido; no assíncrono isso não acontece | Não, mas é mais um ponto a favor do assíncrono |
-| **Log de replicação** (ADR-055) | É derivado do commit e fica fora do caminho do ACK. Nada muda; a invariante "Raft só compacta até o `DurableIndex`" continua | Não |
 | **`raft.MemoryStorage`** | No assíncrono, a *thread* de escrita precisa fazer `Save` com fsync, **depois** `MemoryStorage.Append`, e só então entregar as respostas. Inverter essa ordem quebra o envio de `MsgApp` a seguidores atrasados | Regra de implementação |
 | **fsync fatal** (ADR-034) | Se o fsync falhar, a *thread* encerra o processo **sem** entregar nenhuma resposta do lote | Regra de implementação |
 
@@ -150,7 +149,7 @@ Notação: `t_L`, `t_S`, `t_Z` = fsync da líder, de um seguidor AWS, de um lear
 ## 10. O que muda no pacote depois das respostas (com as recomendações)
 
 - **ADR novo (056):** group commit por shard, regra do buffer, modo síncrono com F3 na fase 1, critério do S1b para o assíncrono, limites de memória e contrapressão.
-- **ADR-055** (item 7 e consequências), **ADR-030** (modelo ampliado), **ADR-034** (fsync fatal sem entregar respostas).
+- **ADR-019** (um WAL por shard e consequências), **ADR-030** (modelo ampliado), **ADR-034** (fsync fatal sem entregar respostas).
 - **04_wal_e_fsync** (6.8: F2 e F3 com o que o wal do etcd já faz e a regra de envio), **03_consenso** (5.5), **06_modos** (orçamento), **07_go_memoria** (buffer não persistido), **10_pontos_adicionais** (métricas).
 - **Spikes:** S1 ganha a medição de IOPS por número de shards; S1b novo. **Riscos:** IOPS de base e regra de envio no modo síncrono.
 - **Diagramas:** D04 (*thread* de escrita e coalescência), D05 (gate com auto-ACK da líder após fsync), D07 (prazos).

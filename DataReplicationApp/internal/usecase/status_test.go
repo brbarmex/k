@@ -20,7 +20,7 @@ func (fakeCatalogReady) Ready() bool { return true }
 
 func newStatus(info port.RaftInfo) *StatusReporter {
 	return &StatusReporter{CellID: "1", NodeID: 1, Raft: fakeRaftStatus{info}, Gate: &domain.Gate{},
-		Applier: &Applier{}, Log: &fakeLog{}, Catalog: fakeCatalogReady{}, AzureOff: true}
+		Applier: &Applier{}, Catalog: fakeCatalogReady{}, AzureOff: true}
 }
 
 // O-14: o quórum aparece só na líder, com Ok = maioria dos votantes ativa.

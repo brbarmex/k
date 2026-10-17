@@ -11,7 +11,7 @@ Todos os 86 diagramas **Mermaid** do pacote, por pasta. Os diagramas de cada cen
 | [D01](D01-visao-do-sistema.md) | Contexto (mTLS por aplicação) e regra do ACK (gate por termo, `accept` com lease, `reject` com `503 PENDING`) |
 | [D02](D02-implantacao-da-celula.md) | Pod, namespace, volume, IAM e lista de permissões por aplicação |
 | [D03](D03-camadas-hexagonais.md) | Regra de dependência entre camadas |
-| [D04](D04-dois-logs-e-commitpump.md) | Caminho do dado, os dois logs, group commit por shard (nada sai antes do fsync), gate por evento e progresso do applier por item |
+| [D04](D04-commitpump-e-log-do-raft.md) | Caminho do dado, o log do Raft, group commit por shard (nada sai antes do fsync), gate por evento e progresso do applier por item |
 | [D05](D05-gate-e-quorum.md) | Composição do gate: termo atual, evento, lease e barreira da leitura forte |
 | [D06](D06-estados-do-shard-e-do-no.md) | Modos do shard (lease expirado, sem gate com `reject`, promoção depois de D + M) e estados do nó |
 | [D07](D07-prazos-em-cascata.md) | Prazos dentro dos 30 s do SDK e o lease D fora da cascata |
@@ -27,7 +27,7 @@ Todos os 86 diagramas **Mermaid** do pacote, por pasta. Os diagramas de cada cen
 | [D01-visao-do-sistema.md](../04_diagramas/D01-visao-do-sistema.md) | Regra do ACK | fluxo |
 | [D02-implantacao-da-celula.md](../04_diagramas/D02-implantacao-da-celula.md) | Dentro de uma célula | fluxo |
 | [D03-camadas-hexagonais.md](../04_diagramas/D03-camadas-hexagonais.md) | Regra de dependência | fluxo |
-| [D04-dois-logs-e-commitpump.md](../04_diagramas/D04-dois-logs-e-commitpump.md) | Caminho do dado em um nó | fluxo |
+| [D04-commitpump-e-log-do-raft.md](../04_diagramas/D04-commitpump-e-log-do-raft.md) | Caminho do dado em um nó | fluxo |
 | [D05-gate-e-quorum.md](../04_diagramas/D05-gate-e-quorum.md) | Composição do gate | fluxo |
 | [D06-estados-do-shard-e-do-no.md](../04_diagramas/D06-estados-do-shard-e-do-no.md) | Estados do nó | estados |
 | [D06-estados-do-shard-e-do-no.md](../04_diagramas/D06-estados-do-shard-e-do-no.md) | Modos de operação do shard | estados |
@@ -89,7 +89,7 @@ Todos os 86 diagramas **Mermaid** do pacote, por pasta. Os diagramas de cada cen
 | [X01-gate-e-troca-de-lider.md](../02_cenarios/complexos/X01-gate-e-troca-de-lider.md) | Diagrama: troca de líder | fluxo |
 | [X02-modo-degradado.md](../02_cenarios/complexos/X02-modo-degradado.md) | Diagrama: entrada e saída | estados |
 | [X03-desastre-e-promocao-da-azure.md](../02_cenarios/complexos/X03-desastre-e-promocao-da-azure.md) | Diagrama: promoção | fluxo |
-| [X04-partida-recuperacao-e-dois-logs.md](../02_cenarios/complexos/X04-partida-recuperacao-e-dois-logs.md) | Diagrama: janelas de queda | sequência |
+| [X04-partida-e-recuperacao-do-no.md](../02_cenarios/complexos/X04-partida-e-recuperacao-do-no.md) | Diagrama: janelas de queda | sequência |
 | [X05-timeouts-e-idempotencia.md](../02_cenarios/complexos/X05-timeouts-e-idempotencia.md) | Diagrama | fluxo |
 | [X06-delete-ttl-gsi.md](../02_cenarios/complexos/X06-delete-ttl-gsi.md) | Diagrama: zumbi e a ordem por chave | sequência |
 
@@ -118,8 +118,8 @@ Todos os 86 diagramas **Mermaid** do pacote, por pasta. Os diagramas de cada cen
 | Arquivo | Seção | Tipo |
 |---|---|---|
 | [02_desenho_e_diagramas.md](../05_implementacao/02_desenho_e_diagramas.md) | 4. Desenho da arquitetura | fluxo |
-| [02_desenho_e_diagramas.md](../05_implementacao/02_desenho_e_diagramas.md) | 4.2 Como o Raft e a replicação atuam (os dois logs) | fluxo |
-| [02_desenho_e_diagramas.md](../05_implementacao/02_desenho_e_diagramas.md) | 4.2 Como o Raft e a replicação atuam (os dois logs) | fluxo |
+| [02_desenho_e_diagramas.md](../05_implementacao/02_desenho_e_diagramas.md) | 4.2 Como o Raft e a replicação atuam | fluxo |
+| [02_desenho_e_diagramas.md](../05_implementacao/02_desenho_e_diagramas.md) | 4.2 Como o Raft e a replicação atuam | fluxo |
 | [02_desenho_e_diagramas.md](../05_implementacao/02_desenho_e_diagramas.md) | 5.1 Escrita em modo Strong (caminho feliz) | sequência |
 | [02_desenho_e_diagramas.md](../05_implementacao/02_desenho_e_diagramas.md) | 5.1b Escrita em modo degradado (política `accept`, com lease) | sequência |
 | [02_desenho_e_diagramas.md](../05_implementacao/02_desenho_e_diagramas.md) | 5.2 Ciclo de vida do processo (partida e parada) | fluxo |

@@ -40,14 +40,14 @@ type Config struct {
 	// é sempre 1 tick. 0 = 10 (1 s com tick de 100 ms).
 	ElectionTicks int
 	// Applied é o índice até onde o Raft NÃO reentrega as entradas commitadas na partida
-	// (ADR-060, item 5): min(último do log de replicação, progresso do applier - 1). É
-	// limitado ao commit gravado e nunca fica abaixo do snapshot.
+	// (ADR-060, item 5): o índice do progresso do applier - 1. É limitado ao commit
+	// gravado e nunca fica abaixo do snapshot.
 	Applied uint64
 	Metrics port.Metrics // eventos do Raft (O-16); nulo = sem métricas
 }
 
-// Node é o motor de consenso real. Implementa port.ConsensusEngine, port.RaftCompactor,
-// port.RaftInbound e port.RaftStatus.
+// Node é o motor de consenso real. Implementa port.ConsensusEngine, port.RaftInbound e
+// port.RaftStatus.
 type Node struct {
 	cfg      Config
 	node     raft.Node
@@ -80,7 +80,6 @@ type Node struct {
 
 var (
 	_ port.ConsensusEngine = (*Node)(nil)
-	_ port.RaftCompactor   = (*Node)(nil)
 	_ port.RaftInbound     = (*Node)(nil)
 	_ port.RaftStatus      = (*Node)(nil)
 )
@@ -452,14 +451,6 @@ func (n *Node) LearnerEvents() <-chan port.LearnerProgress { return n.events }
 
 // LearnerDurable não tem retrato na POC: o progresso dos learners chega só por evento.
 func (n *Node) LearnerDurable() []port.LearnerProgress { return nil }
-
-// MinPeerMatch e Compact: a compactação do Raft fica desligada na POC (RT-11, AP-10).
-func (n *Node) MinPeerMatch() domain.Index { return 0 }
-
-func (n *Node) Compact(upTo domain.Index) error {
-	n.log.Debug().Uint64("ate", uint64(upTo)).Msg("compactação do Raft desligada na POC")
-	return nil
-}
 
 // Status devolve o retrato do Raft local; Match só na líder.
 func (n *Node) Status() port.RaftInfo {

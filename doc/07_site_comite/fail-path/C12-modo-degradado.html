@@ -67,7 +67,7 @@ Gerado em 17/10/2026 a partir do pacote DataReplication_Versao_1.
 <li><a href="../complex-path/X01-gate-e-troca-de-lider.html"><b>X01</b> Gate: definição, monotonicidade e troca de líder</a></li>
 <li><a href="../complex-path/X02-modo-degradado.html"><b>X02</b> Modo degradado: entrada, permanência, lease e saída</a></li>
 <li><a href="../complex-path/X03-desastre-e-promocao-da-azure.html"><b>X03</b> Desastre: promoção da Azure, fencing e reconciliação</a></li>
-<li><a href="../complex-path/X04-partida-recuperacao-e-dois-logs.html"><b>X04</b> Partida, recuperação e coerência entre os dois logs</a></li>
+<li><a href="../complex-path/X04-partida-e-recuperacao-do-no.html"><b>X04</b> Partida e recuperação do nó</a></li>
 <li><a href="../complex-path/X05-timeouts-e-idempotencia.html"><b>X05</b> Timeouts em cascata e idempotência do retry</a></li>
 <li><a href="../complex-path/X06-delete-ttl-gsi.html"><b>X06</b> DELETE, TTL, Scan e GSI</a></li>
 <li><a href="../complex-path/X07-gate-explicado-com-exemplos.html"><b>X07</b> O gate explicado com exemplos</a></li>
@@ -174,7 +174,7 @@ Gerado em 17/10/2026 a partir do pacote DataReplication_Versao_1.
 <h3><span class="num">3</span>Disco do log esgota durante degradação longa <span class="origem">Falhas e tratativas</span></h3>
 <dl>
 <dt>Contexto</dt><dd>No degradado a AWS retém todas as entradas desde <code>fromIndex</code> para a Azure, cerca de 0,5 TB por dia por shard a 3.000 TPS. Se o disco dos votantes enche, o fsync falha e não há mais commit, e o modo criado para manter o sistema de pé o derrubaria.</dd>
-<dt>O que a fonte define</dt><dd class="">Teto de 70% do volume; passado o teto a Azure fica fora da janela e precisa de reconstrução completa, sem descarga para S3 na v1 (<a href="../../03_adr/ADR-041-disco-do-log-teto-de-70-por-cento-sem-s3-na-v1.md">ADR-041</a>, <a href="C29-disco-do-log-em-degradacao-longa.html">C29</a>). D dimensiona o volume (PEND-22).</dd>
+<dt>O que a fonte define</dt><dd class="">Teto de 70% do volume; passado o teto a Azure fica fora da janela e precisa de reconstrução completa, sem descarga para S3 na v1 (<a href="../../03_adr/ADR-041-disco-do-log-teto-de-70-por-cento-sem-s3-na-v1.md">ADR-041</a>, <a href="C29-disco-do-log-em-degradacao-longa.html">C29</a>). D dimensiona o volume (PEND-24).</dd>
 <dt class="sug">Sugestão de encaminhamento <small>(inferência, não decidida)</small></dt><dd class="sug">Dimensionar o volume a partir de D aprovado, como a fonte indica, e testar o atingimento do teto com carga sintética. Avaliar o efeito sobre as órfãs: ao passar do teto, a AWS descarta a retenção que serviria ao relatório do <a href="../parking-lot/R13-escritas-orfas-reconciliacao.html">R13</a>.</dd>
 </dl>
 </article>

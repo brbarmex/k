@@ -60,7 +60,7 @@
     {
       "titulo": "Restauração PITR e cópia de outra célula",
       "origem": "Falhas e tratativas",
-      "contexto": "A restauração PITR e a cópia de outra célula também não passam pelo checkpoint. Um F maior que o índice refletido na origem perderia escritas.",
+      "contexto": "A restauração PITR e a cópia de outra célula também não passam pelo progresso do applier. Um F maior que o índice refletido na origem perderia escritas.",
       "na_fonte": "A fonte decide que seguem o mesmo protocolo, com a tabela restaurada ou copiada como origem e F igual ou menor que o índice refletido nela.",
       "sugestao": "Definir como obter o índice refletido num PITR e testar o protocolo a partir de um PITR em homologação."
     },

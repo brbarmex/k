@@ -67,7 +67,7 @@ Gerado em 17/10/2026 a partir do pacote DataReplication_Versao_1.
 <li><a href="../complex-path/X01-gate-e-troca-de-lider.html"><b>X01</b> Gate: definição, monotonicidade e troca de líder</a></li>
 <li><a href="../complex-path/X02-modo-degradado.html"><b>X02</b> Modo degradado: entrada, permanência, lease e saída</a></li>
 <li><a href="../complex-path/X03-desastre-e-promocao-da-azure.html"><b>X03</b> Desastre: promoção da Azure, fencing e reconciliação</a></li>
-<li><a href="../complex-path/X04-partida-recuperacao-e-dois-logs.html"><b>X04</b> Partida, recuperação e coerência entre os dois logs</a></li>
+<li><a href="../complex-path/X04-partida-e-recuperacao-do-no.html"><b>X04</b> Partida e recuperação do nó</a></li>
 <li><a href="../complex-path/X05-timeouts-e-idempotencia.html"><b>X05</b> Timeouts em cascata e idempotência do retry</a></li>
 <li><a href="../complex-path/X06-delete-ttl-gsi.html"><b>X06</b> DELETE, TTL, Scan e GSI</a></li>
 <li><a href="../complex-path/X07-gate-explicado-com-exemplos.html"><b>X07</b> O gate explicado com exemplos</a></li>
@@ -198,7 +198,7 @@ Gerado em 17/10/2026 a partir do pacote DataReplication_Versao_1.
 <h3><span class="num">6</span>Memória da janela de dedupe <span class="origem">Pontos em aberto</span></h3>
 <dl>
 <dt>Contexto</dt><dd>A janela de 5 min a 3.000 TPS exige cerca de 900 mil identificadores e ~58 MiB por shard, fora do orçamento original. Além disso, a nova líder precisa ter a tabela pronta ao assumir, senão reconstrói lendo 5 min de log e infla o RTO.</dd>
-<dt>O que a fonte define</dt><dd class="">Tratado em parte no <a href="../parking-lot/R22-memoria-da-janela-de-dedupe.html">R22</a>: tabela como projeção do log mantida por todos os votantes, reconstrução pelo log de replicação (<a href="../../03_adr/ADR-055-log-de-replicacao-segmentado-derivado-do-raft.md">ADR-055</a>) e janela configurável. Falta medir.</dd>
+<dt>O que a fonte define</dt><dd class="">Tratado em parte no <a href="../parking-lot/R22-memoria-da-janela-de-dedupe.html">R22</a>: tabela como projeção do log mantida por todos os votantes, reconstrução a partir do log do Raft retido e janela configurável. Falta medir.</dd>
 <dt class="sug">Sugestão de encaminhamento <small>(inferência, não decidida)</small></dt><dd class="sug">Medir no spike a memória real com o tamanho de id de cada SDK e o tempo de reconstrução no reinício, e incluir esse tempo na distribuição de RTO do <a href="../success-path/C18-partida-e-recuperacao-do-no.html">C18</a>. Testar a eleição com tabela de dedupe vazia para ver o efeito no retry em voo.</dd>
 </dl>
 </article>

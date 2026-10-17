@@ -12,7 +12,7 @@
    "titulo": "Learner cai no meio do catch-up",
    "origem": "Falhas e tratativas",
    "contexto": "Se o learner cai durante o catch-up, parte das entradas recebidas pode não estar durável. Se ele tivesse informado ao Raft um índice acima do que gravou, o gate contaria uma durabilidade da Azure que não existe, quebrando o RPO 0.",
-   "na_fonte": "O que foi gravado com fsync fica e o resto é pedido de novo; o learner nunca informa ao Raft um índice acima do último fsync do log de replicação (ADR-055).",
+   "na_fonte": "O learner alcança pelo próprio Raft (`MsgApp`) enquanto o log do Raft da líder retém o que ele precisa, e só informa um índice depois do fsync do próprio WAL; além disso, volta por reconstrução em tabela sombra (ADR-047).",
    "sugestao": "Incluir no TLA+ a propriedade de que o índice reportado por um learner nunca supera o seu último fsync, e testar com kill do learner entre a gravação e o fsync do lote."
   },
   {

@@ -2,16 +2,15 @@
 
 [Início](../00_COMECE_AQUI.md) · [Documento principal](../DataReplication_Versao_1.md) · [Pendências e riscos](README.md)
 
-Perguntas abertas: **16 e 17** (abaixo). Formato das respostas: `16a 17a`. A coluna **Rec.** marca a **rec**omendação (a opção que eu recomendo); qualquer item pode ser discutido antes. Cada pergunta aponta para o cenário com o raciocínio e o diagrama.
+Pergunta aberta: **16** (abaixo). Formato da resposta: `16a`. A coluna **Rec.** marca a **rec**omendação (a opção que eu recomendo); qualquer item pode ser discutido antes. Cada pergunta aponta para o cenário com o raciocínio e o diagrama.
 
-## Abertas: log do Raft e volume do log de replicação (13/10)
+## Aberta: armazenamento do log do Raft (13/10)
 
-Contexto: [ADR-055](../03_adr/ADR-055-log-de-replicacao-segmentado-derivado-do-raft.md). Já aplicado no pacote com a recomendação; responder só se discordar.
+Contexto: [ADR-019](../03_adr/ADR-019-wal-proprio-volume-dedicado.md) e [ADR-056](../03_adr/ADR-056-group-commit-por-shard-e-nada-sai-antes-do-fsync.md). Já aplicado no pacote com a recomendação; responder só se discordar.
 
 | # | Pergunta | Opções | Rec. |
 |---|---|---|---|
 | 16 | Armazenamento do **log do Raft** | **a** pacote `wal` do etcd, um por shard (um fsync por shard, sem group commit entre shards; dependência pesada do módulo do etcd); **b** manter o WAL próprio segmentado só para o Raft (um fsync para todos os shards, mas o código de armazenamento volta a ser nosso) | **a** (com poucos shards, tirar o código de armazenamento próprio reduz o maior risco de perda de dado; medir k fsyncs no S1). **Confirmada na prática pela resposta 2a de 13/10** (group commit por shard, [ADR-056](../03_adr/ADR-056-group-commit-por-shard-e-nada-sai-antes-do-fsync.md)) |
-| 17 | Nó que perde **só o volume do log de replicação** | **a** tratar como disco perdido: volta com identidade nova ([ADR-034](../03_adr/ADR-034-fsync-fatal-e-identidade-nova.md)); **b** manter a identidade e recarregar o histórico do log de replicação de um par antes de voltar a ser elegível | **a** (uma regra só para disco perdido; o b cria um estado novo de nó a modelar) |
 
 ## Respondidas: modo único strong (13/10)
 
@@ -35,15 +34,6 @@ Análise: [analise_group_commit_e_async_storage_13_10](analise_group_commit_e_as
 | 4 | Espera para formar lote | **a** Nenhuma; teto de 1 MiB por lote |
 | 5 | Limite do buffer | **a** 32 MiB por shard; `ThrottlingException` acima disso |
 | 6 | TLA+ | **a** Log volátil x durável; "ACK implica fsync em 2 AWS e 2 Azure" |
-
-## Respondidas: log de replicação (13/10)
-
-| # | Decisão | Resposta | Onde ficou |
-|---|---|---|---|
-| 1 | Log de replicação | **a** Derivado do Raft, sem fsync, refeito a partir do Raft depois de queda | [ADR-055](../03_adr/ADR-055-log-de-replicacao-segmentado-derivado-do-raft.md), [ADR-018](../03_adr/ADR-018-dois-logs-raft-e-replicacao.md), [X04](../02_cenarios/complexos/X04-partida-recuperacao-e-dois-logs.md) |
-| 2 | Disco do log de replicação | **b** Volume separado em cada nó, nas duas nuvens | [ADR-055](../03_adr/ADR-055-log-de-replicacao-segmentado-derivado-do-raft.md), [ADR-019](../03_adr/ADR-019-wal-proprio-volume-dedicado.md) |
-| 3 | Teto de 70% | **b** Mantido como está (espaço lógico) |
-| — | Pebble ou log segmentado | **a** Log segmentado próprio; o Pebble saiu (o risco 30 foi encerrado) | [ADR-041](../03_adr/ADR-041-disco-do-log-teto-de-70-por-cento-sem-s3-na-v1.md), [C29](../02_cenarios/atualizados/C29-disco-do-log-em-degradacao-longa.md), risco 30 |
 
 ## Respondidas: revisão crítica de 13/10 (decisões 1 a 14, todas **a**)
 

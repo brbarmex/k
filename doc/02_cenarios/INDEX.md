@@ -4,7 +4,7 @@ Todo cenário tem um diagrama Mermaid, as etapas e as falhas com a tratativa. Os
 
 | Pasta | Significado | Quantidade |
 |---|---|---|
-| [`atualizados/`](atualizados/) | Cenário já decidido e redesenhado no **modelo v1** (learners, gate, dois logs, prazos) | 34 |
+| [`atualizados/`](atualizados/) | Cenário já decidido e redesenhado no **modelo v1** (learners, gate, log do Raft, prazos) | 34 |
 | [`complexos/`](complexos/) | Assuntos que precisam de mais detalhe; cada um é referenciado pelos cenários que dependem dele | 6 |
 | [`a_rever/`](a_rever/) | Cenários e hipóteses **ainda sem decisão completa**, com a proposta de fluxo e as perguntas em aberto | 14 |
 
@@ -31,7 +31,7 @@ Todo cenário tem um diagrama Mermaid, as etapas e as falhas com a tratativa. Os
 | [C16](atualizados/C16-aws-volta-apos-promocao.md) | AWS volta depois da promoção da Azure | Learner com identidade nova; failback planejado |
 | [C17](atualizados/C17-maquina-de-estados.md) | Máquina de estados dos modos de operação de um shard | Normal, degradado, ressincronizando, promovido |
 | [C18](atualizados/C18-partida-e-recuperacao-do-no.md) | Partida, recuperação e parada limpa do nó | Ordem de partida e parada limpa |
-| [C19](atualizados/C19-falha-do-datareplication.md) | O DataReplication da célula cai ou reinicia | Pod reinicia: recuperação dos dois logs |
+| [C19](atualizados/C19-falha-do-datareplication.md) | O DataReplication da célula cai ou reinicia | Pod reinicia: recuperação pelo log do Raft |
 | [C20](atualizados/C20-bypass-de-escrita-direta.md) | Aplicação escreve direto no banco (bypass) | Controle por IAM e mTLS por aplicação; detecção por auditoria (ADR-052) |
 | [C21](atualizados/C21-disco-fsync-e-reconstrucao.md) | Falha de fsync, corrupção, disco lento e disco perdido | Fsync fatal, identidade nova, `drctl rebuild` |
 | [C22](atualizados/C22-cliente-com-sdk-nao-suportado.md) | Cliente com SDK ou versão não suportada | Rejeição por User-Agent depois do período de alerta |
@@ -55,7 +55,7 @@ Todo cenário tem um diagrama Mermaid, as etapas e as falhas com a tratativa. Os
 | [X01](complexos/X01-gate-e-troca-de-lider.md) | Gate: definição, monotonicidade e troca de líder | Propriedades P1 a P18 do modelo TLA+ (P9 a P18 vêm da revisão de 13/10) |
 | [X02](complexos/X02-modo-degradado.md) | Modo degradado: entrada, permanência e saída | Entrada, lease D, `DEGRADED_POLICY`, saída e limiares |
 | [X03](complexos/X03-desastre-e-promocao-da-azure.md) | Desastre: promoção da Azure, fencing e reconciliação | Epoch, promoção só depois de D + M, escolha do log, órfãs, failback |
-| [X04](complexos/X04-partida-recuperacao-e-dois-logs.md) | Partida, recuperação e coerência entre os dois logs | CommitPump e truncamento |
+| [X04](complexos/X04-partida-e-recuperacao-do-no.md) | Partida e recuperação do nó: progresso do applier, replay do WAL do Raft e janelas de queda | CommitPump e compactação |
 | [X05](complexos/X05-timeouts-e-idempotencia.md) | Timeouts em cascata e idempotência do retry | Prazos em cascata e janela de dedupe |
 | [X06](complexos/X06-delete-ttl-gsi.md) | DELETE, TTL, Scan e GSI | Delete real com invariante `I-DEL`, TTL local, Query em GSI recusada |
 | [X07](complexos/X07-gate-explicado-com-exemplos.md) | O gate explicado com exemplos | Regra, quando atua e 6 cenários com índices (feliz, Azure atrasada, uma Azure fora, link caído, troca de líder, POC só AWS) |

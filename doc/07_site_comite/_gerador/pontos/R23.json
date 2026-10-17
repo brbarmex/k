@@ -6,7 +6,7 @@
    "origem": "H2 / PEND-02. RPO > 0 sem teto no modo degradado (bloqueante)",
    "contexto": "Com a opção B (ADR-014), a perda possível cresce com a duração da degradação, e o header `x-dr-mode: degraded` informa o cliente sem limitar a perda. Desde 13/10 o teto existe no desenho, o lease D (ADR-044), mas o valor de D e de M não foi aprovado. Sem D definido o modo degradado não pode ser ligado, e se a AWS morrer em modo degradado o RTO é pelo menos D + M.",
    "na_fonte": "A fonte decide o mecanismo (lease D, ADR-044) e a política por instalação `accept` ou `reject` (ADR-045); a aprovação de D, M e da política por cliente é bloqueante e está pendente (PEND-02). Caminhos adicionais propostos: segundo circuito privado por outra operadora e exportação periódica do log degradado.",
-   "sugestao": "Levar ao Bruno e ao negócio um pacote de decisão que mostre, para cada D candidato, o volume máximo de órfãs, o RTO mínimo do desastre e o tamanho do volume do log de replicação. Avaliar o segundo circuito como alternativa que reduz a frequência de degradação, já que reduzir a causa vale mais que limitar o efeito."
+   "sugestao": "Levar ao Bruno e ao negócio um pacote de decisão que mostre, para cada D candidato, o volume máximo de órfãs, o RTO mínimo do desastre e o tamanho do volume do log do Raft. Avaliar o segundo circuito como alternativa que reduz a frequência de degradação, já que reduzir a causa vale mais que limitar o efeito."
   },
   {
    "titulo": "Líder lenta, mas viva",
@@ -20,7 +20,7 @@
    "origem": "H7. Corrupção lógica ou bug replicado",
    "contexto": "RPO 0 replica tudo, inclusive erros: um deploy com bug que grava dado errado é replicado imediatamente para as duas clouds. Nesse caso o failover não ajuda, e a recuperação exige voltar o estado a um ponto anterior ao erro. É um risco de integridade que a arquitetura de replicação não cobre por desenho.",
    "na_fonte": "Não decidido na fonte. Proposta na fonte: backup contínuo dos dois bancos (PITR no DynamoDB, backup contínuo no Cosmos), retenção do log suficiente para reconstruir até um índice anterior ao erro e validação de esquema e capacidades antes do commit (C26).",
-   "sugestao": "Definir e ensaiar um runbook de restauração a um ponto no tempo que mantenha as seis réplicas coerentes entre si, já que restaurar só um banco quebra a convergência. Verificar a compatibilidade entre a retenção do log de replicação e o tempo típico para detectar um bug de dado."
+   "sugestao": "Definir e ensaiar um runbook de restauração a um ponto no tempo que mantenha as seis réplicas coerentes entre si, já que restaurar só um banco quebra a convergência. Verificar a compatibilidade entre a retenção do log do Raft e o tempo típico para detectar um bug de dado."
   },
   {
    "titulo": "Bug no consenso customizado",

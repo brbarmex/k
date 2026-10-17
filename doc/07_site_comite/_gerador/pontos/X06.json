@@ -32,7 +32,7 @@
   {
    "titulo": "Reconstrução a partir de cópia antiga e tabela de tombstones",
    "origem": "Pontos em aberto",
-   "contexto": "Uma réplica reconstruída a partir de cópia antiga pode trazer itens já apagados. A proteção do checkpoint não vale nesse caminho, porque reconstrução, PITR e cópia de outra célula não passam pelo replay ordenado a partir do checkpoint. Sem o protocolo correto, a célula reconstruída pode servir itens zumbis por tempo indefinido.",
+   "contexto": "Uma réplica reconstruída a partir de cópia antiga pode trazer itens já apagados. A proteção do progresso do applier não vale nesse caminho, porque reconstrução, PITR e cópia de outra célula não passam pelo replay ordenado a partir do progresso do applier. Sem o protocolo correto, a célula reconstruída pode servir itens zumbis por tempo indefinido.",
    "na_fonte": "Coberto pelo protocolo da tabela sombra (C33); a tabela de tombstones só entra se os testes mostrarem zumbi (H-DR1).",
    "sugestao": "Testar o protocolo da tabela sombra com uma cópia deliberadamente antiga contendo itens já apagados e confirmar por checksum que eles não sobrevivem ao cutover."
   }

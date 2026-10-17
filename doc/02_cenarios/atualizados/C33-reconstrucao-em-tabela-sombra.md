@@ -4,7 +4,7 @@
 
 ## Cenário
 
-O DELETE real, sem tombstone ([ADR-024](../../03_adr/ADR-024-delete-real-ttl-local-gsi.md)), é correto quando o applier reaplica o log em ordem por chave a partir do checkpoint: `Put(10)` recria a chave e `Delete(11)` a remove de novo. O estado errado existe só durante o replay, escondido pela regra "leituras só abrem depois do high-water mark". Os caminhos que **não passam pelo checkpoint** não têm essa proteção: reconstrução do banco da célula, restauração PITR, cópia de outra célula, recriação depois do boot cercado ([C30](C30-aws-que-volta-boot-cercado.md)), Azure fora da janela do log ([C13](C13-ressincronizacao-da-azure.md), [C29](C29-disco-do-log-em-degradacao-longa.md)).
+O DELETE real, sem tombstone ([ADR-024](../../03_adr/ADR-024-delete-real-ttl-local-gsi.md)), é correto quando o applier reaplica o log em ordem por chave a partir do progresso salvo: `Put(10)` recria a chave e `Delete(11)` a remove de novo. O estado errado existe só durante o replay, escondido pela regra "leituras só abrem depois do high-water mark". Os caminhos que **não passam pelo replay do log** não têm essa proteção: reconstrução do banco da célula, restauração PITR, cópia de outra célula, recriação depois do boot cercado ([C30](C30-aws-que-volta-boot-cercado.md)), Azure fora da janela do log ([C13](C13-ressincronizacao-da-azure.md), [C29](C29-disco-do-log-em-degradacao-longa.md)).
 
 O protocolo é **cópia difusa mais replay**: copia-se a tabela sem snapshot e reaplica-se o log a partir de um índice **F**. Converge porque o apply é condicional por versão e o DELETE é reaplicado em ordem. A invariante `I-DEL` vale o tempo todo: com as leituras abertas, o estado materializado é a dobra do log até `applied`.
 
@@ -15,13 +15,13 @@ sequenceDiagram
     autonumber
     participant OP as Operador drctl
     participant DR as DataReplication da célula
-    participant LG as Log de replicação
+    participant LG as Log do Raft
     participant OR as Tabela de origem
     participant SH as Tabela sombra
     participant MP as Mapeamento do nome lógico
     OP->>DR: drctl rebuild, com aprovação
     DR->>DR: confere retenção, capacidade, IAM e allowlist da sombra
-    DR->>LG: registra F e retém o log desde F
+    DR->>LG: registra F e segura a compactação em F − 1
     DR->>SH: cria a tabela sombra com TTL, sem GSIs
     loop varredura sem snapshot
         DR->>OR: lê uma página de itens
@@ -60,8 +60,8 @@ flowchart TD
 ## Etapas
 
 1. **Pedido:** `drctl rebuild` é manual assistido, com aprovação humana. A tabela de origem é a de uma célula saudável do mesmo shard ou, para refazer só a estrutura, a própria tabela da célula (a escolha da origem entra no detalhamento do protocolo).
-2. **Pré-condições:** o log de replicação cobre a duração estimada da varredura (ver retenção abaixo), há WCU ou RU para a cópia e o replay, e o papel do applier e a allowlist ([ADR-022](../../03_adr/ADR-022-banco-por-celula-nome-logico.md)) admitem o nome da tabela sombra.
-3. **Registro de F:** o índice F é o índice aplicado da origem **antes** de começar. Um F menor que o real só custa mais replay; um F maior perderia escritas. O log é retido desde F e F é persistido, para a reconstrução poder ser retomada depois de um reinício.
+2. **Pré-condições:** o log do Raft cobre a duração estimada da varredura (ver retenção abaixo), há WCU ou RU para a cópia e o replay, e o papel do applier e a allowlist ([ADR-022](../../03_adr/ADR-022-banco-por-celula-nome-logico.md)) admitem o nome da tabela sombra.
+3. **Registro de F:** o índice F é o índice aplicado da origem **antes** de começar. Um F menor que o real só custa mais replay; um F maior perderia escritas. O log do Raft é retido desde F (a compactação não passa de `F − 1` enquanto a reconstrução estiver em curso, `domain.RaftCompactLimit`) e F é persistido, para a reconstrução poder ser retomada depois de um reinício.
 4. **Tabela sombra:** criada com o mesmo atributo de TTL e a mesma chave, sem GSIs (Query em GSI é recusada, [ADR-050](../../03_adr/ADR-050-query-em-gsi-recusada.md)). No Cosmos, o Cloud-Adapter cria o container equivalente.
 5. **Cópia difusa:** varredura por páginas, sem snapshot; cada item é gravado com a condição de versão, para nunca sobrescrever uma versão mais nova.
 6. **Replay:** o log desde F é reaplicado em ordem até a cabeça, com `Put` e `Delete` condicionais por versão ([ADR-035](../../03_adr/ADR-035-lote-batchwriteitem-uma-entrada-e-apply-condicional.md)). O estado da sombra é provisório e **ninguém lê dele**.
@@ -71,7 +71,7 @@ flowchart TD
 
 ## Falhas e tratativas
 
-- **O log não cobre a varredura.** Se a varredura demorar mais que a retenção do teto de 70% do volume ([ADR-041](../../03_adr/ADR-041-disco-do-log-teto-de-70-por-cento-sem-s3-na-v1.md)), o log desde F é liberado e o rebuild **falha e recomeça** com um F novo. Estimar a duração (itens, tamanho, WCU ou RU disponíveis) antes de começar e alertar quando a folga de retenção encolher; as durações reais ainda não foram medidas ([R09](../a_rever/R09-resincronizacao-lenta-ou-bloqueada.md)).
+- **O log não cobre a varredura.** Se a varredura demorar mais que a retenção do teto de 70% do volume ([ADR-041](../../03_adr/ADR-041-disco-do-log-teto-de-70-por-cento-sem-s3-na-v1.md)), o log desde F é liberado e o rebuild **falha e recomeça** com um F novo. Estimar a duração (itens, tamanho, WCU ou RU disponíveis) antes de começar e alertar quando a folga de retenção encolher; as durações reais ainda não foram medidas ([R09](../a_rever/R09-resincronizacao-lenta-ou-bloqueada.md)). Enquanto retido, o log desde F também ocupa a memória do `MemoryStorage` do nó (risco 46).
 - **Custo e throttling (WCU e RU).** A varredura e o replay competem com a escrita ao vivo da célula, no DynamoDB e no Cosmos, e podem gerar throttling. Se a célula reconstruída for a líder, o throttling do applier vira latência de ACK e `503 PENDING` ([C24](C24-orcamento-de-50ms-e-escrita-no-dynamodb.md)). Recomendação: transferir a liderança antes ([C11](C11-transferencia-planejada.md)) e limitar o ritmo da cópia. O custo da tabela dupla entra em [R20](../a_rever/R20-custo-6x.md).
 - **Sem GSI na tabela sombra.** Query em GSI é recusada pela camada ([ADR-050](../../03_adr/ADR-050-query-em-gsi-recusada.md)), então a sombra nasce sem GSIs: não há backfill de índice nem conferência de índice, e o checksum compara só a tabela base.
 - **Cosmos pelo Cloud-Adapter.** O mesmo protocolo vale para a Azure e precisa estar no contrato do Cloud-Adapter: criar container, varrer, gravar com condição de versão, trocar o mapeamento. Os custos em RU, o limite de tamanho de item e o índice consistente do Cosmos entram na suíte de conformidade ([ADR-051](../../03_adr/ADR-051-compatibilidade-dynamodb-inventario-conformidade-e-idempotencia.md)).

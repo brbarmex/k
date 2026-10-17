@@ -10,7 +10,7 @@
 <!--
 Fonte(s) usada(s) nesta página (rastreabilidade), relativas à raiz do pacote:
   02_cenarios/atualizados/C35-banco-lento-nao-derruba-a-lideranca.md
-  04_diagramas/D04-dois-logs-e-commitpump.md
+  04_diagramas/D04-commitpump-e-log-do-raft.md
 Gerado em 17/10/2026 a partir do pacote DataReplication_Versao_1.
 -->
 <header class="topo">
@@ -67,7 +67,7 @@ Gerado em 17/10/2026 a partir do pacote DataReplication_Versao_1.
 <li><a href="../complex-path/X01-gate-e-troca-de-lider.html"><b>X01</b> Gate: definição, monotonicidade e troca de líder</a></li>
 <li><a href="../complex-path/X02-modo-degradado.html"><b>X02</b> Modo degradado: entrada, permanência, lease e saída</a></li>
 <li><a href="../complex-path/X03-desastre-e-promocao-da-azure.html"><b>X03</b> Desastre: promoção da Azure, fencing e reconciliação</a></li>
-<li><a href="../complex-path/X04-partida-recuperacao-e-dois-logs.html"><b>X04</b> Partida, recuperação e coerência entre os dois logs</a></li>
+<li><a href="../complex-path/X04-partida-e-recuperacao-do-no.html"><b>X04</b> Partida e recuperação do nó</a></li>
 <li><a href="../complex-path/X05-timeouts-e-idempotencia.html"><b>X05</b> Timeouts em cascata e idempotência do retry</a></li>
 <li><a href="../complex-path/X06-delete-ttl-gsi.html"><b>X06</b> DELETE, TTL, Scan e GSI</a></li>
 <li><a href="../complex-path/X07-gate-explicado-com-exemplos.html"><b>X07</b> O gate explicado com exemplos</a></li>
@@ -140,13 +140,13 @@ Gerado em 17/10/2026 a partir do pacote DataReplication_Versao_1.
     DB--&gt;&gt;P: apply alcança
     App-&gt;&gt;L: PutItem
     L-&gt;&gt;R: Propose (aceita de novo)</pre></div>
-<h3>Arquitetura geral relacionada: <a href="../../04_diagramas/D04-dois-logs-e-commitpump.md">D04 — Os dois logs e o CommitPump</a></h3><p class="nota">Diagrama de <code>04_diagramas/</code> escolhido pelo site como contexto; o cenário fonte não faz essa associação.</p>
+<h3>Arquitetura geral relacionada: <a href="../../04_diagramas/D04-commitpump-e-log-do-raft.md">D04 — CommitPump e o log do Raft</a></h3><p class="nota">Diagrama de <code>04_diagramas/</code> escolhido pelo site como contexto; o cenário fonte não faz essa associação.</p>
 <div class="diagrama"><pre class="mermaid">flowchart TD
     W[&quot;WriteService: admissão e Propose&quot;] --&gt; RAFT[&quot;RaftNode&quot;]
     W -.-&gt;|&quot;gate − aplicado &amp;gt; APPLY_LAG_MAX (ADR-060)&quot;| THR
     RAFT -.-&gt;|&quot;buffer cheio: 32 MiB por shard&quot;| THR[&quot;ThrottlingException, nada entra no log&quot;]
     RAFT --&gt;|&quot;lote do Ready&quot;| WR[&quot;Laço do Ready do shard&lt;br/&gt;grava os pendentes, sem espera fixa&quot;]
-    WR --&gt;|&quot;um Save, um fdatasync&quot;| RLOG[(&quot;log do Raft: wal do etcd&lt;br/&gt;vida curta, volume do Raft&quot;)]
+    WR --&gt;|&quot;um Save, um fdatasync&quot;| RLOG[(&quot;log do Raft: wal do etcd por shard&lt;br/&gt;volume do Raft, retém para a Azure até 70%&quot;)]
     WR --&gt;|&quot;depois do fsync: MsgAppResp, votos, auto-ACK, Advance&quot;| RAFT
     RAFT --&gt;|&quot;MsgApp da líder antes do fsync, F3&quot;| PARES[&quot;Seguidores AWS e learners Azure&quot;]
     RAFT --&gt;|&quot;commit publicado como sinal: atômico + aviso, nunca espera (ADR-060)&quot;| SIG[&quot;Sinal de commit&quot;]
@@ -156,14 +156,14 @@ Gerado em 17/10/2026 a partir do pacote DataReplication_Versao_1.
     AZ --&gt;|&quot;por evento, só termo atual&quot;| GATE[&quot;Gate&quot;]
     PUMP --&gt;|&quot;índice de commit, goroutine própria&quot;| GATE
     PUMP --&gt;|&quot;entradas pela memória, fila de 64 lotes&quot;| APPL[&quot;Applier&quot;]
-    PUMP --&gt;|&quot;fila limitada, goroutine própria, sem fsync, uma escrita por lote (ADR-059)&quot;| REP[(&quot;log de replicação segmentado&lt;br/&gt;vida longa, volume próprio&quot;)]
     GATE --&gt;|&quot;libera ACK&quot;| W
     GATE --&gt;|&quot;libera o apply até o gate&quot;| APPL
     APPL --&gt;|&quot;escrita condicional por versão, paralelo por chave (ADR-058)&quot;| DB[(&quot;Banco da célula&quot;)]
-    APPL --&gt;|&quot;marca d&#x27;água: índice e ordem, sem fsync&quot;| REP
-    CK[&quot;Checkpointer: fsync a cada REPLOG_SYNC_INTERVAL,&lt;br/&gt;fora da trava do Append (ADR-059)&quot;] --&gt; REP
-    CK -.-&gt;|&quot;compacta até RaftCompactLimit&quot;| RLOG
-    REP -.-&gt;|&quot;DurableIndex do checkpoint: até onde o log do Raft pode ser truncado&quot;| RLOG</pre></div>
+    APPL --&gt;|&quot;marca d&#x27;água: índice e ordem, CRC, sem fsync&quot;| PROG[(&quot;progresso do applier&lt;br/&gt;arquivo progress no volume do Raft&quot;)]
+    CMP[&quot;Compactação: até RaftCompactLimit&lt;br/&gt;aplicado local, maioria Azure na janela, reconstrução em curso&quot;] -.-&gt;|&quot;produção; desligada na POC&quot;| RLOG
+    APPL -.-&gt;|&quot;aplicado local&quot;| CMP
+    AZ -.-&gt;|&quot;índice durável da maioria Azure&quot;| CMP
+    PROG -.-&gt;|&quot;na partida: retomada, replay a partir do WAL&quot;| PUMP</pre></div>
 </section>
 <section id="etapas"><h2>3. Legenda e etapas</h2>
 <div class="etapas"><ol>
@@ -173,7 +173,7 @@ Gerado em 17/10/2026 a partir do pacote DataReplication_Versao_1.
 <li><strong>Se a célula lenta é uma follower:</strong> nada muda para o cliente. A líder continua dando ACK, porque o ACK espera a marca d'água do apply da <strong>líder</strong> (<a href="../../03_adr/ADR-058-apply-paralelo-por-chave-com-marca-dagua.md">ADR-058</a>). A follower acumula atraso e alcança depois. O alerta é <code>dr_apply_lag</code> da follower.</li>
 <li><strong>Se a célula lenta é a líder:</strong> quando <code>gate − aplicado</code> passa de <code>APPLY_LAG_MAX</code> (padrão <code>APPLY_WORKERS × 256</code>), a líder recusa a escrita com ThrottlingException antes do <code>Propose</code>. Nada entra no log e o RPO continua 0. A métrica é <code>dr_throttled_total{causa="atraso_apply"}</code>.</li>
 <li><strong>O SDK repete com backoff.</strong> Quando o apply alcança, a admissão volta a aceitar.</li>
-<li><strong>Partida depois de queda:</strong> o nó retoma em <code>min(último do log de replicação + 1, progresso do applier)</code> e não reaplica o log inteiro (<a href="../success-path/C18-partida-e-recuperacao-do-no.html">C18</a>).</li>
+<li><strong>Partida depois de queda:</strong> o nó retoma no índice do progresso do applier, com o replay a partir do WAL do Raft, e não reaplica o log inteiro (<a href="../success-path/C18-partida-e-recuperacao-do-no.html">C18</a>).</li>
 </ol></div>
 </section>
 <section id="pontos"><h2>4. Pontos que precisam ser avaliados</h2>
@@ -198,7 +198,7 @@ Gerado em 17/10/2026 a partir do pacote DataReplication_Versao_1.
 <h3><span class="num">3</span>Memória do Raft com o apply parado <span class="origem">Falhas e tratativas</span></h3>
 <dl>
 <dt>Contexto</dt><dd>As entradas commitadas e não consumidas ficam no <code>MemoryStorage</code> até o <code>CommitPump</code> lê-las. Com o banco parado por muito tempo, a memória cresce.</dd>
-<dt>O que a fonte define</dt><dd class="">A fonte limita pela compactação até o <code>DurableIndex</code> e pelo teto de disco (<a href="../../03_adr/ADR-041-disco-do-log-teto-de-70-por-cento-sem-s3-na-v1.md">ADR-041</a>), com alerta em <code>dr_commit_undelivered</code>.</dd>
+<dt>O que a fonte define</dt><dd class="">A fonte limita pela compactação, que nunca passa do aplicado local, e pelo teto de disco do volume do Raft (<a href="../../03_adr/ADR-041-disco-do-log-teto-de-70-por-cento-sem-s3-na-v1.md">ADR-041</a>), com alerta em <code>dr_commit_undelivered</code>.</dd>
 <dt class="sug">Sugestão de encaminhamento <small>(inferência, não decidida)</small></dt><dd class="sug">Definir o alerta de <code>dr_commit_undelivered</code> junto com o teto de memória do pod.</dd>
 </dl>
 </article>
@@ -215,9 +215,7 @@ Gerado em 17/10/2026 a partir do pacote DataReplication_Versao_1.
 <div class="tabela"><table><thead><tr><th>ADR</th><th>Título</th><th>Status efetivo</th><th>Decisão resumida</th><th>Arquivo</th></tr></thead><tbody>
 <tr><td class="nw"><a href="../../03_adr/ADR-060-laco-do-raft-nunca-espera-o-apply-e-admissao-por-atraso.md">ADR-060</a></td><td>O laço do Raft nunca espera o apply, e a líder recusa escrita quando o apply está atrasado</td><td><span class="ef ef-ok">Vigente</span></td><td>O laço do Raft nunca espera o apply: commit como sinal e CommitPump lendo por faixa; admissão por atraso do apply (APPLY_LAG_MAX); ELECTION_TICKS configurável; partida sem reaplicar o log; métricas de causa e de entrada HTTP.</td><td><a href="../../03_adr/ADR-060-laco-do-raft-nunca-espera-o-apply-e-admissao-por-atraso.md">ADR-060-laco-do-raft-nunca-espera-o-apply-e-admissao-por-atraso.md</a></td></tr>
 <tr><td class="nw"><a href="../../03_adr/ADR-058-apply-paralelo-por-chave-com-marca-dagua.md">ADR-058</a></td><td>Apply paralelo por chave, com a marca d'água contígua como <code>applied</code></td><td><span class="ef ef-ok">Vigente</span></td><td>Apply paralelo por chave depois do gate: APPLY_WORKERS workers por shard, a mesma chave na ordem do log; applied = marca d'água contígua.</td><td><a href="../../03_adr/ADR-058-apply-paralelo-por-chave-com-marca-dagua.md">ADR-058-apply-paralelo-por-chave-com-marca-dagua.md</a></td></tr>
-<tr><td class="nw"><a href="../../03_adr/ADR-059-checkpoint-do-log-de-replicacao-sem-trava-no-append.md">ADR-059</a></td><td>Checkpoint do log de replicação sem trava no <code>Append</code>, e <code>Append</code> fora da goroutine do gate</td><td><span class="ef ef-ok">Vigente</span></td><td>Fsync do checkpoint do log de replicação fora da trava do Append; Append em goroutine própria com fila limitada; o checkpoint não atrasa o gate.</td><td><a href="../../03_adr/ADR-059-checkpoint-do-log-de-replicacao-sem-trava-no-append.md">ADR-059-checkpoint-do-log-de-replicacao-sem-trava-no-append.md</a></td></tr>
 <tr><td class="nw"><a href="../../03_adr/ADR-056-group-commit-por-shard-e-nada-sai-antes-do-fsync.md">ADR-056</a></td><td>Group commit por shard, nada sai antes do fsync e <code>AsyncStorageWrites</code> decidido por spike</td><td><span class="ef ef-ok">Vigente, complementado</span></td><td>Group commit por shard sem espera fixa; nada (ACK, voto, MsgAppResp) sai antes do fsync; AsyncStorageWrites decidido pelo spike S1b.</td><td><a href="../../03_adr/ADR-056-group-commit-por-shard-e-nada-sai-antes-do-fsync.md">ADR-056-group-commit-por-shard-e-nada-sai-antes-do-fsync.md</a></td></tr>
-<tr><td class="nw"><a href="../../03_adr/ADR-055-log-de-replicacao-segmentado-derivado-do-raft.md">ADR-055</a></td><td>Log de replicação segmentado, derivado do Raft, sem fsync no caminho do ACK e em volume separado</td><td><span class="ef ef-ok">Vigente, complementado</span></td><td>Log de replicação segmentado, derivado do Raft, sem fsync no caminho do ACK e em volume separado.</td><td><a href="../../03_adr/ADR-055-log-de-replicacao-segmentado-derivado-do-raft.md">ADR-055-log-de-replicacao-segmentado-derivado-do-raft.md</a></td></tr>
 </tbody></table></div>
 <p class="nota">Lista extraída do cabeçalho “ADRs” do arquivo fonte. A decisão resumida condensa a seção “Decisão” de cada ADR. <b>Status efetivo</b> vem do <a href="../inventario-adrs.html">inventário dos ADRs</a>: <b>Vigente</b> vale como está escrito; <b>Vigente, complementado</b> vale, mas outros ADRs acrescentam regras; <b>Vigente em parte</b> tem item revertido ou em conflito; <b>Sem uso</b>, <b>Substituído</b> e <b>Descartado</b> são só registro; <b>Pendente</b> aguarda decisão. A regra consolidada está no <a href="../estado-atual.html">Estado atual</a>.</p>
 </section>
@@ -254,7 +252,7 @@ Gerado em 17/10/2026 a partir do pacote DataReplication_Versao_1.
 <tr>
 <td>Memória do Raft cresce com o apply parado</td>
 <td>As entradas ficam no <code>MemoryStorage</code> até o <code>CommitPump</code> consumi-las</td>
-<td>Produção: compactação limitada ao <code>DurableIndex</code> e teto de disco (<a href="../../03_adr/ADR-041-disco-do-log-teto-de-70-por-cento-sem-s3-na-v1.md">ADR-041</a>); risco registrado</td>
+<td>Produção: a compactação não passa do aplicado local, então a memória só para de crescer quando o apply volta; na líder a admissão por atraso limita; riscos 44 e 46</td>
 </tr>
 <tr>
 <td>Fsync lento (picos de 1 a 2 s)</td>

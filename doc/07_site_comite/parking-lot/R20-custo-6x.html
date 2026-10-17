@@ -67,7 +67,7 @@ Gerado em 17/10/2026 a partir do pacote DataReplication_Versao_1.
 <li><a href="../complex-path/X01-gate-e-troca-de-lider.html"><b>X01</b> Gate: definição, monotonicidade e troca de líder</a></li>
 <li><a href="../complex-path/X02-modo-degradado.html"><b>X02</b> Modo degradado: entrada, permanência, lease e saída</a></li>
 <li><a href="../complex-path/X03-desastre-e-promocao-da-azure.html"><b>X03</b> Desastre: promoção da Azure, fencing e reconciliação</a></li>
-<li><a href="../complex-path/X04-partida-recuperacao-e-dois-logs.html"><b>X04</b> Partida, recuperação e coerência entre os dois logs</a></li>
+<li><a href="../complex-path/X04-partida-e-recuperacao-do-no.html"><b>X04</b> Partida e recuperação do nó</a></li>
 <li><a href="../complex-path/X05-timeouts-e-idempotencia.html"><b>X05</b> Timeouts em cascata e idempotência do retry</a></li>
 <li><a href="../complex-path/X06-delete-ttl-gsi.html"><b>X06</b> DELETE, TTL, Scan e GSI</a></li>
 <li><a href="../complex-path/X07-gate-explicado-com-exemplos.html"><b>X07</b> O gate explicado com exemplos</a></li>
@@ -150,10 +150,10 @@ Gerado em 17/10/2026 a partir do pacote DataReplication_Versao_1.
 </dl>
 </article>
 <article class="ponto">
-<h3><span class="num">3</span>Dois volumes por nó <span class="origem">Falhas e tratativas</span></h3>
+<h3><span class="num">3</span>Um volume dedicado por nó <span class="origem">Falhas e tratativas</span></h3>
 <dl>
-<dt>Contexto</dt><dd>Desde o <a href="../../03_adr/ADR-055-log-de-replicacao-segmentado-derivado-do-raft.md">ADR-055</a>, cada um dos seis nós da instalação tem dois volumes: um pequeno e rápido para o log do Raft e outro maior para o log de replicação. Isso soma seis volumes por instalação, por cliente. O volume do log de replicação é dimensionado para D a 70% de ocupação, então o valor de D afeta diretamente o custo fixo.</dd>
-<dt>O que a fonte define</dt><dd class="">A fonte decide o desenho de dois volumes (<a href="../../03_adr/ADR-055-log-de-replicacao-segmentado-derivado-do-raft.md">ADR-055</a>), com o volume do Raft pequeno e com IOPS provisionado e o de replicação em classe mais barata (gp3 na AWS, Premium SSD v2 com desempenho base na Azure), por não estar no caminho do ACK.</dd>
+<dt>Contexto</dt><dd>Cada um dos seis nós da instalação tem um volume dedicado para o log do Raft, que também guarda a retenção para a Azure atrasada. Isso soma seis volumes por instalação, por cliente. O volume é dimensionado para D a 70% de ocupação, com IOPS provisionadas para o fsync, então o valor de D afeta diretamente o custo fixo.</dd>
+<dt>O que a fonte define</dt><dd class="">A fonte decide um volume dedicado por nó (<a href="../../03_adr/ADR-019-wal-proprio-volume-dedicado.md">ADR-019</a>), com IOPS provisionadas (<a href="../../03_adr/ADR-056-group-commit-por-shard-e-nada-sai-antes-do-fsync.md">ADR-056</a>), e o teto de 70% sobre ele (<a href="../../03_adr/ADR-041-disco-do-log-teto-de-70-por-cento-sem-s3-na-v1.md">ADR-041</a>).</dd>
 <dt class="sug">Sugestão de encaminhamento <small>(inferência, não decidida)</small></dt><dd class="sug">Calcular o tamanho do volume de replicação para cada valor candidato de D e levar esse custo à aprovação da PEND-02. Verificar em teste que a classe mais barata aguenta a leitura de catch-up (<a href="R09-resincronizacao-lenta-ou-bloqueada.html">R09</a>) e a reconstrução do dedupe no reinício (<a href="R22-memoria-da-janela-de-dedupe.html">R22</a>), que leem desse volume.</dd>
 </dl>
 </article>
@@ -202,7 +202,7 @@ Gerado em 17/10/2026 a partir do pacote DataReplication_Versao_1.
 <details class="anexo"><summary>Falhas e tratativas</summary><ul>
 <li><strong>Escrita condicional.</strong> Condições de versão podem custar o mesmo que uma escrita simples, mas confirmar no teste. <code>TransactWriteItems</code> custaria o dobro (<a href="../success-path/C23-batchwriteitem-lote-uma-entrada.html">C23</a>).</li>
 <li><strong>Multiplicado por cliente (13/10).</strong> Cada cliente é uma instalação completa e isolada (<a href="../../03_adr/ADR-043-uma-instalacao-por-cliente-identidade-por-configuracao.md">ADR-043</a>): os seis bancos, os seis clusters e os volumes se repetem por time. A estimativa precisa de um custo por cliente e de um custo fixo mínimo, não só da fórmula por escrita.</li>
-<li><strong>Dois volumes por nó (13/10, <a href="../../03_adr/ADR-055-log-de-replicacao-segmentado-derivado-do-raft.md">ADR-055</a>).</strong> Cada um dos 6 nós da instalação (3 AWS e 3 Azure) tem um volume pequeno e rápido para o log do Raft e outro maior para o log de replicação: <strong>6 volumes a mais por instalação, por cliente</strong>. O do Raft guarda segundos e pode ser pequeno com IOPS provisionado; o do log de replicação é dimensionado para D a 70% e pode ser de classe mais barata (gp3 na AWS, Premium SSD v2 com desempenho base na Azure), porque não está no caminho do ACK. Entra no custo fixo mínimo da instalação.</li>
+<li><strong>Um volume por nó (<a href="../../03_adr/ADR-019-wal-proprio-volume-dedicado.md">ADR-019</a>, <a href="../../03_adr/ADR-041-disco-do-log-teto-de-70-por-cento-sem-s3-na-v1.md">ADR-041</a>).</strong> Cada um dos 6 nós da instalação (3 AWS e 3 Azure) tem um volume de bloco dedicado para o log do Raft: <strong>6 volumes por instalação, por cliente</strong>. Ele está no caminho do ACK, precisa de IOPS provisionadas (gp3 na AWS, Premium SSD v2 na Azure) e é dimensionado para reter D de escrita a 70% no modo degradado. Não há escrita em dobro: cada entrada é gravada uma vez, com um único fsync no caminho do ACK. Entra no custo fixo mínimo da instalação.</li>
 <li><strong>Apply de leitura.</strong> Leituras fortes em célula follower leem o banco local, então a carga de leitura se espalha, mas cada célula tem a sua cobrança.</li>
 </ul></details>
 <details class="anexo"><summary>Ordem de grandeza (sem preços)</summary><p>Premissa a confirmar: ~3.000 escritas lógicas por segundo contínuas.</p>

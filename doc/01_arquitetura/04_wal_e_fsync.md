@@ -4,15 +4,15 @@
 
 ## 6. Como será o WAL
 
-### 6.0 Revisão de 13/10: log do Raft no WAL do etcd e log de replicação segmentado ([ADR-055](../03_adr/ADR-055-log-de-replicacao-segmentado-derivado-do-raft.md))
+### 6.0 Revisão de 13/10: o log do Raft no WAL do etcd é o único log do nó ([ADR-019](../03_adr/ADR-019-wal-proprio-volume-dedicado.md), [ADR-056](../03_adr/ADR-056-group-commit-por-shard-e-nada-sai-antes-do-fsync.md))
 
-> **Decisão do Bruno (13/10, respostas 1a 2b 3b e "opção a").** O WAL próprio no caminho do ACK (W2) **saiu**. O **log do Raft** usa o pacote `wal` do etcd (W1), um por shard, com fsync antes do ACK, em volume pequeno e rápido. O **log de replicação** é um **log segmentado simples, nosso**, derivado do Raft, **sem fsync por entrada** e fora do caminho do ACK, com fsync de checkpoint periódico, em **outro volume**. O Pebble foi avaliado e descartado. O teto de 70% (ADR-041) vale para o volume do log de replicação. O desenho está em **6.9**. As seções 6.2 a 6.3 ficam como registro da análise anterior; onde contradizem a 6.9, vale a 6.9.
+> **Decisão do Bruno (13/10).** O WAL próprio no caminho do ACK (W2) **saiu**. O **log do Raft** usa o pacote `wal` do etcd (W1), um por shard, com fsync antes do ACK, num **volume de bloco dedicado por nó**. Ele é o **único log do nó** e a única fonte das entradas commitadas; a retenção para a Azure atrasada fica nele. O Pebble foi avaliado e descartado. O teto de 70% (ADR-041) vale para o volume do Raft. A retenção e a compactação estão em **6.9**. As seções 6.2 a 6.3 ficam como registro da análise anterior; onde contradizem a 6.9, vale a 6.9.
 
 ### 6.2 Opções
 | Opção | Pró | Contra |
 |---|---|---|
 | **W1. Pacote `wal` do etcd, um por shard** | Muito testado | Um fsync por shard; sem group commit entre shards; peso por shard |
-| **W2. WAL próprio, segmentado e compartilhado** (recomendado em 12/10; substituído pelo ADR-055) | Um fsync serve vários shards; formato sob nosso controle (post-image e versão); poucas linhas de código | **Risco de bug de armazenamento é o maior risco de perda de dado do projeto** |
+| **W2. WAL próprio, segmentado e compartilhado** (recomendado em 12/10; substituído em 13/10 pelo W1, ver 6.0) | Um fsync serve vários shards; formato sob nosso controle (post-image e versão); poucas linhas de código | **Risco de bug de armazenamento é o maior risco de perda de dado do projeto** |
 | **W3. Pebble/LSM** | Pronto | Escrita amplificada, memtable e cache pesam; log Raft é *append + truncar*, não é carga de LSM |
 | **W4. bbolt (raft-boltdb)** | Simples | Lento para log; fsync por transação |
 
@@ -26,18 +26,18 @@
   - **Vitess** não é Raft: replica o binlog do MySQL (semi-síncrono) e usa um serviço de topologia (etcd/Consul/ZooKeeper) à parte. Não oferece um log de consenso reaproveitável.
   - A tendência é um **log segmentado dedicado para o Raft** e um banco LSM para o **estado**. Aqui o estado já está no DynamoDB/Cosmos.
 - **Custos práticos em Go:** RocksDB exige CGO (quebra o build estático/*distroless* e traz uma memória que o GC do Go não gerencia). O Pebble é Go puro, mas mantém as desvantagens do LSM acima.
-- **Onde um banco embutido poderia ajudar:** índice de dedupe ou checkpoints do applier. O índice de dedupe é derivado do log e cabe em memória (seção 8.1). O progresso do applier por item é um registro pequeno no **próprio volume do log** (6.3.1, ADR-048), então também não precisa de banco embutido.
+- **Onde um banco embutido poderia ajudar:** índice de dedupe ou progresso do applier. O índice de dedupe é derivado do log e cabe em memória (seção 8.1). O progresso do applier por item é um registro pequeno no **volume do Raft** (6.3.1, ADR-048), então também não precisa de banco embutido.
 
 **Conclusão (12/10, substituída em 13/10 pela 6.0 e 6.9):** manter o WAL segmentado próprio (W2). O que reduz o fsync é o **meio de armazenamento** (volume dedicado e provisionado; o NVMe local foi descartado pelo Bruno), medido no spike S1.
 
-**Recomendação de 12/10, substituída em 13/10 pelo [ADR-055](../03_adr/ADR-055-log-de-replicacao-segmentado-derivado-do-raft.md) (W1 para o Raft e log de replicação segmentado fora do caminho do ACK):** W2 **atrás da interface `ReplicationLog` (5.5)**, para poder trocar por W1 se os testes de falha ou o spike mostrarem problema. Eu **não** recomendo W2 sem a bateria de testes da seção 13: o WAL próprio só é aceitável se o orçamento de teste for tão sério quanto o de código.
+**Recomendação de 12/10, substituída em 13/10 pela 6.0 (W1 para o log do Raft):** W2 **atrás de uma interface de armazenamento do log (5.5)**, para poder trocar por W1 se os testes de falha ou o spike mostrarem problema. Eu **não** recomendo W2 sem a bateria de testes da seção 13: o WAL próprio só é aceitável se o orçamento de teste for tão sério quanto o de código.
 
 ### 6.3 Desenho do WAL (W2) — substituído em 13/10 (ver 6.9)
 
 **Arquivos**
 - Diretório por nó: `segments/` com arquivos de tamanho fixo (ex.: 64 MiB), **pré-alocados** (`fallocate`) para evitar variação de latência por alocação no fsync.
 - Nome do segmento = primeiro índice global dele (ordenação trivial).
-- Índice por shard mantido **em memória** e reconstruído na partida varrendo os segmentos (ou a partir de um checkpoint leve).
+- Índice por shard mantido **em memória** e reconstruído na partida varrendo os segmentos (ou a partir de um marcador leve).
 - **Progresso do applier por item** em registro próprio no mesmo volume (6.3.1).
 
 **Registro** (alinhado e com tamanho prefixado):
@@ -56,7 +56,7 @@
 4. **Falha de fsync = erro fatal** (o processo encerra). Não se repete o fsync: depois de erro, o kernel pode ter descartado as páginas sujas e um segundo fsync "dá certo" sem que o dado esteja no disco.
 
 **Recuperação na partida**
-- Varrer do último checkpoint. O **último registro inválido do último segmento** (CRC errado ou truncado) é tratado como escrita incompleta: trunca ali. Isso é esperado após queda de energia.
+- Varrer desde o último marcador. O **último registro inválido do último segmento** (CRC errado ou truncado) é tratado como escrita incompleta: trunca ali. Isso é esperado após queda de energia.
 - Registro inválido **no meio** (com registros válidos depois) indica **corrupção**, não queda. O nó **recusa subir** e inicia o procedimento de reconstrução (6.6). Nunca "consertar" silenciosamente.
 
 **Compactação (retenção)**
@@ -65,7 +65,7 @@
 
 ### 6.3.1 Progresso do applier por item (ADR-048)
 
-O applier **persiste o progresso por item `(índice, ordem)` num registro com CRC no volume do log de replicação (desde o ADR-055), não no banco**. Assim:
+O applier **persiste o progresso por item `(índice, ordem)` num registro pequeno com CRC, sem fsync, no volume do Raft (arquivo `progress` ao lado do diretório do WAL; na POC, `/var/lib/dr/raft/progress`), não no banco**. Perdê-lo só alonga o replay, que é idempotente pela versão. Assim:
 - Um replay depois de queda reaplica os itens anteriores de forma idempotente (condição `v < índice`) e **para ou pula só o item marcado**, e não a entrada inteira.
 - O `SKIP(index, ordem, motivo, autor)` é uma entrada replicada e auditada; a entrada original nunca é apagada. Pular a entrada inteira exige listar todas as ordens e continua sendo decisão humana ([ADR-038](../03_adr/ADR-038-skip-de-entrada-venenosa-sempre-humano.md)).
 - A consulta por identificador da requisição devolve o resultado **por item**: `APPLIED`, `REJECTED` ou `PENDING`.
@@ -74,13 +74,14 @@ O applier **persiste o progresso por item `(índice, ordem)` num registro com CR
 
 ### 6.5 Retenção versus Azure atrasada
 
-> Desde o ADR-055 a retenção para a Azure fica **no log de replicação segmentado**, em volume próprio. O log do Raft é compactado até o checkpoint do log de replicação e guarda só a folga `RAFT_RETAIN_MAX` (6.9).
+> A retenção para a Azure fica **no próprio log do Raft** (disco do WAL e memória do `MemoryStorage`), no volume do Raft. O log do Raft só é compactado até `RaftCompactLimit`, que segura o índice durável da maioria Azure enquanto ela estiver dentro da janela (6.9).
 
 O disco do WAL enche quando a Azure fica muito tempo fora (já era a falha mais grave da revisão). Regras da v1:
-- Retenção por **tamanho máximo** (ex.: 70% do volume) e por **tempo mínimo** (cobrir a janela de manutenção planejada).
+- Retenção por **tamanho máximo** (70% do volume do Raft, medido pelo espaço retido) e por **tempo mínimo** (cobrir a janela de manutenção planejada).
 - Alertas em 50% e 70%.
-- Ao passar do limite: o `DataReplication` **para de reter para a Azure**, a Azure é marcada como "fora de janela" e precisará de **reconstrução completa** (6.6) em vez de *catch-up* pelo log. Prefiro perder a elegibilidade da Azure a derrubar o disco da AWS.
+- Ao passar do limite: o `DataReplication` **para de reter para a Azure**, a Azure é marcada como "fora de janela", deixa de segurar a compactação e volta por **reconstrução em tabela sombra** (6.6) em vez de *catch-up* pelo log. Prefiro perder a elegibilidade da Azure a derrubar o disco da AWS.
 - **Retenção desde F para o rebuild (ADR-047).** Uma reconstrução em tabela sombra registra o índice **F** do log antes de começar e o log precisa estar retido **desde F** até o cutover. Se a varredura demorar mais que a retenção permitida pelo teto de 70% ([ADR-041](../03_adr/ADR-041-disco-do-log-teto-de-70-por-cento-sem-s3-na-v1.md)), o rebuild falha e recomeça com um F novo. O dimensionamento do disco ([C29](../02_cenarios/atualizados/C29-disco-do-log-em-degradacao-longa.md)) precisa contar esse caso.
+- **Memória.** O `MemoryStorage` do etcd-raft guarda em RAM tudo o que não foi compactado: num modo degradado longo a memória do nó cresce com o atraso da Azure até o teto. Mitigações em aberto: teto da janela também por bytes retidos em memória, ou um `raft.Storage` que lê as entradas antigas do WAL em disco. Medir no spike S1.
 
 ### 6.6 "Snapshot" neste sistema e reconstrução de réplica
 No Raft comum, o snapshot é uma cópia da máquina de estados. Aqui o estado vive **no banco** (DynamoDB/Cosmos), não no `DataReplication`. Então:
@@ -155,40 +156,35 @@ No Raft comum, o snapshot é uma cópia da máquina de estados. Aqui o estado vi
 **Teste de aceitação do fsync (spike S1, antes de congelar o desenho):**
 1. `fio` com `fdatasync` por escrita (`--fdatasync=1`), profundidade 1, blocos de 4 a 64 KiB, por **várias horas**, em cada tipo de volume candidato nas duas nuvens.
 2. Registrar P50, P99, P99.9 e o máximo. Repetir em horário de pico da conta/região.
-3. Repetir com carga paralela (leituras do applier e checkpoint) no mesmo volume.
+3. Repetir com carga paralela (gravação do progresso do applier e compactação do WAL) no mesmo volume.
 4. Critério de saída: o P99 de fsync cabe no orçamento de commit da seção 7, com folga para o RTT AWS↔Azure.
 
 ---
 
-### 6.9 Log de replicação segmentado (ADR-055, 13/10)
+### 6.9 Retenção e compactação do log do Raft (13/10)
 
-**Por que código próprio é aceitável agora.** O W2 era o maior risco de perda de dado porque estava **no caminho do ACK**. O log de replicação novo está **fora** dele e é refeito a partir do Raft: um bug ali não perde dado confirmado, desde que a invariante de truncamento (abaixo) valha. O acesso é de log (anexar, ler por faixa, apagar o começo), então um LSM como o Pebble só acrescentaria compactação, memória e espaço que só volta depois da compactação.
+**Um único log.** O log do Raft (`wal` do etcd, um por shard, no volume do Raft) é a única fonte das entradas commitadas. O `CommitPump` lê as entradas commitadas por faixa da memória do Raft e as entrega ao Applier ([ADR-060](../03_adr/ADR-060-laco-do-raft-nunca-espera-o-apply-e-admissao-por-atraso.md)); não há outro log nem escrita em dobro, e o único fsync no caminho do ACK é o do Raft (6.10).
 
-**Formato** (pacote `internal/adapter/out/replog` no [código de exemplo](../05_implementacao/codigo_exemplo/README.md))
-- Um diretório por shard; segmentos de tamanho fixo (proposta 64 MiB), nome = primeiro índice com zeros à esquerda.
-- Registro: `len u32 | crc32c u32 | payload`. O payload leva índice, termo, tipo, post-image, versão, nome lógico e os itens com ordem.
-- Registro `progress` com CRC no mesmo diretório: `(índice, ordem)` da marca d'água do applier (ADR-048, ADR-058).
+**Progresso do applier.** O índice e a ordem da marca d'água (ADR-048, ADR-058) ficam num registro pequeno com CRC, sem fsync, no arquivo `progress` ao lado do diretório do WAL (na POC, `/var/lib/dr/raft/progress`). Perdê-lo só alonga o replay, que é idempotente pela versão.
 
-**Escrita e checkpoint**
-1. `Append` anexa sem fsync, com uma escrita por lote, numa goroutine própria do `CommitPump` ligada por fila limitada (1024 lotes): nunca na goroutine que avança o gate (ADR-059). Índice já presente é ignorado (sobreposição com o Raft na partida); buraco é erro.
-2. `Sync` (chamado pelo `Checkpointer` a cada `REPLOG_SYNC_INTERVAL`, proposta 100 ms ou 8 MiB) faz fsync do segmento ativo e publica o **`DurableIndex`**. O fsync roda **fora da trava do `Append`**: sob a trava só se lê o arquivo e o último índice gravado; o `DurableIndex` publicado nunca passa desse índice (ADR-059).
-3. Ao rotacionar, o segmento que sai recebe fsync e o diretório também, e o arquivo é fechado pelo `Sync` seguinte (que pode estar fazendo fsync nele). Só o segmento ativo pode ter dados sem fsync.
-4. Erro de escrita ou de fsync é fatal (não se repete fsync).
+**Regra de compactação** (`internal/domain/retention.go`)
+1. **Segurança:** compactar o log do Raft só até `domain.RaftCompactLimit = min(aplicado local, índice durável da maioria Azure enquanto a Azure estiver dentro da janela, F − 1 de uma reconstrução em tabela sombra em curso)`. O aplicado local já está no banco da célula, então compactar até ele é seguro.
+2. **Desempenho:** manter uma folga até o menor `match` dos votantes AWS, limitada por `RAFT_RETAIN_MAX` (proposta 64 MiB ou 30 s). Evita que um atraso curto de um seguidor o jogue no caminho de snapshot do `etcd-io/raft`, que pausa o envio para aquele par.
+3. **Teto:** o espaço retido no volume do Raft não passa de 70% (ADR-041), com tempo mínimo que cubra a janela de dedupe (5 min). Acima do teto, a Azure sai da janela, deixa de segurar a compactação e volta por **reconstrução em tabela sombra** (ADR-047, 6.6).
 
-**Três regras de retenção** (`internal/domain/retention.go`)
-1. **Raft, segurança:** compactar o log do Raft só até o `DurableIndex` (`RaftCompactLimit`).
-2. **Raft, desempenho:** manter uma folga até o menor índice confirmado pelos pares, limitada por `RAFT_RETAIN_MAX` (proposta 64 MiB ou 30 s). Evita que um atraso curto do link jogue o learner no caminho de snapshot do `etcd-io/raft`, que pausa o envio para aquele par e atrasaria o gate. Passada a folga, o catch-up é pelo log de replicação.
-3. **Log de replicação:** truncar só até `min(applied local, índice durável da maioria Azure, F − 1 de um rebuild em curso)` (`ReplogTruncateLimit`), com tempo mínimo que cubra a janela de dedupe (5 min) e o teto de 70% do ADR-041. O truncamento apaga **segmentos inteiros**: o disco volta na hora.
+Na POC a compactação está desligada (RT-11); o laço de compactação, o snapshot e o par que fica atrás dele estão no [ADR-063](../03_adr/ADR-063-snapshot-e-compactacao-do-log-do-raft.md), pendente.
 
-**Catch-up com fsync no learner.** O learner que recebe entradas pelo canal de catch-up grava no seu log de replicação e faz fsync **antes** de informar ao Raft o índice alcançado (C13).
+**Catch-up.** A Azure atrasada, os learners e os seguidores AWS atrasados se alcançam pelo próprio Raft (`MsgApp`) enquanto o log do Raft retém o que eles precisam; o par grava com fsync no seu WAL antes de responder (5.5.2), e só então o progresso conta para o gate. Além do que o log retém, a volta é por reconstrução em tabela sombra. Não há canal de catch-up separado.
 
-**Recuperação.** Na abertura, cada segmento é validado pelo CRC. Registro curto ou inválido na cauda do último segmento é escrita incompleta e é truncado; em qualquer outro lugar é corrupção e o nó não sobe. A abertura faz fsync e só então publica o `DurableIndex`. Depois o log é completado a partir do Raft.
+**Partida.** A retomada é o índice do progresso do applier (a entrada do progresso é reentregue inteira, e o applier pula os itens já gravados pela ordem salva); sem progresso, começa em 1. O Raft reinicia com `Applied = retomada − 1`, limitado entre o snapshot e o commit gravado, e o replay vem do WAL do Raft ([ADR-060](../03_adr/ADR-060-laco-do-raft-nunca-espera-o-apply-e-admissao-por-atraso.md), item 5). Se a retomada ficar antes do snapshot, o nó precisa de reconstrução.
 
-**Limites do esboço:** o `Read` varre os segmentos da faixa (sem índice esparso); payload em JSON para legibilidade (o real é binário, 6.3); a cauda rasgada é decidida só pelo CRC (o real confere se há registros válidos depois).
+**Memória.** O `MemoryStorage` guarda em RAM tudo o que não foi compactado; num modo degradado longo a memória do nó cresce com o atraso da Azure até o teto (6.5). Mitigações em aberto e medição no spike S1.
 
-**Métricas:** `replog_durable_lag` (cabeça − `DurableIndex`), `raft_log_bytes`, `replog_retained_bytes` (o que o teto mede), `replog_segments`.
+**Recuperação e falhas.** O `wal` do etcd valida o CRC na abertura e trata a cauda rasgada; erro de escrita ou de fsync é fatal (ADR-034). Perder o volume do Raft é disco perdido: o nó volta com identidade nova (ADR-034).
 
-**Riscos:** 29, 31, 32 e 33 em [02_riscos](../06_pendencias_e_riscos/02_riscos.md).
+**Métricas:** `raft_log_bytes` (o espaço retido, que o teto mede), `raft_fsync_seconds` e o atraso do apply (`gate − aplicado`).
+
+**Riscos:** em [02_riscos](../06_pendencias_e_riscos/02_riscos.md), entre eles o crescimento da memória do `MemoryStorage` num modo degradado longo.
 
 ---
 

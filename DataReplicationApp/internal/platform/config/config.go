@@ -19,7 +19,6 @@ type Config struct {
 	PeerAddr  string // env PEER_ADDR
 	AdminAddr string // env ADMIN_ADDR
 	RaftDir   string // env RAFT_DIR: subdiretório do volume (C-04)
-	ReplogDir string // env REPLOG_DIR
 
 	// Membros do shard: id → endereço gRPC. Iguais em todas as células (RT-03).
 	Peers    map[uint64]string // env PEERS: votantes
@@ -34,7 +33,6 @@ type Config struct {
 
 	TableWait           time.Duration // TABLE_WAIT: espera pelas tabelas na partida; padrão 120s
 	GatePublishInterval time.Duration // GATE_PUBLISH_INTERVAL: padrão 100ms (G-06)
-	ReplogSyncInterval  time.Duration // REPLOG_SYNC_INTERVAL: padrão 1s (AP-10)
 
 	// ApplyWorkers (APPLY_WORKERS) é quantos itens o applier grava em paralelo no banco da
 	// célula, com a ordem garantida por chave (ADR-058). Padrão 16; 1 = um item por vez.
@@ -100,7 +98,6 @@ func LoadFrom(getenv func(string) string) (Config, error) {
 		PeerAddr:       orDefault(getenv("PEER_ADDR"), ":7000"),
 		AdminAddr:      orDefault(getenv("ADMIN_ADDR"), ":9090"),
 		RaftDir:        orDefault(getenv("RAFT_DIR"), "/var/lib/dr/raft/wal"),
-		ReplogDir:      orDefault(getenv("REPLOG_DIR"), "/var/lib/dr/replog"),
 		DynamoEndpoint: getenv("DYNAMODB_ENDPOINT"),
 		AWSRegion:      getenv("AWS_REGION"),
 		POCNoAzure:     getenv("POC_SEM_AZURE") == "true",
@@ -131,7 +128,6 @@ func LoadFrom(getenv func(string) string) (Config, error) {
 	c.IdleTimeout = dur("IDLE_TIMEOUT", 120*time.Second, false)
 	c.TableWait = dur("TABLE_WAIT", 120*time.Second, false)
 	c.GatePublishInterval = dur("GATE_PUBLISH_INTERVAL", 100*time.Millisecond, false)
-	c.ReplogSyncInterval = dur("REPLOG_SYNC_INTERVAL", time.Second, false)
 
 	c.ApplyWorkers = 16
 	if s := getenv("APPLY_WORKERS"); s != "" {

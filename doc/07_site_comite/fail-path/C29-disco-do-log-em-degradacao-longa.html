@@ -10,7 +10,7 @@
 <!--
 Fonte(s) usada(s) nesta página (rastreabilidade), relativas à raiz do pacote:
   02_cenarios/atualizados/C29-disco-do-log-em-degradacao-longa.md
-  04_diagramas/D04-dois-logs-e-commitpump.md
+  04_diagramas/D04-commitpump-e-log-do-raft.md
 Gerado em 17/10/2026 a partir do pacote DataReplication_Versao_1.
 -->
 <header class="topo">
@@ -67,7 +67,7 @@ Gerado em 17/10/2026 a partir do pacote DataReplication_Versao_1.
 <li><a href="../complex-path/X01-gate-e-troca-de-lider.html"><b>X01</b> Gate: definição, monotonicidade e troca de líder</a></li>
 <li><a href="../complex-path/X02-modo-degradado.html"><b>X02</b> Modo degradado: entrada, permanência, lease e saída</a></li>
 <li><a href="../complex-path/X03-desastre-e-promocao-da-azure.html"><b>X03</b> Desastre: promoção da Azure, fencing e reconciliação</a></li>
-<li><a href="../complex-path/X04-partida-recuperacao-e-dois-logs.html"><b>X04</b> Partida, recuperação e coerência entre os dois logs</a></li>
+<li><a href="../complex-path/X04-partida-e-recuperacao-do-no.html"><b>X04</b> Partida e recuperação do nó</a></li>
 <li><a href="../complex-path/X05-timeouts-e-idempotencia.html"><b>X05</b> Timeouts em cascata e idempotência do retry</a></li>
 <li><a href="../complex-path/X06-delete-ttl-gsi.html"><b>X06</b> DELETE, TTL, Scan e GSI</a></li>
 <li><a href="../complex-path/X07-gate-explicado-com-exemplos.html"><b>X07</b> O gate explicado com exemplos</a></li>
@@ -98,25 +98,27 @@ Gerado em 17/10/2026 a partir do pacote DataReplication_Versao_1.
 <section id="visao-geral"><h2>1. Visão geral do cenário</h2>
 <p>No modo degradado, a AWS retém todas as entradas desde <code>fromIndex</code> para a Azure fazer catch-up. A 3.000 TPS e ~2 KB por entrada são <strong>~0,5 TB por dia por shard</strong>. Se os votantes ficarem sem disco, o fsync falha e <strong>não há mais commit</strong>: o modo criado para manter o sistema de pé o derrubaria.</p>
 <div class="caixa decisao"><h3>Decisão registrada na fonte</h3><p>A retenção para a Azure tem <strong>teto de 70% do volume</strong>. Passado o teto, a Azure vira "fora da janela" e volta por <strong>reconstrução completa</strong>. <strong>Sem descarga para S3 na v1.</strong></p>
-<p><strong>Desde o ADR-055 (13/10):</strong> o log de replicação é um <strong>log segmentado próprio, em volume próprio</strong> por nó, separado do volume pequeno do log do Raft. O teto de 70% vale para esse volume e mede o <strong>espaço lógico retido</strong>, como antes (resposta 3b do Bruno). Como o truncamento apaga segmentos inteiros, o espaço físico só passa do lógico pelo segmento parcialmente necessário. O log do Raft continua curto: ele é truncado até o checkpoint do log de replicação, e não até o ACK da Azure.</p>
+<p><strong>Onde fica a retenção.</strong> O disco em questão é o <strong>volume do log do Raft</strong>, um volume de bloco dedicado por nó (<a href="../../03_adr/ADR-019-wal-proprio-volume-dedicado.md">ADR-019</a>). A retenção para a Azure fica no próprio log do Raft: no disco do WAL e na memória do <code>MemoryStorage</code>. Enquanto a Azure está dentro da janela, a compactação do log do Raft não passa do índice durável da maioria Azure (<code>domain.RaftCompactLimit</code>). O teto de 70% vale para esse volume e mede o <strong>espaço retido</strong>. Passado o teto, a Azure deixa de segurar a compactação, o log do Raft é compactado até o aplicado local e os arquivos antigos do WAL são liberados (<a href="../../03_adr/ADR-063-snapshot-e-compactacao-do-log-do-raft.md">ADR-063</a>, pendente; na POC a compactação está desligada).</p>
+<p><strong>Memória.</strong> O <code>MemoryStorage</code> do etcd-raft guarda em RAM tudo o que não foi compactado. Num modo degradado longo, a memória do nó cresce com o atraso da Azure até o teto, e não só o disco (risco 46). Mitigações em aberto: teto da janela também por bytes retidos em memória, ou um <code>raft.Storage</code> que lê as entradas antigas do WAL em disco; medir no spike S1 (PEND-24).</p>
 <p>Com o lease do modo degradado (<a href="../../03_adr/ADR-044-lease-do-modo-degradado-e-promocao-da-azure.md">ADR-044</a>), a degradação sem prorrogação dura no máximo D, e <strong>D passa a ser o parâmetro de dimensionamento</strong>: o volume deve reter D de escrita à taxa de pico abaixo dos 70%. O dimensionamento só vale para instalações <code>DEGRADED_POLICY=accept</code>; com <code>reject</code> o log não cresce por degradação (<a href="../../03_adr/ADR-045-politica-de-degradacao-por-instalacao.md">ADR-045</a>).</p></div>
 </section>
 <section id="diagrama"><h2>2. Diagrama</h2>
 <h3>Teto de retenção</h3>
 <div class="diagrama"><pre class="mermaid">flowchart TD
-    A[&quot;Modo degradado até o fim de D, ou mais se prorrogado&quot;] --&gt; B[&quot;Log de replicação segmentado cresce, volume próprio&quot;]
-    A --&gt; R[&quot;Log do Raft segue curto: truncado até o checkpoint do log de replicação&quot;]
-    B --&gt; C{&quot;Espaço lógico retido acima de 70 por cento?&quot;}
-    C --&gt;|&quot;não&quot;| D[&quot;Segue, Azure continua elegível ao catch-up&quot;]
-    C --&gt;|&quot;sim&quot;| E[&quot;Azure marcada como fora da janela, segmentos antigos apagados&quot;]
-    E --&gt; F[&quot;Reconstrução completa da Azure quando voltar: drctl rebuild&quot;]</pre></div>
-<h3>Arquitetura geral relacionada: <a href="../../04_diagramas/D04-dois-logs-e-commitpump.md">D04 — Os dois logs e o CommitPump</a></h3><p class="nota">Diagrama de <code>04_diagramas/</code> escolhido pelo site como contexto; o cenário fonte não faz essa associação.</p>
+    A[&quot;Modo degradado até o fim de D, ou mais se prorrogado&quot;] --&gt; B[&quot;Log do Raft retém desde o índice durável da maioria Azure&lt;br/&gt;disco do WAL e memória do MemoryStorage&quot;]
+    B --&gt; C{&quot;Espaço retido no volume do Raft acima de 70 por cento?&quot;}
+    C --&gt;|&quot;não&quot;| D[&quot;Segue, Azure continua elegível ao catch-up pelo Raft&quot;]
+    C --&gt;|&quot;sim&quot;| E[&quot;Azure marcada como fora da janela, deixa de segurar a compactação&quot;]
+    E --&gt; G[&quot;Log do Raft compactado até o aplicado local, arquivos antigos do WAL liberados&quot;]
+    E --&gt; F[&quot;Reconstrução completa da Azure quando voltar: drctl rebuild&quot;]
+    B -.-&gt;|&quot;risco 46&quot;| M[&quot;Memória do nó cresce com o atraso da Azure&quot;]</pre></div>
+<h3>Arquitetura geral relacionada: <a href="../../04_diagramas/D04-commitpump-e-log-do-raft.md">D04 — CommitPump e o log do Raft</a></h3><p class="nota">Diagrama de <code>04_diagramas/</code> escolhido pelo site como contexto; o cenário fonte não faz essa associação.</p>
 <div class="diagrama"><pre class="mermaid">flowchart TD
     W[&quot;WriteService: admissão e Propose&quot;] --&gt; RAFT[&quot;RaftNode&quot;]
     W -.-&gt;|&quot;gate − aplicado &amp;gt; APPLY_LAG_MAX (ADR-060)&quot;| THR
     RAFT -.-&gt;|&quot;buffer cheio: 32 MiB por shard&quot;| THR[&quot;ThrottlingException, nada entra no log&quot;]
     RAFT --&gt;|&quot;lote do Ready&quot;| WR[&quot;Laço do Ready do shard&lt;br/&gt;grava os pendentes, sem espera fixa&quot;]
-    WR --&gt;|&quot;um Save, um fdatasync&quot;| RLOG[(&quot;log do Raft: wal do etcd&lt;br/&gt;vida curta, volume do Raft&quot;)]
+    WR --&gt;|&quot;um Save, um fdatasync&quot;| RLOG[(&quot;log do Raft: wal do etcd por shard&lt;br/&gt;volume do Raft, retém para a Azure até 70%&quot;)]
     WR --&gt;|&quot;depois do fsync: MsgAppResp, votos, auto-ACK, Advance&quot;| RAFT
     RAFT --&gt;|&quot;MsgApp da líder antes do fsync, F3&quot;| PARES[&quot;Seguidores AWS e learners Azure&quot;]
     RAFT --&gt;|&quot;commit publicado como sinal: atômico + aviso, nunca espera (ADR-060)&quot;| SIG[&quot;Sinal de commit&quot;]
@@ -126,21 +128,21 @@ Gerado em 17/10/2026 a partir do pacote DataReplication_Versao_1.
     AZ --&gt;|&quot;por evento, só termo atual&quot;| GATE[&quot;Gate&quot;]
     PUMP --&gt;|&quot;índice de commit, goroutine própria&quot;| GATE
     PUMP --&gt;|&quot;entradas pela memória, fila de 64 lotes&quot;| APPL[&quot;Applier&quot;]
-    PUMP --&gt;|&quot;fila limitada, goroutine própria, sem fsync, uma escrita por lote (ADR-059)&quot;| REP[(&quot;log de replicação segmentado&lt;br/&gt;vida longa, volume próprio&quot;)]
     GATE --&gt;|&quot;libera ACK&quot;| W
     GATE --&gt;|&quot;libera o apply até o gate&quot;| APPL
     APPL --&gt;|&quot;escrita condicional por versão, paralelo por chave (ADR-058)&quot;| DB[(&quot;Banco da célula&quot;)]
-    APPL --&gt;|&quot;marca d&#x27;água: índice e ordem, sem fsync&quot;| REP
-    CK[&quot;Checkpointer: fsync a cada REPLOG_SYNC_INTERVAL,&lt;br/&gt;fora da trava do Append (ADR-059)&quot;] --&gt; REP
-    CK -.-&gt;|&quot;compacta até RaftCompactLimit&quot;| RLOG
-    REP -.-&gt;|&quot;DurableIndex do checkpoint: até onde o log do Raft pode ser truncado&quot;| RLOG</pre></div>
+    APPL --&gt;|&quot;marca d&#x27;água: índice e ordem, CRC, sem fsync&quot;| PROG[(&quot;progresso do applier&lt;br/&gt;arquivo progress no volume do Raft&quot;)]
+    CMP[&quot;Compactação: até RaftCompactLimit&lt;br/&gt;aplicado local, maioria Azure na janela, reconstrução em curso&quot;] -.-&gt;|&quot;produção; desligada na POC&quot;| RLOG
+    APPL -.-&gt;|&quot;aplicado local&quot;| CMP
+    AZ -.-&gt;|&quot;índice durável da maioria Azure&quot;| CMP
+    PROG -.-&gt;|&quot;na partida: retomada, replay a partir do WAL&quot;| PUMP</pre></div>
 </section>
 <section id="etapas"><h2>3. Legenda e etapas</h2>
 <div class="etapas"><ol>
 <li><strong>Alertas</strong> de ocupação por votante com <strong>projeção de tempo até encher</strong>, e dimensionamento do volume para D, a maior degradação aceita (PEND-02), mais as prorrogações previstas. Uma verificação na partida ou um alerta compara D com o tempo de retenção estimado a 70% (proposta, a definir): se a retenção for menor que D, a Azure perde a elegibilidade <strong>antes</strong> de o lease acabar.</li>
 <li>Com 70% de um volume de, por exemplo, 2 TB, a retenção para a Azure cobre pouco menos de 3 dias a 3.000 TPS. O número real depende do tamanho médio da entrada, medido em teste.</li>
-<li>O log do Raft é curto e <strong>independe</strong> desse crescimento; só o log de replicação cresce (<a href="../../03_adr/ADR-018-dois-logs-raft-e-replicacao.md">ADR-018</a>, <a href="../../03_adr/ADR-055-log-de-replicacao-segmentado-derivado-do-raft.md">ADR-055</a>). Ele fica no seu volume pequeno e é truncado até o <code>DurableIndex</code> do log de replicação (último fsync de checkpoint), mais uma folga limitada por <code>RAFT_RETAIN_MAX</code>.</li>
-<li>Passado o teto, os segmentos antigos são apagados, o disco volta na hora, e a Azure só volta por <code>drctl rebuild</code>.</li>
+<li>O que cresce é o próprio log do Raft: a compactação fica presa no índice durável da maioria Azure enquanto ela estiver na janela. Fora da degradação, a compactação vai até o aplicado local, com uma folga até o menor <code>match</code> dos votantes AWS limitada por <code>RAFT_RETAIN_MAX</code>, e o log fica curto.</li>
+<li>Passado o teto, o log do Raft é compactado, os arquivos antigos do WAL são liberados, o disco e a memória voltam, e a Azure só volta por <code>drctl rebuild</code>.</li>
 </ol></div>
 </section>
 <section id="pontos"><h2>4. Pontos que precisam ser avaliados</h2>
@@ -162,11 +164,11 @@ Gerado em 17/10/2026 a partir do pacote DataReplication_Versao_1.
 </dl>
 </article>
 <article class="ponto">
-<h3><span class="num">3</span>Volume do log de replicação cheio <span class="origem">Falhas e tratativas</span></h3>
+<h3><span class="num">3</span>Volume do log do Raft cheio <span class="origem">Falhas e tratativas</span></h3>
 <dl>
-<dt>Contexto</dt><dd>Se o volume do log de replicação enche, o fsync do checkpoint falha, o que é fatal, o <code>DurableIndex</code> para e o log do Raft deixa de ser compactado (risco 31). O modo criado para manter o sistema de pé o derrubaria, sem commit. Com o log segmentado, o espaço lógico medido e o físico quase coincidem, mas a diferença do segmento parcial ainda existe.</dd>
-<dt>O que a fonte define</dt><dd class="">Decidido no <a href="../../03_adr/ADR-041-disco-do-log-teto-de-70-por-cento-sem-s3-na-v1.md">ADR-041</a> e no <a href="../../03_adr/ADR-055-log-de-replicacao-segmentado-derivado-do-raft.md">ADR-055</a>: o teto de 70% do espaço lógico existe para isso não acontecer; o risco 30 do Pebble foi encerrado com o log segmentado.</dd>
-<dt class="sug">Sugestão de encaminhamento <small>(inferência, não decidida)</small></dt><dd class="sug">Incluir teste de caos que enche o volume até o teto em degradado simulado e verifica que os segmentos são apagados e o commit continua. Alertar com projeção de tempo até encher e garantir que o log do Raft tem limite próprio (<code>RAFT_RETAIN_MAX</code>) testado separadamente.</dd>
+<dt>Contexto</dt><dd>Se o volume do log do Raft enche, o fsync falha, o que é fatal, e o nó cai sem commit. O modo criado para manter o sistema de pé o derrubaria. Antes do disco, a memória pode acabar: o <code>MemoryStorage</code> guarda em RAM tudo o que não foi compactado (risco 46).</dd>
+<dt>O que a fonte define</dt><dd class="">Decidido no <a href="../../03_adr/ADR-041-disco-do-log-teto-de-70-por-cento-sem-s3-na-v1.md">ADR-041</a>: o teto de 70% do volume do Raft existe para isso não acontecer; acima dele a Azure sai da janela, deixa de segurar a compactação e volta por reconstrução em tabela sombra. A mitigação do risco de memória está na PEND-24.</dd>
+<dt class="sug">Sugestão de encaminhamento <small>(inferência, não decidida)</small></dt><dd class="sug">Incluir teste de caos que enche o volume até o teto em degradado simulado e verifica que a compactação volta a andar e o commit continua. Alertar com projeção de tempo até encher e medir a memória do processo no mesmo teste.</dd>
 </dl>
 </article>
 <article class="ponto">
@@ -188,7 +190,7 @@ Gerado em 17/10/2026 a partir do pacote DataReplication_Versao_1.
 <article class="ponto">
 <h3><span class="num">6</span>Tempo máximo de degradação aceito pelo negócio (D) <span class="origem">Pontos em aberto</span></h3>
 <dl>
-<dt>Contexto</dt><dd>D é o parâmetro de dimensionamento do volume do log de replicação e o teto do RPO &gt; 0. Sem o valor, não há como dimensionar o volume nem ligar o modo degradado com segurança.</dd>
+<dt>Contexto</dt><dd>D é o parâmetro de dimensionamento do volume do log do Raft e o teto do RPO &gt; 0. Sem o valor, não há como dimensionar o volume nem ligar o modo degradado com segurança.</dd>
 <dt>O que a fonte define</dt><dd class="nd-fonte">Não decidido na fonte. O valor depende do aceite do negócio no PEND-02, que é bloqueante para instalações <code>accept</code>.</dd>
 <dt class="sug">Sugestão de encaminhamento <small>(inferência, não decidida)</small></dt><dd class="sug">Levar ao negócio uma tabela que relacione valores candidatos de D com o tamanho de volume, o custo e o RTO mínimo de D + M, para que a escolha seja feita com o tradeoff explícito.</dd>
 </dl>
@@ -202,20 +204,19 @@ Gerado em 17/10/2026 a partir do pacote DataReplication_Versao_1.
 </dl>
 </article>
 <article class="ponto">
-<h3><span class="num">8</span>Tamanho do volume do log de replicação (PEND-22) <span class="origem">Pontos em aberto</span></h3>
+<h3><span class="num">8</span>Tamanho do volume do log do Raft e memória da retenção (PEND-24) <span class="origem">Pontos em aberto</span></h3>
 <dl>
-<dt>Contexto</dt><dd>O tamanho e a classe do volume e os parâmetros do log segmentado têm só valores propostos. O dimensionamento depende do tamanho médio real da entrada, ainda não medido.</dd>
-<dt>O que a fonte define</dt><dd class="nd-fonte">Não decidido na fonte. Proposta na fonte: valores do PEND-22 a medir nos spikes S1 e S2, com o volume dimensionado para D a 70% mais um segmento por shard.</dd>
-<dt class="sug">Sugestão de encaminhamento <small>(inferência, não decidida)</small></dt><dd class="sug">No spike S1, simular uma degradação com a carga de referência, medir o crescimento do volume por hora e validar a fórmula de dimensionamento.</dd>
+<dt>Contexto</dt><dd>O tamanho e a classe do volume e o RAFT_RETAIN_MAX têm só valores propostos, e a retenção da Azure em memória ainda não tem teto. O dimensionamento depende do tamanho médio real da entrada, ainda não medido.</dd>
+<dt>O que a fonte define</dt><dd class="nd-fonte">Não decidido na fonte. PEND-24: valores a medir nos spikes S1 e S2, com o volume dimensionado para D a 70%, e mitigação do risco 46 (teto por bytes em memória ou leitura do WAL em disco).</dd>
+<dt class="sug">Sugestão de encaminhamento <small>(inferência, não decidida)</small></dt><dd class="sug">No spike S1, simular uma degradação com a carga de referência, medir o crescimento do volume e da memória por hora e validar a fórmula de dimensionamento.</dd>
 </dl>
 </article>
 </section>
 <section id="adrs"><h2>5. ADRs relacionados</h2>
 <div class="tabela"><table><thead><tr><th>ADR</th><th>Título</th><th>Status efetivo</th><th>Decisão resumida</th><th>Arquivo</th></tr></thead><tbody>
-<tr><td class="nw"><a href="../../03_adr/ADR-055-log-de-replicacao-segmentado-derivado-do-raft.md">ADR-055</a></td><td>Log de replicação segmentado, derivado do Raft, sem fsync no caminho do ACK e em volume separado</td><td><span class="ef ef-ok">Vigente, complementado</span></td><td>Log de replicação segmentado, derivado do Raft, sem fsync no caminho do ACK e em volume separado.</td><td><a href="../../03_adr/ADR-055-log-de-replicacao-segmentado-derivado-do-raft.md">ADR-055-log-de-replicacao-segmentado-derivado-do-raft.md</a></td></tr>
-<tr><td class="nw"><a href="../../03_adr/ADR-041-disco-do-log-teto-de-70-por-cento-sem-s3-na-v1.md">ADR-041</a></td><td>Disco do log em degradação longa: teto de 70% e reconstrução completa; sem S3 na v1</td><td><span class="ef ef-ok">Vigente, complementado</span></td><td>Retenção do log para a Azure com teto de 70% do volume, depois reconstrução completa; sem S3 na v1.</td><td><a href="../../03_adr/ADR-041-disco-do-log-teto-de-70-por-cento-sem-s3-na-v1.md">ADR-041-disco-do-log-teto-de-70-por-cento-sem-s3-na-v1.md</a></td></tr>
-<tr><td class="nw"><a href="../../03_adr/ADR-019-wal-proprio-volume-dedicado.md">ADR-019</a></td><td>Log do Raft em volume de bloco dedicado; sem ACK em memória</td><td><span class="ef ef-ok">Vigente, complementado</span></td><td>Log do Raft em volume de bloco dedicado com fsync fatal; sem ACK em memória; WAL próprio substituído pelo <a href="../../03_adr/ADR-055-log-de-replicacao-segmentado-derivado-do-raft.md">ADR-055</a>.</td><td><a href="../../03_adr/ADR-019-wal-proprio-volume-dedicado.md">ADR-019-wal-proprio-volume-dedicado.md</a></td></tr>
-<tr><td class="nw"><a href="../../03_adr/ADR-018-dois-logs-raft-e-replicacao.md">ADR-018</a></td><td>Dois logs separados: o do Raft e o de replicação</td><td><span class="ef ef-ok">Vigente, complementado</span></td><td>Dois logs: o do Raft (curto, fsync antes do ACK) e o de replicação (longo, após o commit); revisado pelo <a href="../../03_adr/ADR-055-log-de-replicacao-segmentado-derivado-do-raft.md">ADR-055</a>.</td><td><a href="../../03_adr/ADR-018-dois-logs-raft-e-replicacao.md">ADR-018-dois-logs-raft-e-replicacao.md</a></td></tr>
+<tr><td class="nw"><a href="../../03_adr/ADR-041-disco-do-log-teto-de-70-por-cento-sem-s3-na-v1.md">ADR-041</a></td><td>Disco do log em degradação longa: teto de 70% e reconstrução completa; sem S3 na v1</td><td><span class="ef ef-ok">Vigente</span></td><td>Retenção do log para a Azure com teto de 70% do volume, depois reconstrução completa; sem S3 na v1.</td><td><a href="../../03_adr/ADR-041-disco-do-log-teto-de-70-por-cento-sem-s3-na-v1.md">ADR-041-disco-do-log-teto-de-70-por-cento-sem-s3-na-v1.md</a></td></tr>
+<tr><td class="nw"><a href="../../03_adr/ADR-019-wal-proprio-volume-dedicado.md">ADR-019</a></td><td>Log do Raft em volume de bloco dedicado; sem ACK em memória</td><td><span class="ef ef-ok">Vigente, complementado</span></td><td>Log do Raft (wal do etcd) em volume de bloco dedicado, um por nó, com fsync fatal; sem ACK em memória.</td><td><a href="../../03_adr/ADR-019-wal-proprio-volume-dedicado.md">ADR-019-wal-proprio-volume-dedicado.md</a></td></tr>
+<tr><td class="nw"><a href="../../03_adr/ADR-063-snapshot-e-compactacao-do-log-do-raft.md">ADR-063</a></td><td>Snapshot e compactação do log do Raft</td><td><span class="ef ef-pend">Pendente</span></td><td>Pendente: snapshot e compactação do log do Raft, com o estado derivado do log dentro do snapshot e o par atrás da compactação voltando por reconstrução em tabela sombra.</td><td><a href="../../03_adr/ADR-063-snapshot-e-compactacao-do-log-do-raft.md">ADR-063-snapshot-e-compactacao-do-log-do-raft.md</a></td></tr>
 <tr><td class="nw"><a href="../../03_adr/ADR-014-modo-degradado-opcao-b.md">ADR-014</a></td><td>Modo degradado: a AWS segue quando a Azure fica inalcançável (opção B)</td><td><span class="ef ef-ok">Vigente, complementado</span></td><td>Opção B: com a Azure inalcançável, após DEGRADE_AFTER a AWS segue só com a maioria AWS (RPO &gt; 0) até RESTORE.</td><td><a href="../../03_adr/ADR-014-modo-degradado-opcao-b.md">ADR-014-modo-degradado-opcao-b.md</a></td></tr>
 <tr><td class="nw"><a href="../../03_adr/ADR-044-lease-do-modo-degradado-e-promocao-da-azure.md">ADR-044</a></td><td>Modo degradado com lease: a AWS para sozinha e a Azure só promove depois de D mais margem</td><td><span class="ef ef-ok">Vigente (D depende da PEND-02; prova no TLA+)</span></td><td>Modo degradado com lease D contado desde t_c; a AWS para sozinha e a Azure só promove depois de D + M.</td><td><a href="../../03_adr/ADR-044-lease-do-modo-degradado-e-promocao-da-azure.md">ADR-044-lease-do-modo-degradado-e-promocao-da-azure.md</a></td></tr>
 <tr><td class="nw"><a href="../../03_adr/ADR-045-politica-de-degradacao-por-instalacao.md">ADR-045</a></td><td><code>DEGRADED_POLICY</code> obrigatória por instalação</td><td><span class="ef ef-ok">Vigente</span></td><td>DEGRADED_POLICY obrigatória por instalação: accept (degradado com lease) ou reject (RPO 0 sempre).</td><td><a href="../../03_adr/ADR-045-politica-de-degradacao-por-instalacao.md">ADR-045-politica-de-degradacao-por-instalacao.md</a></td></tr>
@@ -227,14 +228,15 @@ Gerado em 17/10/2026 a partir do pacote DataReplication_Versao_1.
 <details class="anexo"><summary>Falhas e tratativas</summary><ul>
 <li><strong>Janela perdida e a AWS cai.</strong> Depois do teto, a Azure não alcança a AWS pelo log. Se a AWS cair nesse período, a promoção da Azure perde tudo o que foi escrito desde <code>fromIndex</code> (<a href="../parking-lot/R13-escritas-orfas-reconciliacao.html">R13</a>). A perda tem um teto de tempo, D, enquanto não houver prorrogação; cada <code>RENEW</code> humano estende esse teto e também a necessidade de disco.</li>
 <li><strong>Custo e duração da reconstrução completa.</strong> A reconstrução da Azure segue o protocolo da tabela sombra (<a href="C33-reconstrucao-em-tabela-sombra.html">C33</a>): copiar todo o conteúdo para o Cosmos consome RU e leva um tempo ainda não medido, durante o qual o log precisa estar retido desde F (<a href="../parking-lot/R09-resincronizacao-lenta-ou-bloqueada.html">R09</a>, <a href="../parking-lot/R18-rto-nao-quantificado.html">R18</a>).</li>
-<li><strong>Volume do log de replicação cheio.</strong> O fsync de checkpoint falha (fatal), o <code>DurableIndex</code> para e o log do Raft deixa de ser compactado (risco 31). O teto de 70% existe para isso não acontecer; com segmentos, o espaço lógico medido e o físico quase coincidem (o risco 30 do Pebble foi encerrado).</li>
+<li><strong>Volume do Raft cheio.</strong> O fsync do WAL falha e o processo encerra (<a href="../../03_adr/ADR-034-fsync-fatal-e-identidade-nova.md">ADR-034</a>): sem disco nos votantes não há commit. O teto de 70% existe para isso não acontecer.</li>
+<li><strong>Memória do nó antes do disco.</strong> Com o <code>MemoryStorage</code> guardando tudo o que não foi compactado, a memória pode chegar ao limite do pod antes de o disco chegar a 70% (risco 46). Até a mitigação ser escolhida (PEND-24), o teto precisa ser dimensionado também pela memória do pod.</li>
 <li><strong>Disco do learner.</strong> O mesmo risco vale do lado Azure quando o apply atrasa (<a href="../parking-lot/R03-backlog-de-apply-no-cosmos.html">R03</a>).</li>
 <li><strong>S3 descartado na v1.</strong> O catch-up lendo do S3 atravessaria o link, exigiria credencial AWS na Azure (<a href="../parking-lot/R23-hipoteses-gerais.html">R23</a>, H10) e pioraria o desastre em que a AWS some.</li>
 </ul></details>
 <details class="anexo"><summary>Pontos em aberto</summary><ul>
 <li>Tempo máximo de degradação aceito pelo negócio (D), que dimensiona o volume (PEND-02).</li>
 <li>Alerta intermediário (por exemplo em 50%) para dar tempo de agir antes do teto.</li>
-<li>Tamanho do volume do log de replicação (PEND-22), medido no spike S1 com uma degradação simulada.</li>
+<li>Tamanho do volume do Raft e mitigação da memória do <code>MemoryStorage</code> (PEND-24), medidos no spike S1 com uma degradação simulada.</li>
 </ul></details>
 </section>
 <footer class="rodape">

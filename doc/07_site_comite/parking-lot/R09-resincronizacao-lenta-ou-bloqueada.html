@@ -10,7 +10,7 @@
 <!--
 Fonte(s) usada(s) nesta página (rastreabilidade), relativas à raiz do pacote:
   02_cenarios/a_rever/R09-resincronizacao-lenta-ou-bloqueada.md
-  04_diagramas/D04-dois-logs-e-commitpump.md
+  04_diagramas/D04-commitpump-e-log-do-raft.md
 Gerado em 17/10/2026 a partir do pacote DataReplication_Versao_1.
 -->
 <header class="topo">
@@ -67,7 +67,7 @@ Gerado em 17/10/2026 a partir do pacote DataReplication_Versao_1.
 <li><a href="../complex-path/X01-gate-e-troca-de-lider.html"><b>X01</b> Gate: definição, monotonicidade e troca de líder</a></li>
 <li><a href="../complex-path/X02-modo-degradado.html"><b>X02</b> Modo degradado: entrada, permanência, lease e saída</a></li>
 <li><a href="../complex-path/X03-desastre-e-promocao-da-azure.html"><b>X03</b> Desastre: promoção da Azure, fencing e reconciliação</a></li>
-<li><a href="../complex-path/X04-partida-recuperacao-e-dois-logs.html"><b>X04</b> Partida, recuperação e coerência entre os dois logs</a></li>
+<li><a href="../complex-path/X04-partida-e-recuperacao-do-no.html"><b>X04</b> Partida e recuperação do nó</a></li>
 <li><a href="../complex-path/X05-timeouts-e-idempotencia.html"><b>X05</b> Timeouts em cascata e idempotência do retry</a></li>
 <li><a href="../complex-path/X06-delete-ttl-gsi.html"><b>X06</b> DELETE, TTL, Scan e GSI</a></li>
 <li><a href="../complex-path/X07-gate-explicado-com-exemplos.html"><b>X07</b> O gate explicado com exemplos</a></li>
@@ -96,7 +96,7 @@ Gerado em 17/10/2026 a partir do pacote DataReplication_Versao_1.
 <h1>R09 — Ressincronização da Azure lenta ou que nunca termina</h1>
 <div class="meta"><span class="selo parking-lot">Parking lot</span><div><b>Status na fonte:</b> 🟡 A rever · parcialmente tratado</div><div><b>Relacionados:</b> <a href="../fail-path/C13-ressincronizacao-da-azure.html">C13</a>, <a href="../fail-path/C12-modo-degradado.html">C12</a></div></div>
 <section id="visao-geral"><h2>1. Visão geral do cenário</h2>
-<p>O catch-up do <strong>log</strong> (em bytes) é o único que bloqueia o <code>RESTORE</code>. Se a banda disponível para o catch-up for menor ou igual à taxa de entrada nova, a Azure <strong>nunca alcança</strong> a AWS e o shard fica degradado até o fim do lease D, quando as escritas param (<code>503 LEASE_EXPIRED</code>) em instalações <code>accept</code> (<a href="../../03_adr/ADR-044-lease-do-modo-degradado-e-promocao-da-azure.md">ADR-044</a>). O atraso de <strong>apply</strong> no Cosmos não bloqueia o <code>RESTORE</code>, mas afeta o RTO (<a href="R03-backlog-de-apply-no-cosmos.html">R03</a>).</p>
+<p>O catch-up do <strong>log</strong> (em bytes), feito pelo próprio Raft (<code>MsgApp</code>) enquanto o log do Raft da líder retém o que a Azure precisa, é o único que bloqueia o <code>RESTORE</code>. Se a banda disponível para o catch-up for menor ou igual à taxa de entrada nova, a Azure <strong>nunca alcança</strong> a AWS e o shard fica degradado até o fim do lease D, quando as escritas param (<code>503 LEASE_EXPIRED</code>) em instalações <code>accept</code> (<a href="../../03_adr/ADR-044-lease-do-modo-degradado-e-promocao-da-azure.md">ADR-044</a>). O atraso de <strong>apply</strong> no Cosmos não bloqueia o <code>RESTORE</code>, mas afeta o RTO (<a href="R03-backlog-de-apply-no-cosmos.html">R03</a>).</p>
 <p class="aviso">Cenário <b>a rever</b>: o conteúdo abaixo traz propostas e riscos ainda <b>não decididos na fonte</b>, salvo quando o texto diz o contrário.</p>
 </section>
 <section id="diagrama"><h2>2. Diagrama</h2>
@@ -110,13 +110,13 @@ Gerado em 17/10/2026 a partir do pacote DataReplication_Versao_1.
     E --&gt; G{&quot;ETA acima do limite ou fora da janela de retenção?&quot;}
     G --&gt;|&quot;sim&quot;| H[&quot;Alerta e reconstrução por drctl rebuild&quot;]
     G --&gt;|&quot;não&quot;| I[&quot;Limitar catch-up com QoS para não prejudicar tráfego vivo&quot;]</pre></div>
-<h3>Arquitetura geral relacionada: <a href="../../04_diagramas/D04-dois-logs-e-commitpump.md">D04 — Os dois logs e o CommitPump</a></h3><p class="nota">Diagrama de <code>04_diagramas/</code> escolhido pelo site como contexto; o cenário fonte não faz essa associação.</p>
+<h3>Arquitetura geral relacionada: <a href="../../04_diagramas/D04-commitpump-e-log-do-raft.md">D04 — CommitPump e o log do Raft</a></h3><p class="nota">Diagrama de <code>04_diagramas/</code> escolhido pelo site como contexto; o cenário fonte não faz essa associação.</p>
 <div class="diagrama"><pre class="mermaid">flowchart TD
     W[&quot;WriteService: admissão e Propose&quot;] --&gt; RAFT[&quot;RaftNode&quot;]
     W -.-&gt;|&quot;gate − aplicado &amp;gt; APPLY_LAG_MAX (ADR-060)&quot;| THR
     RAFT -.-&gt;|&quot;buffer cheio: 32 MiB por shard&quot;| THR[&quot;ThrottlingException, nada entra no log&quot;]
     RAFT --&gt;|&quot;lote do Ready&quot;| WR[&quot;Laço do Ready do shard&lt;br/&gt;grava os pendentes, sem espera fixa&quot;]
-    WR --&gt;|&quot;um Save, um fdatasync&quot;| RLOG[(&quot;log do Raft: wal do etcd&lt;br/&gt;vida curta, volume do Raft&quot;)]
+    WR --&gt;|&quot;um Save, um fdatasync&quot;| RLOG[(&quot;log do Raft: wal do etcd por shard&lt;br/&gt;volume do Raft, retém para a Azure até 70%&quot;)]
     WR --&gt;|&quot;depois do fsync: MsgAppResp, votos, auto-ACK, Advance&quot;| RAFT
     RAFT --&gt;|&quot;MsgApp da líder antes do fsync, F3&quot;| PARES[&quot;Seguidores AWS e learners Azure&quot;]
     RAFT --&gt;|&quot;commit publicado como sinal: atômico + aviso, nunca espera (ADR-060)&quot;| SIG[&quot;Sinal de commit&quot;]
@@ -126,14 +126,14 @@ Gerado em 17/10/2026 a partir do pacote DataReplication_Versao_1.
     AZ --&gt;|&quot;por evento, só termo atual&quot;| GATE[&quot;Gate&quot;]
     PUMP --&gt;|&quot;índice de commit, goroutine própria&quot;| GATE
     PUMP --&gt;|&quot;entradas pela memória, fila de 64 lotes&quot;| APPL[&quot;Applier&quot;]
-    PUMP --&gt;|&quot;fila limitada, goroutine própria, sem fsync, uma escrita por lote (ADR-059)&quot;| REP[(&quot;log de replicação segmentado&lt;br/&gt;vida longa, volume próprio&quot;)]
     GATE --&gt;|&quot;libera ACK&quot;| W
     GATE --&gt;|&quot;libera o apply até o gate&quot;| APPL
     APPL --&gt;|&quot;escrita condicional por versão, paralelo por chave (ADR-058)&quot;| DB[(&quot;Banco da célula&quot;)]
-    APPL --&gt;|&quot;marca d&#x27;água: índice e ordem, sem fsync&quot;| REP
-    CK[&quot;Checkpointer: fsync a cada REPLOG_SYNC_INTERVAL,&lt;br/&gt;fora da trava do Append (ADR-059)&quot;] --&gt; REP
-    CK -.-&gt;|&quot;compacta até RaftCompactLimit&quot;| RLOG
-    REP -.-&gt;|&quot;DurableIndex do checkpoint: até onde o log do Raft pode ser truncado&quot;| RLOG</pre></div>
+    APPL --&gt;|&quot;marca d&#x27;água: índice e ordem, CRC, sem fsync&quot;| PROG[(&quot;progresso do applier&lt;br/&gt;arquivo progress no volume do Raft&quot;)]
+    CMP[&quot;Compactação: até RaftCompactLimit&lt;br/&gt;aplicado local, maioria Azure na janela, reconstrução em curso&quot;] -.-&gt;|&quot;produção; desligada na POC&quot;| RLOG
+    APPL -.-&gt;|&quot;aplicado local&quot;| CMP
+    AZ -.-&gt;|&quot;índice durável da maioria Azure&quot;| CMP
+    PROG -.-&gt;|&quot;na partida: retomada, replay a partir do WAL&quot;| PUMP</pre></div>
 </section>
 <section id="etapas"><h2>3. Legenda e etapas</h2>
 <p class="nota">A fonte chama esta seção de <b>Fluxo proposto</b>: é proposta, não decisão fechada.</p>
@@ -174,7 +174,7 @@ Gerado em 17/10/2026 a partir do pacote DataReplication_Versao_1.
 <section id="adrs"><h2>5. ADRs relacionados</h2>
 <div class="tabela"><table><thead><tr><th>ADR</th><th>Título</th><th>Status efetivo</th><th>Decisão resumida</th><th>Arquivo</th></tr></thead><tbody>
 <tr><td class="nw"><a href="../../03_adr/ADR-017-azure-learners-e-gate.md">ADR-017</a></td><td>Azure como learners, com gate</td><td><span class="ef ef-ok">Vigente, complementado</span></td><td>Azure como learners; gateIndex = min(commit Raft, índice durável em 2 de 3 learners) controla ACK e applier.</td><td><a href="../../03_adr/ADR-017-azure-learners-e-gate.md">ADR-017-azure-learners-e-gate.md</a></td></tr>
-<tr><td class="nw"><a href="../../03_adr/ADR-018-dois-logs-raft-e-replicacao.md">ADR-018</a></td><td>Dois logs separados: o do Raft e o de replicação</td><td><span class="ef ef-ok">Vigente, complementado</span></td><td>Dois logs: o do Raft (curto, fsync antes do ACK) e o de replicação (longo, após o commit); revisado pelo <a href="../../03_adr/ADR-055-log-de-replicacao-segmentado-derivado-do-raft.md">ADR-055</a>.</td><td><a href="../../03_adr/ADR-018-dois-logs-raft-e-replicacao.md">ADR-018-dois-logs-raft-e-replicacao.md</a></td></tr>
+<tr><td class="nw"><a href="../../03_adr/ADR-041-disco-do-log-teto-de-70-por-cento-sem-s3-na-v1.md">ADR-041</a></td><td>Disco do log em degradação longa: teto de 70% e reconstrução completa; sem S3 na v1</td><td><span class="ef ef-ok">Vigente</span></td><td>Retenção do log para a Azure com teto de 70% do volume, depois reconstrução completa; sem S3 na v1.</td><td><a href="../../03_adr/ADR-041-disco-do-log-teto-de-70-por-cento-sem-s3-na-v1.md">ADR-041-disco-do-log-teto-de-70-por-cento-sem-s3-na-v1.md</a></td></tr>
 </tbody></table></div>
 <p class="nota">Lista extraída do cabeçalho “ADRs” do arquivo fonte. A decisão resumida condensa a seção “Decisão” de cada ADR. <b>Status efetivo</b> vem do <a href="../inventario-adrs.html">inventário dos ADRs</a>: <b>Vigente</b> vale como está escrito; <b>Vigente, complementado</b> vale, mas outros ADRs acrescentam regras; <b>Vigente em parte</b> tem item revertido ou em conflito; <b>Sem uso</b>, <b>Substituído</b> e <b>Descartado</b> são só registro; <b>Pendente</b> aguarda decisão. A regra consolidada está no <a href="../estado-atual.html">Estado atual</a>.</p>
 </section>

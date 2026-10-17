@@ -652,9 +652,9 @@ tasks:
         echo "PASS: all five invalid/unsupported requests were rejected"
 
   wal:
-    desc: List the WAL and replication log files for cell CELL (CA-11)
+    desc: List the WAL and applier progress files for cell CELL (CA-11)
     cmds:
-      - docker compose exec cell-{{.CELL}} ls -la /var/lib/dr/raft/wal /var/lib/dr/replog
+      - docker compose exec cell-{{.CELL}} ls -la /var/lib/dr/raft /var/lib/dr/raft/wal
 
   logs:
     desc: Follow logs from all Compose services

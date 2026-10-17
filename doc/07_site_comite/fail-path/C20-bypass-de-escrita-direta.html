@@ -67,7 +67,7 @@ Gerado em 17/10/2026 a partir do pacote DataReplication_Versao_1.
 <li><a href="../complex-path/X01-gate-e-troca-de-lider.html"><b>X01</b> Gate: definição, monotonicidade e troca de líder</a></li>
 <li><a href="../complex-path/X02-modo-degradado.html"><b>X02</b> Modo degradado: entrada, permanência, lease e saída</a></li>
 <li><a href="../complex-path/X03-desastre-e-promocao-da-azure.html"><b>X03</b> Desastre: promoção da Azure, fencing e reconciliação</a></li>
-<li><a href="../complex-path/X04-partida-recuperacao-e-dois-logs.html"><b>X04</b> Partida, recuperação e coerência entre os dois logs</a></li>
+<li><a href="../complex-path/X04-partida-e-recuperacao-do-no.html"><b>X04</b> Partida e recuperação do nó</a></li>
 <li><a href="../complex-path/X05-timeouts-e-idempotencia.html"><b>X05</b> Timeouts em cascata e idempotência do retry</a></li>
 <li><a href="../complex-path/X06-delete-ttl-gsi.html"><b>X06</b> DELETE, TTL, Scan e GSI</a></li>
 <li><a href="../complex-path/X07-gate-explicado-com-exemplos.html"><b>X07</b> O gate explicado com exemplos</a></li>
@@ -113,8 +113,7 @@ Gerado em 17/10/2026 a partir do pacote DataReplication_Versao_1.
         A2[&quot;App 2 a 10&quot;] --&gt;|&quot;mTLS por aplicação&quot;| SVC
         SVC --&gt; POD[&quot;Pod DataReplication&lt;br/&gt;QoS Guaranteed, PDB maxUnavailable 1&lt;br/&gt;lista identidade para tabelas e operações&quot;]
     end
-    POD --- VOL[(&quot;Volume do Raft, pequeno e rápido&lt;br/&gt;wal do etcd, fsync no caminho do ACK&quot;)]
-    POD --- VOLP[(&quot;Volume do log de replicação, maior&lt;br/&gt;segmentos, fsync só no checkpoint&lt;br/&gt;log de replicação e progresso do applier por item&quot;)]
+    POD --- VOL[(&quot;Volume do Raft, dedicado e provisionado&lt;br/&gt;wal do etcd por shard, fsync no caminho do ACK&lt;br/&gt;retenção para a Azure até 70%, progresso do applier por item&quot;)]
     POD --&gt;|&quot;identidade da carga de trabalho&quot;| DB[(&quot;Banco da célula&quot;)]
     POD &lt;--&gt;|&quot;mTLS, porta de replicação por balanceador interno&quot;| PEERS[&quot;DataReplication das outras células&quot;]
     POD --&gt; ADM[&quot;Porta de administração&lt;br/&gt;livez, readyz, metrics&quot;]

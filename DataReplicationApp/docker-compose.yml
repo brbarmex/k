@@ -13,7 +13,6 @@ x-dr-env: &dr-env
   DEGRADED_POLICY: "reject"
   TABLE_WAIT: "120s"
   GATE_PUBLISH_INTERVAL: "100ms"
-  REPLOG_SYNC_INTERVAL: "1s"
   APPLY_WORKERS: "16"
   # ADR-060: timeout de eleição de 3 s (30 ticks de 100 ms) no notebook: o fsync tem picos
   # de 1 a 2 s com tudo no mesmo SSD. APPLY_LAG_MAX fica no padrão (APPLY_WORKERS x 256).
@@ -22,7 +21,6 @@ x-dr-env: &dr-env
   # exercita a admissão por atraso do apply com pouca carga.
   APPLY_LAG_MAX: "${APPLY_LAG_MAX:-}"
   RAFT_DIR: "/var/lib/dr/raft/wal"
-  REPLOG_DIR: "/var/lib/dr/replog"
 
 x-cell: &cell
   image: datareplication-poc:local
@@ -75,7 +73,6 @@ services:
       - "9091:9090"
     volumes:
       - cell-1-raft:/var/lib/dr/raft
-      - cell-1-replog:/var/lib/dr/replog
 
   cell-2:
     <<: *cell
@@ -91,7 +88,6 @@ services:
       - "9092:9090"
     volumes:
       - cell-2-raft:/var/lib/dr/raft
-      - cell-2-replog:/var/lib/dr/replog
 
   cell-3:
     <<: *cell
@@ -107,7 +103,6 @@ services:
       - "9093:9090"
     volumes:
       - cell-3-raft:/var/lib/dr/raft
-      - cell-3-replog:/var/lib/dr/replog
 
   prometheus:
     image: prom/prometheus:v3.5.0 # versão fixa
@@ -153,8 +148,5 @@ services:
 
 volumes:
   cell-1-raft: { driver: local }
-  cell-1-replog: { driver: local }
   cell-2-raft: { driver: local }
-  cell-2-replog: { driver: local }
   cell-3-raft: { driver: local }
-  cell-3-replog: { driver: local }

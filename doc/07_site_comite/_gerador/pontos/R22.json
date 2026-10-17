@@ -25,9 +25,9 @@
   {
    "titulo": "Retenção do log do Raft e tamanho da janela",
    "origem": "Pontos em aberto",
-   "contexto": "Desde o ADR-055 o log do Raft guarda só segundos, então a reconstrução da tabela de dedupe no reinício precisa ler o log de replicação. A tabela ocupa cerca de 58 MiB por shard a 3.000 TPS com janela de 5 minutos, que não estavam no orçamento de memória. A retenção e o tamanho da janela afetam memória, tempo de reinício e, portanto, o RTO.",
-   "na_fonte": "Não decidido na fonte. Proposta na fonte: tabela mantida por todos os votantes como projeção do log, reconstrução pelo log de replicação com retenção mínima cobrindo a janela mais margem, memória incluída em `GOMEMLIMIT` e janela configurável (`DEDUPE_WINDOW`).",
-   "sugestao": "Medir no spike o tempo de reconstrução da tabela no reinício a partir do log de replicação e incluí-lo no RTO de reinício (R18). Definir uma regra de readiness que impeça o nó de votar ou virar líder antes de a tabela estar completa, para evitar uma líder com dedupe incompleto."
+   "contexto": "A reconstrução da tabela de dedupe no reinício lê o log do Raft retido, então a compactação precisa reter pelo menos a janela. A tabela ocupa cerca de 58 MiB por shard a 3.000 TPS com janela de 5 minutos, que não estavam no orçamento de memória. A retenção e o tamanho da janela afetam memória, tempo de reinício e, portanto, o RTO.",
+   "na_fonte": "Não decidido na fonte. Proposta na fonte: tabela mantida por todos os votantes como projeção do log, reconstrução pelo log do Raft com retenção mínima cobrindo a janela mais margem, memória incluída em `GOMEMLIMIT` e janela configurável (`DEDUPE_WINDOW`).",
+   "sugestao": "Medir no spike o tempo de reconstrução da tabela no reinício a partir do log do Raft e incluí-lo no RTO de reinício (R18). Definir uma regra de readiness que impeça o nó de votar ou virar líder antes de a tabela estar completa, para evitar uma líder com dedupe incompleto."
   }
  ]
 }

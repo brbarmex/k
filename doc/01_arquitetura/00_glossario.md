@@ -6,17 +6,17 @@
 
 | Termo | Significado |
 |---|---|
-| **DataReplication** | O app único de cada célula. Recebe as chamadas do AWS SDK (API compatível com DynamoDB), encaminha escritas à líder, participa do Raft, mantém os dois logs e aplica no banco da célula. Não há sidecar |
+| **DataReplication** | O app único de cada célula. Recebe as chamadas do AWS SDK (API compatível com DynamoDB), encaminha escritas à líder, participa do Raft, mantém o log do Raft e aplica no banco da célula. Não há sidecar |
 | **Célula** | Um cluster Kubernetes (EKS ou AKS) em **uma** AZ, com as apps do cliente e um `DataReplication` no mesmo namespace. Há 3 células na AWS (A1 a A3) e 3 na Azure (Z1 a Z3) |
 | **Shard** | Unidade de ordenação e de consenso: um log, uma líder. No v1 a ordenação é por shard |
 | **AZ / região** | AZ: datacenter independente dentro de uma região. Aqui: AWS `sa-east-1` e Azure `Brazil South`, ambas em São Paulo |
 | **Compass-Router** | Roteador externo que leva cada cliente a uma célula. Fora do escopo do time |
 | **Agent** | Processo do control plane que pede ao Compass-Router para mudar o destino do tráfego. Fora do escopo |
 | **Cloud-Adapter** | Componente que traduz o formato do DynamoDB para o Cosmos DB (inclui expressão condicional e TTL). Outro componente, não faz parte do `DataReplication` |
-| **Applier** | Rotina que grava as entradas commitadas no banco da célula, com escrita condicional por versão, sempre depois do gate. Um por tabela por célula. Persiste o progresso **por item** `(índice, ordem)` no volume do log (ADR-048) |
+| **Applier** | Rotina que grava as entradas commitadas no banco da célula, com escrita condicional por versão, sempre depois do gate. Um por tabela por célula. Persiste o progresso **por item** `(índice, ordem)` no volume do Raft, sem fsync (ADR-048) |
 | **`APPLY_LAG_MAX` (admissão por atraso do apply)** | Teto de `gate − aplicado` na líder. Acima dele a escrita é recusada com `ThrottlingException` (causa `atraso_apply`) antes do `Propose`, sem entrar no log. Padrão `APPLY_WORKERS × 256` (ADR-060) |
 | **Commit como sinal** | O laço do Raft só publica o índice commitado (atômico mais aviso) e nunca espera o apply; o `CommitPump` lê as entradas por faixa da memória do Raft (ADR-060) |
-| **CommitPump** | Rotina que lê as entradas commitadas por faixa da memória do Raft (desde o ADR-060) e as distribui ao applier e ao log de replicação; o gate segue o commit numa goroutine própria |
+| **CommitPump** | Rotina que lê as entradas commitadas por faixa da memória do Raft (desde o ADR-060) e as entrega ao applier; o gate segue o commit numa goroutine própria |
 | **Link dedicado** | Conexão privada (cabo físico) entre AWS e Azure, sem internet |
 | **`drctl`** | CLI operacional: reconstruir réplica (`drctl rebuild`), transferir liderança, inspecionar, promover, extrair escritas órfãs |
 
@@ -30,11 +30,10 @@
 | **Líder / follower** | Líder: a célula que propõe entradas. Follower: encaminha escritas à líder (1 salto) |
 | **Termo / epoch** | Geração da liderança. Termo: do Raft; o gate só adota progresso do termo atual. Epoch: da configuração do grupo (promoção) |
 | **Gate** | Índice até onde ACK e applier podem avançar: `min(commit do Raft, 2º maior índice durável dos learners)`. Nunca recua. **Só conta progresso confirmado pelo Raft no termo atual e é alimentado por evento** (ADR-046). No modo degradado, ignora a Azure |
-| **Log do Raft** | Log do consenso, de vida curta, com fsync antes do ACK |
-| **Log de replicação** | Log nosso, de vida longa, segmentado (nosso), em volume próprio, gravado depois do commit sem fsync; serve a Azure atrasada, o `drctl` e a reconstrução ([ADR-055](../03_adr/ADR-055-log-de-replicacao-segmentado-derivado-do-raft.md)) |
-| **Checkpoint durável / `DurableIndex`** | `fsync` do segmento ativo do log de replicação a cada `REPLOG_SYNC_INTERVAL`; o maior índice coberto por ela é o `DurableIndex`, limite até onde o log do Raft pode ser compactado |
-| **`RAFT_RETAIN_MAX`** | Folga que o log do Raft guarda para seguidores e learners pouco atrasados; acima dela, o catch-up é pelo log de replicação |
-| **Segmento** | Arquivo pré-alocado do `wal` do etcd (log do Raft). O motor próprio `segfile` saiu em 13/10 (ADR-055) |
+| **Log do Raft** | O único log do nó: `wal` do etcd, um por shard, num volume de bloco dedicado, com fsync antes do ACK. É a única fonte das entradas commitadas e retém o que a Azure atrasada ainda precisa, até o teto de 70% do volume (ADR-041) |
+| **`RaftCompactLimit`** | Limite até onde o log do Raft pode ser compactado: `min(aplicado local, índice durável da maioria Azure enquanto a Azure estiver na janela, F − 1 de uma reconstrução em tabela sombra em curso)` ([04_wal_e_fsync](04_wal_e_fsync.md), 6.9) |
+| **`RAFT_RETAIN_MAX`** | Teto da folga que o log do Raft guarda, além do `RaftCompactLimit`, até o menor `match` dos votantes AWS, para que um seguidor pouco atrasado não caia no caminho de snapshot |
+| **Segmento** | Arquivo pré-alocado do `wal` do etcd (log do Raft) |
 | **Eleição / heartbeat / PreVote / CheckQuorum** | Escolha de nova líder; sinal de vida da líder; proteções do Raft contra eleições à toa e líder isolada |
 | **Fencing** | Impedir que um escritor antigo continue gravando depois de perder o cargo, por termo, epoch ou versão. Na partição entre as nuvens, o fencing vem do **lease** (ADR-044) |
 | **Split-brain** | Duas partes aceitando escritas ao mesmo tempo, cada uma achando que é a líder |
@@ -101,7 +100,7 @@
 | **C01 a C34** | Cenário **atualizado** (modelo v1) | [`02_cenarios/atualizados/`](../02_cenarios/atualizados/) |
 | **X01 a X08** | Cenário **complexo**, detalhado em arquivo próprio | [`02_cenarios/complexos/`](../02_cenarios/complexos/) |
 | **R03 a R23** | Cenário ou hipótese **a rever** (os 14 que ainda não têm decisão) | [`02_cenarios/a_rever/`](../02_cenarios/a_rever/) |
-| **ADR-001 a 055** | Registro de decisão de arquitetura (044 a 054 vêm da revisão crítica de 13/10; 055, do log de replicação segmentado) | [`03_adr/`](../03_adr/INDEX.md) |
+| **ADR-001 a 063** | Registro de decisão de arquitetura (044 a 054 vêm da revisão crítica de 13/10) | [`03_adr/`](../03_adr/INDEX.md) |
 | **D1 a D13** | Decisões da revisão de 12 e 13/10 (D9 gate, D10 header, D11 dedupe, D12 TLA+, D13 prazos) | [`ADR`](../03_adr/INDEX.md) correspondentes |
 | **PEND-nn** | Pendência com dono e padrão até a decisão | [`06_pendencias_e_riscos/`](../06_pendencias_e_riscos/01_pendencias.md) |
 | **H1 a H11, H-DR1 a H-DR14** | Hipótese de falha em aberto (H-DR13: prorrogação do lease contra promoção; H-DR14: partição assimétrica) | [R23](../02_cenarios/a_rever/R23-hipoteses-gerais.md) |

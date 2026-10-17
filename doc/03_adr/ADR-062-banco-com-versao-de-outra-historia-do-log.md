@@ -17,7 +17,7 @@ O [ADR-042](ADR-042-aws-que-volta-boot-cercado-e-recriacao-da-celula.md) já rec
 | Cenário | Efeito | Coberto hoje? |
 |---|---|---|
 | AWS volta depois da promoção da Azure | o banco tem órfãs com índices maiores que os da história da Azure | sim, pelo ADR-042, **se** o procedimento for seguido |
-| Cluster recriado (WAL e log de replicação perdidos ou zerados) com as tabelas mantidas | o índice recomeça e toda escrita em chave existente é descartada em silêncio | não |
+| Cluster recriado (WAL do Raft perdido ou zerado) com as tabelas mantidas | o índice recomeça e toda escrita em chave existente é descartada em silêncio | não |
 | Chave que muda de grupo Raft (resharding, hipótese do [R23](../02_cenarios/a_rever/R23-hipoteses-gerais.md)) ou dois shards configurados na mesma tabela | as sequências de índices colidem | não |
 | DynamoDB restaurado por PITR ou backup para um ponto anterior, com o log seguindo | **o inverso**: o progresso do applier ([ADR-048](ADR-048-skip-por-item.md)) diz "aplicado até X", o banco não tem esses itens e o replay começa depois de X; os itens nunca voltam e a leitura forte devolve dado velho | não |
 
@@ -66,7 +66,7 @@ Num cluster saudável, **o `_dr_v` gravado nunca passa do gate**, porque nada é
 
 ## Teste que prova (POC)
 
-- Com a POC rodando e dados gravados, apagar só os volumes do Raft e do log de replicação, mantendo o LocalStack, e subir de novo. Uma escrita numa chave existente precisa estacionar o applier (decisão 1a), em vez de responder 200.
+- Com a POC rodando e dados gravados, apagar só os volumes do Raft, mantendo o LocalStack, e subir de novo. Uma escrita numa chave existente precisa estacionar o applier (decisão 1a), em vez de responder 200.
 - Teste de unidade do detector: versão gravada <= gate segue como "já aplicado"; versão gravada > gate estaciona.
 
 ## Onde está o detalhe

@@ -16,7 +16,7 @@ flowchart LR
         PIN["port in<br/>Writer, Reader"]
         UC["usecase<br/>write, read, apply,<br/>degrade, recovery"]
         DM["domain<br/>Entry, Gate, Lease"]
-        POUT["port out<br/>ReplicationLog, ConsensusEngine,<br/>StateStore, Forwarder"]
+        POUT["port out<br/>ConsensusEngine, ApplyProgress,<br/>StateStore, Forwarder"]
         PIN --> UC --> DM
         UC --> POUT
     end
@@ -50,16 +50,16 @@ flowchart LR
 | `adapter` | `port`, `domain`, sua lib de infraestrutura | outro adaptador | conformidade + integração |
 | `bootstrap` | tudo | — | `fx.ValidateApp` |
 
-### 4.2 Como o Raft e a replicação atuam (os dois logs)
+### 4.2 Como o Raft e a replicação atuam (o log do Raft)
 
-O diagrama da seção 4 mostra **quem pode falar com quem**. Este mostra **o caminho do dado** dentro de um nó, e por que existem dois logs.
+O diagrama da seção 4 mostra **quem pode falar com quem**. Este mostra **o caminho do dado** dentro de um nó: o log do Raft é o único log do nó e a única fonte das entradas commitadas.
 
 ```mermaid
 flowchart TD
     CLI["App do cliente"] --> API["dynamohttp<br/>porta de entrada"]
     API --> WS["WriteService<br/>usecase"]
     WS -->|"Propose"| RAFT["RaftNode<br/>adaptador etcdraft"]
-    subgraph RL["Log do Raft: interno, vida curta, volume do Raft"]
+    subgraph RL["Log do Raft: único log do nó, volume do Raft"]
         WR["Laço do Ready do shard<br/>group commit por shard, sem espera fixa"]
         RLOG[("raftlog: wal do etcd<br/>fsync ANTES do ACK")]
     end
@@ -70,32 +70,30 @@ flowchart TD
     PEERS -->|"AppendEntries respondido só depois do fsync deles"| RAFT
     PEERS -->|"resposta do AppendEntries: termo, índice e learner, por evento"| GATE["Gate<br/>min Raft, maioria Azure"]
     RAFT -->|"commit Raft"| GATE
-    RAFT -->|"entradas commitadas<br/>Committed"| PUMP["CommitPump<br/>usecase replicate"]
-    PUMP -->|"da memória, sem esperar disco"| APP["Applier"]
-    PUMP -->|"sem fsync, FORA do caminho do ACK"| REP[("replicationlog segmentado<br/>nosso formato, vida longa, volume próprio")]
+    RAFT -->|"índice commitado, como sinal"| PUMP["CommitPump<br/>usecase replicate"]
+    PUMP -->|"entradas lidas por faixa da memória do Raft"| APP["Applier"]
     GATE -->|"libera o ACK"| WS
     GATE -->|"libera aplicar até o índice"| APP
     APP -->|"escrita condicional v menor que índice"| DB[("DynamoDB ou Cosmos<br/>da célula")]
-    REP -.->|"DurableIndex do checkpoint com Sync: limite para truncar"| RLOG
-    REP -->|"ler: Azure atrasada, drctl, rebuild"| PEERS
+    APP -->|"progresso (índice, ordem), CRC, sem fsync"| PROG[("progress<br/>volume do Raft")]
+    APP -.->|"aplicado local: limite da compactação (RaftCompactLimit)"| RLOG
 ```
 
 **Passo a passo de uma escrita:**
 1. `WriteService` chama `Propose` no `RaftNode` (única porta que fala com o Raft).
 2. O Raft envia a entrada aos pares (só o `MsgApp` da líder sai antes do fsync, F3) e o laço do `Ready` grava o lote no **log do Raft** com um fsync; nenhuma resposta (`MsgAppResp`, voto, auto-ACK da líder) sai antes do fsync ([ADR-056](../03_adr/ADR-056-group-commit-por-shard-e-nada-sai-antes-do-fsync.md)). Na replicação por gRPC, 2 de 3 votantes AWS decidem o commit, e os 3 learners da Azure recebem a mesma entrada.
 3. Cada learner informa o índice que já tornou durável **na resposta do `AppendEntries`**, com o termo e a identidade dele ([ADR-046](../03_adr/ADR-046-gate-so-conta-progresso-validado-pelo-raft.md)). Cada resposta alimenta o `Gate` na hora, sem esperar um commit novo; o gate só adota o termo atual e guarda `min(commit do Raft, maioria Azure)`. **Só aqui o ACK é liberado.**
-4. Os lotes commitados chegam ao `CommitPump`, que os entrega ao `Applier` **pela memória** e ao **log de replicação** em lote, fora do caminho do ACK. O progresso dos learners corre em outra goroutine do `CommitPump`: um `Append` lento não atrasa o gate.
+4. O índice commitado chega ao `CommitPump` como sinal; ele lê as entradas commitadas por faixa **da memória do Raft** e as entrega ao `Applier`, fora do caminho do ACK. O progresso dos learners e o gate correm em goroutines próprias do `CommitPump` ([ADR-060](../03_adr/ADR-060-laco-do-raft-nunca-espera-o-apply-e-admissao-por-atraso.md)): um applier lento não atrasa o gate.
 5. O `Applier` escreve no banco da célula com escrita condicional por versão, **sempre depois do gate** ([ADR-057](../03_adr/ADR-057-um-unico-modo-strong-consistency.md)) e **em paralelo por chave**, com a mesma chave na ordem do log ([ADR-058](../03_adr/ADR-058-apply-paralelo-por-chave-com-marca-dagua.md)); o `applied` é a marca d'água contígua, e o progresso salvo é ela `(índice, ordem)` ([ADR-048](../03_adr/ADR-048-skip-por-item.md)).
-6. O log do Raft só é truncado até o `DurableIndex` do log de replicação, que é o índice coberto pelo último checkpoint (fsync) do log de replicação, e não o índice apenas copiado (regra de segurança da 5.5.1, [ADR-055](../03_adr/ADR-055-log-de-replicacao-segmentado-derivado-do-raft.md)).
+6. O log do Raft só é compactado até `domain.RaftCompactLimit`, o menor entre o aplicado local, o índice durável da maioria Azure enquanto a Azure estiver dentro da janela e F − 1 de uma reconstrução em tabela sombra em curso, com uma folga até o menor `match` dos votantes AWS limitada por `RAFT_RETAIN_MAX` ([ADR-063](../03_adr/ADR-063-snapshot-e-compactacao-do-log-do-raft.md), pendente). O que ele retém serve a Azure atrasada pelo próprio Raft (`MsgApp`); acima do teto de 70% do volume do Raft ([ADR-041](../03_adr/ADR-041-disco-do-log-teto-de-70-por-cento-sem-s3-na-v1.md)), a Azure sai da janela e volta por reconstrução em tabela sombra ([ADR-047](../03_adr/ADR-047-delete-real-invariante-e-reconstrucao-em-tabela-sombra.md)).
 
 **Quem grava o quê, por escrita lógica:**
 
 | Onde | O que grava | Quando | No caminho do ACK? |
 |---|---|---|---|
 | `raftlog` (cada réplica) | Entrada do consenso | Antes de responder ao líder, com fsync | **Sim** |
-| `replicationlog` (todas as réplicas) | Registro commitado, nosso formato | Depois do commit, sem fsync; checkpoint com fsync periódico | Não |
 | Banco da célula (DynamoDB ou Cosmos) | Item com versão | Depois do gate, em paralelo por chave (ADR-058) | **Sim**, na célula da líder o ACK espera o apply (o `t_apply` está no orçamento, [ADR-036](../03_adr/ADR-036-slo-de-50ms-exclui-a-escrita-no-banco.md)) |
-| Volume do log de replicação (progresso do applier) | Progresso por item `(índice, ordem)` | Depois de cada item aplicado, sem fsync | Não |
+| Volume do Raft, arquivo `progress` (progresso do applier) | Progresso por item `(índice, ordem)`, com CRC | Depois de cada item aplicado, sem fsync | Não |
 
 **Visão do cluster:** quem replica para quem, e o que cada célula guarda.
 
@@ -103,15 +101,15 @@ flowchart TD
 flowchart LR
     subgraph AWS["AWS São Paulo: 3 votantes Raft"]
         subgraph A1["Célula A1: líder"]
-            A1R[("raftlog")] --- A1P["RaftNode"] --- A1L[("replicationlog")]
+            A1R[("raftlog")] --- A1P["RaftNode"]
             A1P --> A1D[("DynamoDB A1")]
         end
         subgraph A2["Célula A2"]
-            A2R[("raftlog")] --- A2P["RaftNode"] --- A2L[("replicationlog")]
+            A2R[("raftlog")] --- A2P["RaftNode"]
             A2P --> A2D[("DynamoDB A2")]
         end
         subgraph A3["Célula A3"]
-            A3R[("raftlog")] --- A3P["RaftNode"] --- A3L[("replicationlog")]
+            A3R[("raftlog")] --- A3P["RaftNode"]
             A3P --> A3D[("DynamoDB A3")]
         end
     end
@@ -133,7 +131,7 @@ flowchart LR
     A1P --> Z3P
 ```
 
-Os learners da Azure guardam o log do Raft para poder confirmar durabilidade, mas só os votantes AWS decidem eleição e commit. Na Azure o log de replicação existe da mesma forma (omitido no desenho para não poluir) e alimenta o Cosmos pelo Cloud-Adapter.
+Os learners da Azure guardam o log do Raft para poder confirmar durabilidade, mas só os votantes AWS decidem eleição e commit. Na Azure o applier de cada célula lê as entradas commitadas do próprio log do Raft (omitido no desenho para não poluir) e alimenta o Cosmos pelo Cloud-Adapter.
 
 ## 5. Diagramas de processo
 
@@ -209,7 +207,7 @@ flowchart TD
     B -->|inválida| X["processo sai com erro"]
     B --> C["abre o WAL e verifica CRC"]
     C -->|corrupção no meio| Y["recusa subir: rebuild manual"]
-    C --> D["RaftNode inicia e completa o log de replicação"]
+    C --> D["RaftNode inicia em Applied = retomada − 1<br/>retomada = progresso do applier, ou 1"]
     D --> E["Applier retoma até o high-water mark anterior"]
     E --> F["readyz fica verde"]
     F --> G["porta de API abre"]

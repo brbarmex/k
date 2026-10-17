@@ -25,9 +25,9 @@
   {
    "titulo": "Valores de D e M e aceite do negócio",
    "origem": "Pontos em aberto",
-   "contexto": "D define o teto de duração do RPO > 0 e M a margem de segurança da promoção; sem esses valores aprovados, o modo degradado não pode ser ligado e a PEND-01 não fecha. Os valores afetam ao mesmo tempo o RPO em degradação, o RTO do desastre e o dimensionamento do log de replicação.",
+   "contexto": "D define o teto de duração do RPO > 0 e M a margem de segurança da promoção; sem esses valores aprovados, o modo degradado não pode ser ligado e a PEND-01 não fecha. Os valores afetam ao mesmo tempo o RPO em degradação, o RTO do desastre e o dimensionamento do volume do log do Raft.",
    "na_fonte": "Não decidido na fonte. Proposta na fonte: aprovação de D e M pelo Bruno com o negócio e risco (PEND-02), que é bloqueante.",
-   "sugestao": "Levar à reunião de aprovação um pacote único com D, M, prazo de decisão humana (R10) e dimensionamento do volume do log de replicação (ADR-055), já que todos dependem de D. Pedir que a aprovação registre também quem pode fazer `RENEW` e o teto acumulado de prorrogações."
+   "sugestao": "Levar à reunião de aprovação um pacote único com D, M, prazo de decisão humana (R10) e dimensionamento do volume do log do Raft (ADR-041), já que todos dependem de D. Pedir que a aprovação registre também quem pode fazer `RENEW` e o teto acumulado de prorrogações."
   },
   {
    "titulo": "Base do lease em t_c, M sem DEGRADE_AFTER e ausência de break-glass",

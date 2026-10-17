@@ -67,7 +67,7 @@ Gerado em 17/10/2026 a partir do pacote DataReplication_Versao_1.
 <li><a href="../complex-path/X01-gate-e-troca-de-lider.html"><b>X01</b> Gate: definição, monotonicidade e troca de líder</a></li>
 <li><a href="../complex-path/X02-modo-degradado.html"><b>X02</b> Modo degradado: entrada, permanência, lease e saída</a></li>
 <li><a href="../complex-path/X03-desastre-e-promocao-da-azure.html"><b>X03</b> Desastre: promoção da Azure, fencing e reconciliação</a></li>
-<li><a href="../complex-path/X04-partida-recuperacao-e-dois-logs.html"><b>X04</b> Partida, recuperação e coerência entre os dois logs</a></li>
+<li><a href="../complex-path/X04-partida-e-recuperacao-do-no.html"><b>X04</b> Partida e recuperação do nó</a></li>
 <li><a href="../complex-path/X05-timeouts-e-idempotencia.html"><b>X05</b> Timeouts em cascata e idempotência do retry</a></li>
 <li><a href="../complex-path/X06-delete-ttl-gsi.html"><b>X06</b> DELETE, TTL, Scan e GSI</a></li>
 <li><a href="../complex-path/X07-gate-explicado-com-exemplos.html"><b>X07</b> O gate explicado com exemplos</a></li>
@@ -122,7 +122,7 @@ Gerado em 17/10/2026 a partir do pacote DataReplication_Versao_1.
     Z--&gt;&gt;G: cada resposta do termo atual alimenta o gate na hora
     DR-&gt;&gt;G: commit Raft
     G--&gt;&gt;DR: gate alcançou o índice N
-    DR-&gt;&gt;DR: entrega N ao applier pela memória e ao log de replicação em lote
+    DR-&gt;&gt;DR: CommitPump lê N da memória do Raft e entrega ao applier
     DR-&gt;&gt;AP: aplicar N só depois do gate (paralelo por chave)
     AP-&gt;&gt;DB: escrita condicional, versão menor que N
     DB--&gt;&gt;AP: ok
@@ -163,7 +163,7 @@ Gerado em 17/10/2026 a partir do pacote DataReplication_Versao_1.
 <li><strong>Durabilidade AWS:</strong> fsync no log do Raft da líder e em 2 de 3 votantes.</li>
 <li><strong>Durabilidade Azure:</strong> em paralelo, os learners gravam com fsync; 2 de 3 confirmam. O progresso da Azure só chega pelas respostas do <code>AppendEntries</code>, com termo, índice e identidade do learner (<a href="../../03_adr/ADR-046-gate-so-conta-progresso-validado-pelo-raft.md">ADR-046</a>).</li>
 <li><strong>Gate:</strong> <code>gateIndex = min(commit Raft, maioria Azure durável no termo atual)</code> alcança N. O gate é alimentado <strong>por evento</strong> (cada resposta de learner), não só quando chega um lote commitado.</li>
-<li><strong>Distribuição:</strong> o <code>CommitPump</code> entrega N ao applier pela memória e ao log de replicação em lote (fora do caminho do ACK).</li>
+<li><strong>Distribuição:</strong> o <code>CommitPump</code> lê N por faixa da memória do Raft e a entrega ao applier (<a href="../../03_adr/ADR-060-laco-do-raft-nunca-espera-o-apply-e-admissao-por-atraso.md">ADR-060</a>). Não há outra escrita em disco: o único fsync no caminho do ACK é o do Raft.</li>
 <li><strong>Apply:</strong> o applier grava no banco da célula <strong>só depois do gate</strong>, em paralelo por chave (a mesma chave na ordem do log), com escrita condicional <code>v &lt; N</code>; o ACK espera a marca d'água alcançar N. A barreira entre gate e apply é a razão de a leitura forte poder usar <code>min(ReadIndex, gate)</code> (<a href="C05-leitura-strong.html">C05</a>).</li>
 <li><strong>ACK:</strong> o <code>DataReplication</code> responde ao SDK. As demais células aplicam N de forma assíncrona.</li>
 </ol></div>
@@ -223,7 +223,6 @@ Gerado em 17/10/2026 a partir do pacote DataReplication_Versao_1.
 <div class="tabela"><table><thead><tr><th>ADR</th><th>Título</th><th>Status efetivo</th><th>Decisão resumida</th><th>Arquivo</th></tr></thead><tbody>
 <tr><td class="nw"><a href="../../03_adr/ADR-005-ack-exige-gate.md">ADR-005</a></td><td>ACK só depois do gate (Raft AWS e maioria durável Azure)</td><td><span class="ef ef-ok">Vigente, complementado</span></td><td>O ACK só sai quando gateIndex = min(commit Raft, maioria Azure durável) alcança o índice da escrita.</td><td><a href="../../03_adr/ADR-005-ack-exige-gate.md">ADR-005-ack-exige-gate.md</a></td></tr>
 <tr><td class="nw"><a href="../../03_adr/ADR-017-azure-learners-e-gate.md">ADR-017</a></td><td>Azure como learners, com gate</td><td><span class="ef ef-ok">Vigente, complementado</span></td><td>Azure como learners; gateIndex = min(commit Raft, índice durável em 2 de 3 learners) controla ACK e applier.</td><td><a href="../../03_adr/ADR-017-azure-learners-e-gate.md">ADR-017-azure-learners-e-gate.md</a></td></tr>
-<tr><td class="nw"><a href="../../03_adr/ADR-018-dois-logs-raft-e-replicacao.md">ADR-018</a></td><td>Dois logs separados: o do Raft e o de replicação</td><td><span class="ef ef-ok">Vigente, complementado</span></td><td>Dois logs: o do Raft (curto, fsync antes do ACK) e o de replicação (longo, após o commit); revisado pelo <a href="../../03_adr/ADR-055-log-de-replicacao-segmentado-derivado-do-raft.md">ADR-055</a>.</td><td><a href="../../03_adr/ADR-018-dois-logs-raft-e-replicacao.md">ADR-018-dois-logs-raft-e-replicacao.md</a></td></tr>
 <tr><td class="nw"><a href="../../03_adr/ADR-057-um-unico-modo-strong-consistency.md">ADR-057</a></td><td>Um único modo: strong consistency</td><td><span class="ef ef-ok">Vigente, complementado</span></td><td>Um único modo, strong consistency, na escrita, na replicação e no Raft; leitura sempre forte; sem variável de modo.</td><td><a href="../../03_adr/ADR-057-um-unico-modo-strong-consistency.md">ADR-057-um-unico-modo-strong-consistency.md</a></td></tr>
 <tr><td class="nw"><a href="../../03_adr/ADR-058-apply-paralelo-por-chave-com-marca-dagua.md">ADR-058</a></td><td>Apply paralelo por chave, com a marca d'água contígua como <code>applied</code></td><td><span class="ef ef-ok">Vigente</span></td><td>Apply paralelo por chave depois do gate: APPLY_WORKERS workers por shard, a mesma chave na ordem do log; applied = marca d'água contígua.</td><td><a href="../../03_adr/ADR-058-apply-paralelo-por-chave-com-marca-dagua.md">ADR-058-apply-paralelo-por-chave-com-marca-dagua.md</a></td></tr>
 <tr><td class="nw"><a href="../../03_adr/ADR-029-gate-monotonico-na-troca-de-lider.md">ADR-029</a></td><td>O gate nunca recua; líder nova reconstrói antes de ACKar</td><td><span class="ef ef-ok">Vigente, complementado</span></td><td>O gate nunca recua: a líder nova reconstrói o gate com os learners antes de ACKar.</td><td><a href="../../03_adr/ADR-029-gate-monotonico-na-troca-de-lider.md">ADR-029-gate-monotonico-na-troca-de-lider.md</a></td></tr>

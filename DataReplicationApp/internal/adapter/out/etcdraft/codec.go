@@ -11,8 +11,8 @@ import (
 )
 
 // toDomain converte uma entrada commitada do Raft. Entradas vazias da eleição e de
-// ConfChange viram Noop, para os índices chegarem contíguos ao log de replicação (RT-08).
-// A Entry vai no payload em JSON, a mesma codificação do log de replicação.
+// ConfChange viram Noop, para os índices chegarem contíguos ao CommitPump e ao applier
+// (RT-08). A Entry vai no payload em JSON.
 func toDomain(e *raftpb.Entry) (domain.Entry, error) {
 	idx, term := domain.Index(e.GetIndex()), domain.Term(e.GetTerm())
 	if e.GetType() != raftpb.EntryNormal || len(e.GetData()) == 0 {

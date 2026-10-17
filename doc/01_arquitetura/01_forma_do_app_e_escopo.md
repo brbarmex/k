@@ -83,9 +83,8 @@ O `DataReplication` é **um monolito modular**: um único binário e um único p
 | Módulo | Responsabilidade | Depende de |
 |---|---|---|
 | `api` | HTTP compatível com DynamoDB, mTLS e autorização por aplicação, parse, classificação, dedupe, remoção do `_dr_v` das respostas, tradução de erros | `core` (interfaces) |
-| `core` | Orquestra escrita, leitura forte (`min(ReadIndex, gate)`), gate (5.3), modo degradado com lease e applier | `ReplicationLog`, `ConsensusEngine`, `StateStore` (interfaces) |
-| `replicationlog` | Log segmentado próprio (seção 6.9, ADR-055), checkpoint durável, recuperação a partir do Raft | disco (volume próprio) |
-| `consensus/etcdraft` | Adaptador do Raft (5.5). **Único** pacote que importa a biblioteca Raft | `replicationlog` |
+| `core` | Orquestra escrita, leitura forte (`min(ReadIndex, gate)`), gate (5.3), modo degradado com lease e applier | `ConsensusEngine`, `ApplyProgress`, `StateStore` (interfaces) |
+| `consensus/etcdraft` | Adaptador do Raft (5.5). **Único** pacote que importa a biblioteca Raft; guarda o log do Raft no `wal` do etcd e o compacta até `RaftCompactLimit` (6.9) | disco (volume do Raft) |
 | `transport` | gRPC entre células, descoberta/DNS, mTLS | `consensus` |
 | `applier` | Aplica no DynamoDB/Cosmos com versão condicional | `StateStore` (interface do banco) |
 | `platform` | Config (env), logs, métricas, probes, ciclo de vida | todos, só por interface |

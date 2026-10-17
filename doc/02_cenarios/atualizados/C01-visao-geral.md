@@ -15,17 +15,17 @@ flowchart LR
     subgraph AWS["AWS sa-east-1: votantes Raft"]
         subgraph A1["Célula A1 - EKS - AZ a"]
             APP1["Apps do cliente"] --> DR1["DataReplication<br/>líder"]
-            DR1 --- LG1[("log do Raft<br/>log de replicação")]
+            DR1 --- LG1[("log do Raft<br/>volume dedicado")]
             DR1 --> DB1[("DynamoDB A1")]
         end
         subgraph A2["Célula A2 - EKS - AZ b"]
             APP2["Apps do cliente"] --> DR2["DataReplication"]
-            DR2 --- LG2[("logs")]
+            DR2 --- LG2[("log do Raft")]
             DR2 --> DB2[("DynamoDB A2")]
         end
         subgraph A3["Célula A3 - EKS - AZ c"]
             APP3["Apps do cliente"] --> DR3["DataReplication"]
-            DR3 --- LG3[("logs")]
+            DR3 --- LG3[("log do Raft")]
             DR3 --> DB3[("DynamoDB A3")]
         end
     end

@@ -11,7 +11,7 @@ O `BatchWriteItem` carrega até **25 itens**, cada um com a sua tabela. Se o lot
 1. O lote vira **uma entrada** (um índice, um ACK). A versão de todos os itens é o mesmo índice.
 2. O applier grava com **`PutItem`/`DeleteItem` condicionais por item**, em paralelo limitado a 25 por entrada. Item já aplicado devolve `ConditionalCheckFailed` e conta como "já aplicado".
 3. O ACK só sai com **todos** os itens aplicados na célula da líder.
-4. O applier persiste o **progresso por item**, `(índice, ordem)`, no volume do log, e a consulta por identificador da requisição devolve o resultado **por item**: `APPLIED`, `REJECTED` ou `PENDING` ([ADR-048](../../03_adr/ADR-048-skip-por-item.md)).
+4. O applier persiste o **progresso por item**, `(índice, ordem)`, no volume do Raft, e a consulta por identificador da requisição devolve o resultado **por item**: `APPLIED`, `REJECTED` ou `PENDING` ([ADR-048](../../03_adr/ADR-048-skip-por-item.md)).
 
 ## Diagrama: lote como uma entrada, apply por item
 
@@ -45,7 +45,7 @@ flowchart TD
 - **Latência do apply.** Até 25 gravações condicionais por entrada, em vez de uma chamada de lote: mais chamadas e P99 maior no Strong ([C24](C24-orcamento-de-50ms-e-escrita-no-dynamodb.md)).
 - **Custo.** As unidades de gravação são as mesmas do lote; muda o número de chamadas ([R20](../a_rever/R20-custo-6x.md)).
 - **Falha permanente de um item.** Trava o shard como em [C26](C26-entrada-venenosa.md); a validação pré-commit cobre todos os itens. O `SKIP` identifica `(índice, ordem)` e **pula só o item ruim**: os demais itens do lote, aplicados antes ou depois, são mantidos.
-- **Falha da líder no meio do apply.** A nova líder reaplica a entrada; os itens já aplicados devolvem `ConditionalCheckFailed` e são tratados como feitos. O progresso por item no volume do log evita reaplicar o que já consta como `APPLIED`, mas a condição de versão continua sendo a garantia.
+- **Falha da líder no meio do apply.** A nova líder reaplica a entrada; os itens já aplicados devolvem `ConditionalCheckFailed` e são tratados como feitos. O progresso por item no volume do Raft evita reaplicar o que já consta como `APPLIED`, mas a condição de versão continua sendo a garantia.
 
 ## Pontos em aberto
 

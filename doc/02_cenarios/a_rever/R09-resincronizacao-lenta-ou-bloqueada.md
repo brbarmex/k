@@ -1,10 +1,10 @@
 # R09 — Ressincronização da Azure lenta ou que nunca termina
 
-**Status:** 🟡 A rever · parcialmente tratado · **ADRs:** [ADR-017](../../03_adr/ADR-017-azure-learners-e-gate.md), [ADR-018](../../03_adr/ADR-018-dois-logs-raft-e-replicacao.md) · **Relacionados:** [C13](../atualizados/C13-ressincronizacao-da-azure.md), [C12](../atualizados/C12-modo-degradado.md)
+**Status:** 🟡 A rever · parcialmente tratado · **ADRs:** [ADR-017](../../03_adr/ADR-017-azure-learners-e-gate.md), [ADR-041](../../03_adr/ADR-041-disco-do-log-teto-de-70-por-cento-sem-s3-na-v1.md) · **Relacionados:** [C13](../atualizados/C13-ressincronizacao-da-azure.md), [C12](../atualizados/C12-modo-degradado.md)
 
 ## Cenário
 
-O catch-up do **log** (em bytes) é o único que bloqueia o `RESTORE`. Se a banda disponível para o catch-up for menor ou igual à taxa de entrada nova, a Azure **nunca alcança** a AWS e o shard fica degradado até o fim do lease D, quando as escritas param (`503 LEASE_EXPIRED`) em instalações `accept` ([ADR-044](../../03_adr/ADR-044-lease-do-modo-degradado-e-promocao-da-azure.md)). O atraso de **apply** no Cosmos não bloqueia o `RESTORE`, mas afeta o RTO ([R03](R03-backlog-de-apply-no-cosmos.md)).
+O catch-up do **log** (em bytes), feito pelo próprio Raft (`MsgApp`) enquanto o log do Raft da líder retém o que a Azure precisa, é o único que bloqueia o `RESTORE`. Se a banda disponível para o catch-up for menor ou igual à taxa de entrada nova, a Azure **nunca alcança** a AWS e o shard fica degradado até o fim do lease D, quando as escritas param (`503 LEASE_EXPIRED`) em instalações `accept` ([ADR-044](../../03_adr/ADR-044-lease-do-modo-degradado-e-promocao-da-azure.md)). O atraso de **apply** no Cosmos não bloqueia o `RESTORE`, mas afeta o RTO ([R03](R03-backlog-de-apply-no-cosmos.md)).
 
 ## Diagrama: Convergência do catch-up
 

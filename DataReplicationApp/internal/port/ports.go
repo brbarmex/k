@@ -10,33 +10,12 @@ import (
 
 // ---- Portas de saída (driven): o núcleo pede, o adaptador implementa ----
 
-// ReplicationLog é o log de replicação (5.5.1): log segmentado próprio, em volume separado,
-// derivado do log do Raft (ADR-055). Append grava SEM fsync (fora do caminho do ACK).
-// Sync é o checkpoint durável: faz fsync e devolve o novo DurableIndex. Só até o
-// DurableIndex o log do Raft pode ser compactado; nunca até o índice apenas copiado.
-type ReplicationLog interface {
-	Append(ctx context.Context, batch []domain.Entry) error
-	Read(ctx context.Context, from, to domain.Index) ([]domain.Entry, error)
-	TruncateSuffix(ctx context.Context, from domain.Index) error
-	CompactPrefix(ctx context.Context, upTo domain.Index) error
-	Sync(ctx context.Context) (domain.Index, error)
-	DurableIndex() domain.Index
-	LastIndex() domain.Index
-}
-
 // ApplyProgress guarda o progresso do applier por item (índice, ordem), no volume do log
-// de replicação e sem fsync (ADR-048, ADR-055). Perder o progresso só alonga o replay,
-// que é idempotente pela versão.
+// do Raft e sem fsync (ADR-048). Perder o progresso só alonga o replay, que é idempotente
+// pela versão.
 type ApplyProgress interface {
 	SaveProgress(idx domain.Index, ord uint32) error
 	LoadProgress() (domain.Index, uint32, error)
-}
-
-// RaftCompactor é o que o checkpoint precisa do adaptador do Raft para compactar o log
-// do Raft (ADR-055): o menor índice confirmado pelos pares e a compactação em si.
-type RaftCompactor interface {
-	MinPeerMatch() domain.Index
-	Compact(upTo domain.Index) error
 }
 
 // ConsensusEngine esconde a biblioteca Raft (5.5).

@@ -67,7 +67,7 @@ Gerado em 17/10/2026 a partir do pacote DataReplication_Versao_1.
 <li><a href="../complex-path/X01-gate-e-troca-de-lider.html"><b>X01</b> Gate: definição, monotonicidade e troca de líder</a></li>
 <li><a href="../complex-path/X02-modo-degradado.html"><b>X02</b> Modo degradado: entrada, permanência, lease e saída</a></li>
 <li><a href="../complex-path/X03-desastre-e-promocao-da-azure.html"><b>X03</b> Desastre: promoção da Azure, fencing e reconciliação</a></li>
-<li><a href="../complex-path/X04-partida-recuperacao-e-dois-logs.html"><b>X04</b> Partida, recuperação e coerência entre os dois logs</a></li>
+<li><a href="../complex-path/X04-partida-e-recuperacao-do-no.html"><b>X04</b> Partida e recuperação do nó</a></li>
 <li><a href="../complex-path/X05-timeouts-e-idempotencia.html"><b>X05</b> Timeouts em cascata e idempotência do retry</a></li>
 <li><a href="../complex-path/X06-delete-ttl-gsi.html"><b>X06</b> DELETE, TTL, Scan e GSI</a></li>
 <li><a href="../complex-path/X07-gate-explicado-com-exemplos.html"><b>X07</b> O gate explicado com exemplos</a></li>
@@ -188,11 +188,11 @@ Gerado em 17/10/2026 a partir do pacote DataReplication_Versao_1.
 </dl>
 </article>
 <article class="ponto">
-<h3><span class="num">7</span>Formato da consulta por item e checkpoint por item <span class="origem">Pontos em aberto</span></h3>
+<h3><span class="num">7</span>Formato da consulta por item e progresso por item <span class="origem">Pontos em aberto</span></h3>
 <dl>
-<dt>Contexto</dt><dd>A consulta por identificador e o checkpoint por item no volume do log ainda não têm formato definido. Sem isso, o cliente não tem como saber o destino de cada item depois de um SKIP ou de um <code>PENDING</code>.</dd>
+<dt>Contexto</dt><dd>A consulta por identificador e o progresso por item no volume do Raft ainda não têm formato definido. Sem isso, o cliente não tem como saber o destino de cada item depois de um SKIP ou de um <code>PENDING</code>.</dd>
 <dt>O que a fonte define</dt><dd class="nd-fonte">Não decidido na fonte. Fica a detalhar na implementação.</dd>
-<dt class="sug">Sugestão de encaminhamento <small>(inferência, não decidida)</small></dt><dd class="sug">Especificar os campos e códigos da consulta antes da implementação e incluí-los na suíte de compatibilidade, e testar a durabilidade do checkpoint por item com queda entre o apply e o fsync do progresso.</dd>
+<dt class="sug">Sugestão de encaminhamento <small>(inferência, não decidida)</small></dt><dd class="sug">Especificar os campos e códigos da consulta antes da implementação e incluí-los na suíte de compatibilidade, e testar a durabilidade do progresso por item com queda entre o apply e o fsync do progresso.</dd>
 </dl>
 </article>
 <article class="ponto">
@@ -225,7 +225,7 @@ Gerado em 17/10/2026 a partir do pacote DataReplication_Versao_1.
 </ul></details>
 <details class="anexo"><summary>Pontos em aberto</summary><ul>
 <li>Lista final de regras de validação do Cosmos e do DynamoDB no caminho de commit (junto com <a href="../parking-lot/R17-atributo-de-versao-e-limite-400kb.html">R17</a>).</li>
-<li>Formato da consulta por item (campos e códigos de erro) e o checkpoint por item no volume do log: a detalhar na implementação.</li>
+<li>Formato da consulta por item (campos e códigos de erro) e o progresso por item no volume do Raft: a detalhar na implementação.</li>
 <li>H-DR2 (SKIP automático) fica fora da v1 e só volta se o plantão se mostrar um gargalo.</li>
 </ul></details>
 </section>

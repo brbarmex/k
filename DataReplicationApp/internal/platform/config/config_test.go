@@ -117,8 +117,8 @@ func TestClusterVars(t *testing.T) {
 	if c.NodeID != 1 || len(c.Peers) != 3 || c.Peers[2] != "cell-2:7000" || len(c.Learners) != 0 || !c.POCNoAzure {
 		t.Fatalf("membros: %+v", c)
 	}
-	if c.RaftDir != "/var/lib/dr/raft/wal" || c.ReplogDir != "/var/lib/dr/replog" || c.PeerAddr != ":7000" ||
-		c.TableWait != 120*time.Second || c.GatePublishInterval != 100*time.Millisecond || c.ReplogSyncInterval != time.Second {
+	if c.RaftDir != "/var/lib/dr/raft/wal" || c.PeerAddr != ":7000" ||
+		c.TableWait != 120*time.Second || c.GatePublishInterval != 100*time.Millisecond {
 		t.Fatalf("padrões: %+v", c)
 	}
 	if ids := IDs(c.Peers); len(ids) != 3 || ids[0] != 1 || ids[2] != 3 {

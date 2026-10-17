@@ -2,7 +2,7 @@
 
 [Início](../00_COMECE_AQUI.md) · [Estado atual](../ESTADO_ATUAL.md) · [Índice dos ADRs](INDEX.md)
 
-**Feito em:** 14/10/2026; perguntas respondidas pelo Bruno no mesmo dia (1a 2a 3a 4a 5a 6b 7a 8a) · **Cobre:** ADR-001 a ADR-063 (58 arquivos) · **Para que serve:** base do [ESTADO_ATUAL.md](../ESTADO_ATUAL.md). Cada ADR foi lido inteiro, e a coluna "Na POC" foi conferida no código de `DataReplicationApp` e no escopo da [spec da POC](../../spec/SPEC_POC_LOCAL.md) (R.3 e R.4).
+**Feito em:** 14/10/2026; perguntas respondidas pelo Bruno no mesmo dia (1a 2a 3a 4a 5a 6b 7a 8a) · **Cobre:** ADR-001 a ADR-063 (55 arquivos) · **Para que serve:** base do [ESTADO_ATUAL.md](../ESTADO_ATUAL.md). Cada ADR foi lido inteiro, e a coluna "Na POC" foi conferida no código de `DataReplicationApp` e no escopo da [spec da POC](../../spec/SPEC_POC_LOCAL.md) (R.3 e R.4).
 
 Os números 009, 012, 023, 040 e 053 não existem: eram ADRs do antigo modo Eventual, removidos pelo [ADR-057](ADR-057-um-unico-modo-strong-consistency.md).
 
@@ -41,8 +41,7 @@ Os números 009, 012, 023, 040 e 053 não existem: eram ADRs do antigo modo Even
 | [015](ADR-015-wal-post-image-e-versao.md) | Dados | Vigente, complementado | 035, 058; 062 (pendente) | Sim | `PutItem` condicional por `_dr_v` |
 | [016](ADR-016-app-unico-por-celula-monolito-modular.md) | Estrutura | Vigente | substitui 007 | Sim | |
 | [017](ADR-017-azure-learners-e-gate.md) | Escrita e gate | Vigente, complementado | 046 | Parcial | Gate com learners só em teste de unidade |
-| [018](ADR-018-dois-logs-raft-e-replicacao.md) | Logs | Vigente, complementado | 055 (truncamento até o `DurableIndex`) | Sim | |
-| [019](ADR-019-wal-proprio-volume-dedicado.md) | Logs | Vigente, complementado | 055 (WAL do etcd e log segmentado), 056 (IOPS) | Sim | Dois volumes por célula |
+| [019](ADR-019-wal-proprio-volume-dedicado.md) | Log do Raft | Vigente, complementado | 056 (IOPS) | Sim | Um volume por célula |
 | [020](ADR-020-raft-etcd-io-camada-multigrupo.md) | Consenso | Vigente | — | Parcial | `etcd-io/raft` sim; camada multi-grupo não (um shard) |
 | [021](ADR-021-grpc-entre-celulas.md) | Transporte | Vigente | — | Parcial | gRPC sim; **sem mTLS** (`insecure`) |
 | [022](ADR-022-banco-por-celula-nome-logico.md) | Dados | Vigente, complementado | 054 (mantido), 047 (geração no nome) | Parcial | Nome lógico com `{cell}` sim; geração não |
@@ -62,7 +61,7 @@ Os números 009, 012, 023, 040 e 053 não existem: eram ADRs do antigo modo Even
 | [037](ADR-037-faixa-cinzenta-do-link-so-alerta.md) | Modo degradado | Vigente | — | Fora | |
 | [038](ADR-038-skip-de-entrada-venenosa-sempre-humano.md) | Apply | Vigente, complementado | 048 | Parcial | Estaciona no item venenoso; o `SKIP` não existe |
 | [039](ADR-039-sem-lider-conhecida-espera-ate-1s-e-503.md) | Operação | Vigente | complementa 010 | Sim | |
-| [041](ADR-041-disco-do-log-teto-de-70-por-cento-sem-s3-na-v1.md) | Logs | Vigente, complementado | 055 | Fora | Truncamento fora da POC |
+| [041](ADR-041-disco-do-log-teto-de-70-por-cento-sem-s3-na-v1.md) | Log do Raft | Vigente | 063 (pendente) | Fora | Compactação fora da POC |
 | [042](ADR-042-aws-que-volta-boot-cercado-e-recriacao-da-celula.md) | Promoção | Vigente, complementado | 044 (gatilho); 062 propõe o mecanismo (pendente) | Fora | |
 | [043](ADR-043-uma-instalacao-por-cliente-identidade-por-configuracao.md) | Implantação | Vigente, complementado | 052 reverte a alternativa "mTLS por aplicação" (nota da resposta 4a) | — | |
 | [044](ADR-044-lease-do-modo-degradado-e-promocao-da-azure.md) | Modo degradado | Vigente (D depende da PEND-02; prova no TLA+) | — | Fora | `domain/lease.go` com testes, não ligado |
@@ -75,12 +74,10 @@ Os números 009, 012, 023, 040 e 053 não existem: eram ADRs do antigo modo Even
 | [051](ADR-051-compatibilidade-dynamodb-inventario-conformidade-e-idempotencia.md) | API | Vigente | — | Parcial | `_dr_v` fora das respostas sim; inventário e suíte de conformidade fora |
 | [052](ADR-052-autorizacao-por-aplicacao-com-mtls.md) | Segurança | Vigente | completa 043 | Fora | |
 | [054](ADR-054-banco-por-celula-mantido.md) | Dados | Vigente | mantém 022 | Sim | Um LocalStack por célula desde 14/10 |
-| [055](ADR-055-log-de-replicacao-segmentado-derivado-do-raft.md) | Logs | Vigente, complementado | 059; revisa 018 e 019 | Parcial | Log segmentado, checkpoint e `DurableIndex` sim; compactação e truncamento não |
-| [056](ADR-056-group-commit-por-shard-e-nada-sai-antes-do-fsync.md) | Logs | Vigente, complementado | 060 (risco 35) | Parcial | F3 sim (`SplitBeforeSync`). Pela resposta 6b, o lote da POC vem só do `Ready`; o teto de 1 MiB entra com o `AsyncStorageWrites` (S1b) |
+| [056](ADR-056-group-commit-por-shard-e-nada-sai-antes-do-fsync.md) | Log do Raft | Vigente, complementado | 060 (risco 35) | Parcial | F3 sim (`SplitBeforeSync`). Pela resposta 6b, o lote da POC vem só do `Ready`; o teto de 1 MiB entra com o `AsyncStorageWrites` (S1b) |
 | [057](ADR-057-um-unico-modo-strong-consistency.md) | Consistência | Vigente, complementado | 058 (o que "serial" quer dizer) | Sim | |
 | [058](ADR-058-apply-paralelo-por-chave-com-marca-dagua.md) | Apply | Vigente | mantido depois do 061 | Sim | |
-| [059](ADR-059-checkpoint-do-log-de-replicacao-sem-trava-no-append.md) | Logs | Vigente | complementa 055 | Sim | |
-| [060](ADR-060-laco-do-raft-nunca-espera-o-apply-e-admissao-por-atraso.md) | Raft e apply | Vigente | atualiza 056 e 059 | Sim | |
+| [060](ADR-060-laco-do-raft-nunca-espera-o-apply-e-admissao-por-atraso.md) | Raft e apply | Vigente | atualiza 056 | Sim | |
 | [061](ADR-061-ack-e-getitem-esperam-a-marca-dagua-do-slot-da-chave.md) | Apply | Descartado | — | — | Revertido em 14/10 |
 | [062](ADR-062-banco-com-versao-de-outra-historia-do-log.md) | Dados | Pendente | complementaria 042 e 015 | — | |
 | [063](ADR-063-snapshot-e-compactacao-do-log-do-raft.md) | Raft | Pendente | fecharia o RT-11 | — | Hoje `Compact` não faz nada |
@@ -94,8 +91,8 @@ A regra vigente de cada linha está consolidada no [ESTADO_ATUAL.md](../ESTADO_A
 | Tema | Ler, nesta ordem | A regra em uma linha |
 |---|---|---|
 | Quando sai o ACK | 005 → 017 → 029 → 046 → 057 → 058 | Commit 2/3 AWS, gate com 2/3 Azure no termo atual, apply na líder (marca d'água contígua), lease conferido |
-| Os dois logs e o fsync | 018 → 019 → 055 → 056 → 059 → 060 | Só o fsync do Raft no caminho do ACK; o log de replicação é derivado, sem fsync por entrada, com checkpoint |
-| Retenção e compactação | 018 → 041 → 055 → 063 (pendente) | Raft só até o `DurableIndex`; o log de replicação retém para a Azure com teto de 70% |
+| O log do Raft e o fsync | 019 → 056 → 060 | Um único log por nó, num volume dedicado; só o fsync do Raft no caminho do ACK; o `CommitPump` entrega as entradas commitadas da memória do Raft |
+| Retenção e compactação | 019 → 041 → 047 → 063 (pendente) | Raft só até `RaftCompactLimit`; a retenção para a Azure fica no log do Raft, com teto de 70% do volume e saída por reconstrução |
 | Apply | 015 → 035 → 038 → 048 → 057 → 058 → 060 | Depois do gate, paralelo por chave, condicional por versão, estaciona no item venenoso, admissão por atraso |
 | Leitura forte | 049 → 050 → 057 | Espera `applied ≥ min(ReadIndex, gate)`; sem GSI; sem leitura eventual |
 | Modo degradado | 014 → 027 → 037 → 044 → 045 | Política por instalação; com `accept`, lease D desde `t_c`; com `reject`, nunca degrada |
@@ -120,6 +117,6 @@ Contradições e lacunas que o inventário encontrou. **Respondidas pelo Bruno e
 
 ## Desatualizações encontradas fora dos ADRs
 
-- `00_COMECE_AQUI.md` dizia "54 decisões"; são 58 arquivos, até o ADR-063.
+- `00_COMECE_AQUI.md` dizia "54 decisões"; são 55 arquivos, até o ADR-063.
 - O cabeçalho do `INDEX.md` dizia "ADR-016 a 060"; vai até o 063.
 - `07_site_comite/_gerador/adr_resumo.py` não tinha os ADRs 061 a 063.

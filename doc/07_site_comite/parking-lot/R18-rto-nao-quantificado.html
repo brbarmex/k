@@ -66,7 +66,7 @@ Gerado em 17/10/2026 a partir do pacote DataReplication_Versao_1.
 <li><a href="../complex-path/X01-gate-e-troca-de-lider.html"><b>X01</b> Gate: definição, monotonicidade e troca de líder</a></li>
 <li><a href="../complex-path/X02-modo-degradado.html"><b>X02</b> Modo degradado: entrada, permanência, lease e saída</a></li>
 <li><a href="../complex-path/X03-desastre-e-promocao-da-azure.html"><b>X03</b> Desastre: promoção da Azure, fencing e reconciliação</a></li>
-<li><a href="../complex-path/X04-partida-recuperacao-e-dois-logs.html"><b>X04</b> Partida, recuperação e coerência entre os dois logs</a></li>
+<li><a href="../complex-path/X04-partida-e-recuperacao-do-no.html"><b>X04</b> Partida e recuperação do nó</a></li>
 <li><a href="../complex-path/X05-timeouts-e-idempotencia.html"><b>X05</b> Timeouts em cascata e idempotência do retry</a></li>
 <li><a href="../complex-path/X06-delete-ttl-gsi.html"><b>X06</b> DELETE, TTL, Scan e GSI</a></li>
 <li><a href="../complex-path/X07-gate-explicado-com-exemplos.html"><b>X07</b> O gate explicado com exemplos</a></li>
@@ -93,7 +93,7 @@ Gerado em 17/10/2026 a partir do pacote DataReplication_Versao_1.
 <main>
 <div class="migalhas"><a href="../index.html">Início</a> / <a href="index.html">Parking lot</a> / R18</div>
 <h1>R18 — RTO (Delta-T) ainda sem número</h1>
-<div class="meta"><span class="selo parking-lot">Parking lot</span><div><b>Status na fonte:</b> ❓ A rever · método decidido em 13/10 (distribuição medida em exercícios de falha, SLO ponta a ponta); falta medir e definir a meta por tipo de falha</div><div><b>Relacionados:</b> <a href="../success-path/C18-partida-e-recuperacao-do-no.html">C18</a>, <a href="../fail-path/C08-queda-de-celula-lider-ou-az-aws.html">C08</a>, <a href="../complex-path/X03-desastre-e-promocao-da-azure.html">X03</a>, <a href="../complex-path/X04-partida-recuperacao-e-dois-logs.html">X04</a></div></div>
+<div class="meta"><span class="selo parking-lot">Parking lot</span><div><b>Status na fonte:</b> ❓ A rever · método decidido em 13/10 (distribuição medida em exercícios de falha, SLO ponta a ponta); falta medir e definir a meta por tipo de falha</div><div><b>Relacionados:</b> <a href="../success-path/C18-partida-e-recuperacao-do-no.html">C18</a>, <a href="../fail-path/C08-queda-de-celula-lider-ou-az-aws.html">C08</a>, <a href="../complex-path/X03-desastre-e-promocao-da-azure.html">X03</a>, <a href="../complex-path/X04-partida-e-recuperacao-do-no.html">X04</a></div></div>
 <section id="visao-geral"><h2>1. Visão geral do cenário</h2>
 <p>O RTO do projeto é <code>Delta-T</code>, a ser definido com testes. Hoje não há medição de nenhum dos componentes. Sem isso, o tempo de recuperação em cada falha é uma incógnita, e o RTO do desastre ainda depende de decisão humana (<a href="R10-operador-lento-no-desastre.html">R10</a>) e, em instalações <code>accept</code>, de uma espera de pelo menos D + M quando a AWS morre em modo degradado (<a href="../../03_adr/ADR-044-lease-do-modo-degradado-e-promocao-da-azure.md">ADR-044</a>).</p>
 <p><strong>O contrato não é uma soma de percentis.</strong> O que o cliente vive é a operação completa, não a soma dos piores casos de cada etapa. Por isso o contrato é um <strong>SLO ponta a ponta</strong> (latência, taxa de erro e recuperação) medido sobre a operação completa, e o RTO de cada tipo de falha é uma <strong>distribuição medida em exercícios de falha</strong> (mediana, P95 e pior caso observado), não um número calculado somando P99.</p>

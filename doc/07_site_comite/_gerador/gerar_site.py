@@ -32,7 +32,7 @@ ASSUNTOS = [
      ["C05", "X08", "R16"]),
     ("Liderança, gate e quórum", "Eleição, troca de líder, transferência planejada e estados do shard.",
      ["X01", "C08", "C11", "C17", "R06"]),
-    ("Logs, disco e falhas do nó", "Os dois logs, fsync, partida, recuperação e banco lento.",
+    ("Logs, disco e falhas do nó", "Log do Raft, fsync, partida, recuperação e banco lento.",
      ["C13", "C18", "C19", "C21", "C29", "C35", "X04", "R09"]),
     ("Azure, link e modo degradado", "Faixa cinzenta, DEGRADE com lease, política reject e ressincronização.",
      ["C09", "C12", "C25", "C32", "X02", "R03", "R07"]),
