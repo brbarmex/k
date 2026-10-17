@@ -535,7 +535,7 @@ gate         = max(gate, candidato)            -- nunca recua
 <p>Por que não confiar no "Z1 diz que tem 306" que chega por fora, no passo 2? Porque aquela 306 era a do termo 5, de A1, que <strong>nunca foi commitada e foi apagada</strong> no passo 3. Se A2 contasse esse número, acharia que a 306 dela já estava na Azure quando não estava. Esse é o caso que o ADR-046 fecha.</p>
 <p>Os clientes que escreveram 306 (termo 5) em A1 recebem timeout ou <code>503 PENDING</code>; o retry vai para A2 e o dedupe resolve. Escritas de A1 já ACKadas (até 304) estão abaixo do gate antigo e nunca se perdem, porque o Raft garante que A2 tem tudo o que foi commitado.</p>
 <h3>Cenário 6 — POC só AWS (G-08)</h3>
-<p>Com <code>LEARNERS</code> vazia: não existe maioriaAzure, então <strong>gate = commitRaft</strong> e o gate está sempre pronto. O <code>/status</code> mostra <code>azure: "off"</code>.</p>
+<p>A POC não tem learners: não existe maioriaAzure, então <strong>gate = commitRaft</strong> na líder e o gate está sempre pronto.</p>
 <div class="tabela"><table>
 <thead>
 <tr>
@@ -590,7 +590,7 @@ gate         = max(gate, candidato)            -- nunca recua
 </tr>
 </tbody>
 </table></div>
-<p>O que a POC prova: o caminho Raft → gate → apply → ACK, a propagação do gate (G-06) e <code>aplicado &lt;= gate</code> nas três células. O que <strong>não</strong> prova: nenhuma espera pela Azure, nada dos cenários 2 a 5. Essas regras (G-01 a G-05, G-07) ficam nos testes de unidade com learners simulados (O-02).</p></div>
+<p>O que a POC prova: o caminho Raft → gate → apply → ACK, a propagação do gate (G-06) e <code>aplicado &lt;= gate</code> nas três células. O que <strong>não</strong> prova: nenhuma espera pela Azure, nada dos cenários 2 a 5. Essas regras não estão no código da POC; só no esboço do produto (<code>doc/05_implementacao/codigo_exemplo</code>).</p></div>
 </section>
 <section id="pontos"><h2>4. Pontos que precisam ser avaliados</h2>
 <p class="nota">Reescritos a partir das seções “Falhas e tratativas” e “Pontos em aberto” (e de outras seções de risco, quando existem). Em cada ponto, <b>O que a fonte define</b> vem da documentação; <b>Sugestão de encaminhamento</b> é <b>inferência do arquiteto</b>, não decisão registrada.</p>
@@ -650,8 +650,8 @@ gate         = max(gate, candidato)            -- nunca recua
 </ol>
 <h3>Perguntas para o Bruno</h3>
 <p><strong>1. A POC deve ter um learner simulado de ponta a ponta?</strong>
-- <strong>a)</strong> Manter como está: gate = commit na POC, regras da Azure só em teste de unidade.
-- <strong>b) (recomendado)</strong> Adicionar à POC um quarto processo DR como learner (sem DynamoDB, sem voto), com atraso injetável no <code>docker compose</code>. Com <code>LEARNERS=1</code> id, a maioria Azure seria "1 de 1" só para teste. Prova o <code>MsgAppResp</code> virando evento, o termo e o cenário 5 de verdade, sem trazer a Azure para a POC.</p>
+- <strong>a)</strong> Manter como está: gate = commit na POC, sem learners.
+- <strong>b) (recomendado)</strong> Adicionar à POC um quarto processo DR como learner (sem DynamoDB, sem voto), com atraso injetável no <code>docker compose</code>. Com um learner só, a maioria Azure seria "1 de 1" só para teste. Prova o <code>MsgAppResp</code> virando evento, o termo e o cenário 5 de verdade, sem trazer a Azure para a POC.</p>
 <p><strong>2. Como tratar o canal de progresso do gate quando o consumidor atrasa?</strong>
 - <strong>a)</strong> Manter o canal que bloqueia (G-04) e medir no spike se o laço <code>Ready</code> chega a travar.
 - <strong>b) (recomendado)</strong> Trocar o canal por um "último valor por learner" (variável atômica por (learner, termo) que só sobe, com um sinal de acordar). Não perde progresso, porque o progresso é monotônico e só o maior valor importa, e nunca bloqueia o Raft. Exigiria ajustar a G-04 na spec.</p></details>

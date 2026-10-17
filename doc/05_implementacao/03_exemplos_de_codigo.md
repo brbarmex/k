@@ -999,7 +999,7 @@ func TestNoLeaderWaitsThenFailsWithoutPropose(t *testing.T) {
 
 ### 7.4b Caso de uso: ligar o Raft ao gate e ao applier
 
-No esboço, duas goroutines: uma só de progresso (cada resposta de learner alimenta o gate na hora) e uma de commits. Um applier parado não atrasa o progresso da Azure no gate. Na POC ([ADR-060](../03_adr/ADR-060-laco-do-raft-nunca-espera-o-apply-e-admissao-por-atraso.md)) são três: progresso, gate (segue o commit) e commits (lê as entradas commitadas por faixa da memória do Raft e entrega ao `Applier`).
+No esboço, duas goroutines: uma só de progresso (cada resposta de learner alimenta o gate na hora) e uma de commits. Um applier parado não atrasa o progresso da Azure no gate. Na POC ([ADR-060](../03_adr/ADR-060-laco-do-raft-nunca-espera-o-apply-e-admissao-por-atraso.md)) são duas: gate (segue o commit) e commits (lê as entradas commitadas por faixa da memória do Raft e entrega ao `Applier`).
 
 ```go
 package usecase

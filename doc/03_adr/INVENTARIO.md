@@ -37,7 +37,7 @@ Os números 009, 012, 023, 040 e 053 não existem: eram ADRs do antigo modo Even
 | [010](ADR-010-follower-encaminha-para-lider.md) | Operação | Vigente, complementado | 039 (um salto, termo, `WAIT_LEADER`) | Sim | Critério de "líder degradada" pendente (PEND-11). Cabeçalho fora do padrão ("Estado" em vez de "Status") |
 | [011](ADR-011-witness-manifesto-snapshots.md) | Operação | **Sem uso** | marcado pela resposta 3a | — | Nenhum ADR posterior usa o witness; o snapshot virou só marcador (063) |
 | [013](ADR-013-transferencia-planejada-de-lideranca.md) | Operação | Vigente, complementado | fases 2 e 3 alinhadas a 015, 029, 042, 046, 049, 057 (respostas 1a 2a) | Parcial | Só `TransferLeadership` exposto; o protocolo de 5 fases não existe |
-| [014](ADR-014-modo-degradado-opcao-b.md) | Modo degradado | Vigente, complementado | 044 (lease), 045 (política), 027 | Fora | Política fixa `reject` na POC |
+| [014](ADR-014-modo-degradado-opcao-b.md) | Modo degradado | Vigente, complementado | 044 (lease), 045 (política), 027 | Fora | A POC não tem modo degradado |
 | [015](ADR-015-wal-post-image-e-versao.md) | Dados | Vigente, complementado | 035, 058; 062 (pendente) | Sim | `PutItem` condicional por `_dr_v` |
 | [016](ADR-016-app-unico-por-celula-monolito-modular.md) | Estrutura | Vigente | substitui 007 | Sim | |
 | [017](ADR-017-azure-learners-e-gate.md) | Escrita e gate | Vigente, complementado | 046 | Parcial | Gate com learners só em teste de unidade |

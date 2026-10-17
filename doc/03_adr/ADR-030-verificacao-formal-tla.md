@@ -32,7 +32,7 @@ O modelo separa **log volátil e log durável** por nó, com queda que perde o v
 
 ## Atualização de 14/10/2026 (inventário dos ADRs, resposta 8a)
 
-"Antes do código do gate" vale para o **gate com learners reais** (fase AWS). A POC roda sem Azure, com gate = commit do Raft, e o código de domínio do gate (`domain/gate.go`, testado com learners simulados) não conta como o código do gate para esta regra. O modelo continua obrigatório antes de ligar learners reais.
+"Antes do código do gate" vale para o **gate com learners reais** (fase AWS). A POC roda sem Azure e sem learners, com gate = commit do Raft, e não conta como o código do gate para esta regra. O modelo continua obrigatório antes de ligar learners reais.
 
 ## Onde está o detalhe
 

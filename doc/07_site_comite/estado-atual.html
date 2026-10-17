@@ -179,7 +179,7 @@ Gerado em 17/10/2026 a partir do pacote DataReplication_Versao_1.
 <td>O gate só conta progresso da Azure que chegou pelo <code>AppendEntries</code> no termo atual da líder</td>
 <td><a href="../03_adr/ADR-046-gate-so-conta-progresso-validado-pelo-raft.md">046</a></td>
 <td>P9</td>
-<td>Parcial: no domínio, com teste</td>
+<td>Fora (a POC não tem learners)</td>
 </tr>
 <tr>
 <td>I-05</td>
@@ -221,7 +221,7 @@ Gerado em 17/10/2026 a partir do pacote DataReplication_Versao_1.
 <td>Com <code>reject</code>, nenhuma escrita é ACKada sem o gate da Azure, e <code>DEGRADE</code> nunca é proposto</td>
 <td><a href="../03_adr/ADR-045-politica-de-degradacao-por-instalacao.md">045</a></td>
 <td>P18</td>
-<td>Parcial: política fixa <code>reject</code>, sem Azure</td>
+<td>Fora (a POC não tem modo degradado nem Azure)</td>
 </tr>
 <tr>
 <td>I-11</td>
@@ -333,12 +333,12 @@ Gerado em 17/10/2026 a partir do pacote DataReplication_Versao_1.
 <ul>
 <li>Eleição só entre os votantes AWS; a Azure nunca vota <a href="../03_adr/ADR-006-consenso-por-shard-eleicao-na-aws.md">006</a> <a href="../03_adr/ADR-017-azure-learners-e-gate.md">017</a>.</li>
 <li>A liderança muda só por eleição de saúde ou por transferência planejada; uma requisição numa follower nunca move a liderança <a href="../03_adr/ADR-010-follower-encaminha-para-lider.md">010</a>.</li>
-<li>Transferência planejada em 5 fases: pré-checagem, catch-up a quente, barreira curta (≤ 50 ms), retomada e roteamento <a href="../03_adr/ADR-013-transferencia-planejada-de-lideranca.md">013</a>. A nova líder volta a aceitar escritas com o no-op, mas só confirma depois de reconstruir o gate e aplicar; o fencing da líder antiga vem do Raft e do gate, não de condição no banco <a href="../03_adr/ADR-013-transferencia-planejada-de-lideranca.md">013</a> <a href="../03_adr/ADR-029-gate-monotonico-na-troca-de-lider.md">029</a> <a href="../03_adr/ADR-046-gate-so-conta-progresso-validado-pelo-raft.md">046</a>. <strong>POC: Parcial</strong> (só <code>TransferLeadership</code>).</li>
+<li>Transferência planejada em 5 fases: pré-checagem, catch-up a quente, barreira curta (≤ 50 ms), retomada e roteamento <a href="../03_adr/ADR-013-transferencia-planejada-de-lideranca.md">013</a>. A nova líder volta a aceitar escritas com o no-op, mas só confirma depois de reconstruir o gate e aplicar; o fencing da líder antiga vem do Raft e do gate, não de condição no banco <a href="../03_adr/ADR-013-transferencia-planejada-de-lideranca.md">013</a> <a href="../03_adr/ADR-029-gate-monotonico-na-troca-de-lider.md">029</a> <a href="../03_adr/ADR-046-gate-so-conta-progresso-validado-pelo-raft.md">046</a>. <strong>POC: Fora</strong>.</li>
 <li>Timeout de eleição configurável (<code>ELECTION_TICKS</code>, 30 ticks de 100 ms na POC) <a href="../03_adr/ADR-060-laco-do-raft-nunca-espera-o-apply-e-admissao-por-atraso.md">060</a>. <strong>POC: Sim</strong>.</li>
 </ul>
 <h3 id="37-modo-degradado-promocao-e-retorno-da-aws">3.7 Modo degradado, promoção e retorno da AWS</h3>
 <ul>
-<li><code>DEGRADED_POLICY</code> é obrigatória por instalação, sem padrão: <code>accept</code> ou <code>reject</code> <a href="../03_adr/ADR-045-politica-de-degradacao-por-instalacao.md">045</a>. <strong>POC: Parcial</strong> (fixa em <code>reject</code>).</li>
+<li><code>DEGRADED_POLICY</code> é obrigatória por instalação, sem padrão: <code>accept</code> ou <code>reject</code> <a href="../03_adr/ADR-045-politica-de-degradacao-por-instalacao.md">045</a>. <strong>POC: Fora</strong>.</li>
 <li>Com <code>accept</code>: depois de <code>DEGRADE_AFTER</code> (2 s) sem a Azure, a líder propõe <code>DEGRADE</code> com lease D, contado desde o último contato com a maioria Azure (<code>t_c</code>). As respostas levam <code>x-dr-mode: degraded</code>. Ao fim de D sem <code>RENEW</code> humano, <code>503 LEASE_EXPIRED</code>. Uma líder nova herda o modo, mas não o <code>t_c</code> <a href="../03_adr/ADR-014-modo-degradado-opcao-b.md">014</a> <a href="../03_adr/ADR-027-sinalizacao-do-modo-degradado.md">027</a> <a href="../03_adr/ADR-044-lease-do-modo-degradado-e-promocao-da-azure.md">044</a>. <strong>POC: Fora</strong>.</li>
 <li>Com <code>reject</code>: sem o gate da Azure a escrita não é ACKada (<code>503 PENDING</code>); RPO 0 sempre <a href="../03_adr/ADR-045-politica-de-degradacao-por-instalacao.md">045</a>.</li>
 <li>Link lento abaixo de <code>DEGRADE_AFTER</code> (a "faixa cinzenta") só gera alerta <a href="../03_adr/ADR-037-faixa-cinzenta-do-link-so-alerta.md">037</a>.</li>
@@ -429,7 +429,7 @@ Gerado em 17/10/2026 a partir do pacote DataReplication_Versao_1.
 </ul>
 <h3 id="312-verificacao">3.12 Verificação</h3>
 <ul>
-<li>O modelo TLA+ (gate, <code>DEGRADE</code>/<code>RESTORE</code>, lease e promoção, troca de membros, dedupe, resultado desconhecido, DELETE e replay, barreira, log volátil e durável) vem <strong>antes</strong> do código do gate com learners reais <a href="../03_adr/ADR-030-verificacao-formal-tla.md">030</a>. A POC usa gate = commit e o código de domínio do gate, testado com learners simulados, não conta para essa regra. <strong>POC: Fora</strong> (o modelo não existe ainda).</li>
+<li>O modelo TLA+ (gate, <code>DEGRADE</code>/<code>RESTORE</code>, lease e promoção, troca de membros, dedupe, resultado desconhecido, DELETE e replay, barreira, log volátil e durável) vem <strong>antes</strong> do código do gate com learners reais <a href="../03_adr/ADR-030-verificacao-formal-tla.md">030</a>. A POC usa gate = commit, sem learners, e não conta para essa regra. <strong>POC: Fora</strong> (o modelo não existe ainda).</li>
 <li>Spikes que fixam números: S1 (fsync e IOPS), S1b (síncrono x assíncrono), S5 (apply e <code>APPLY_WORKERS</code>) <a href="../03_adr/ADR-056-group-commit-por-shard-e-nada-sai-antes-do-fsync.md">056</a> <a href="../03_adr/ADR-058-apply-paralelo-por-chave-com-marca-dagua.md">058</a>.</li>
 </ul>
 <h2 id="4-o-que-mudou">4. O que mudou</h2>

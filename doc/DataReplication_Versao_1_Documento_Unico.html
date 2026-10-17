@@ -142,7 +142,7 @@ Em caso de divergência, vale o Markdown do pacote.</div>
 <td>O gate só conta progresso da Azure que chegou pelo <code>AppendEntries</code> no termo atual da líder</td>
 <td><a href="#d-03-adr-adr-046-gate-so-conta-progresso-validado-pelo-raft">046</a></td>
 <td>P9</td>
-<td>Parcial: no domínio, com teste</td>
+<td>Fora (a POC não tem learners)</td>
 </tr>
 <tr>
 <td>I-05</td>
@@ -184,7 +184,7 @@ Em caso de divergência, vale o Markdown do pacote.</div>
 <td>Com <code>reject</code>, nenhuma escrita é ACKada sem o gate da Azure, e <code>DEGRADE</code> nunca é proposto</td>
 <td><a href="#d-03-adr-adr-045-politica-de-degradacao-por-instalacao">045</a></td>
 <td>P18</td>
-<td>Parcial: política fixa <code>reject</code>, sem Azure</td>
+<td>Fora (a POC não tem modo degradado nem Azure)</td>
 </tr>
 <tr>
 <td>I-11</td>
@@ -296,12 +296,12 @@ Em caso de divergência, vale o Markdown do pacote.</div>
 <ul>
 <li>Eleição só entre os votantes AWS; a Azure nunca vota <a href="#d-03-adr-adr-006-consenso-por-shard-eleicao-na-aws">006</a> <a href="#d-03-adr-adr-017-azure-learners-e-gate">017</a>.</li>
 <li>A liderança muda só por eleição de saúde ou por transferência planejada; uma requisição numa follower nunca move a liderança <a href="#d-03-adr-adr-010-follower-encaminha-para-lider">010</a>.</li>
-<li>Transferência planejada em 5 fases: pré-checagem, catch-up a quente, barreira curta (≤ 50 ms), retomada e roteamento <a href="#d-03-adr-adr-013-transferencia-planejada-de-lideranca">013</a>. A nova líder volta a aceitar escritas com o no-op, mas só confirma depois de reconstruir o gate e aplicar; o fencing da líder antiga vem do Raft e do gate, não de condição no banco <a href="#d-03-adr-adr-013-transferencia-planejada-de-lideranca">013</a> <a href="#d-03-adr-adr-029-gate-monotonico-na-troca-de-lider">029</a> <a href="#d-03-adr-adr-046-gate-so-conta-progresso-validado-pelo-raft">046</a>. <strong>POC: Parcial</strong> (só <code>TransferLeadership</code>).</li>
+<li>Transferência planejada em 5 fases: pré-checagem, catch-up a quente, barreira curta (≤ 50 ms), retomada e roteamento <a href="#d-03-adr-adr-013-transferencia-planejada-de-lideranca">013</a>. A nova líder volta a aceitar escritas com o no-op, mas só confirma depois de reconstruir o gate e aplicar; o fencing da líder antiga vem do Raft e do gate, não de condição no banco <a href="#d-03-adr-adr-013-transferencia-planejada-de-lideranca">013</a> <a href="#d-03-adr-adr-029-gate-monotonico-na-troca-de-lider">029</a> <a href="#d-03-adr-adr-046-gate-so-conta-progresso-validado-pelo-raft">046</a>. <strong>POC: Fora</strong>.</li>
 <li>Timeout de eleição configurável (<code>ELECTION_TICKS</code>, 30 ticks de 100 ms na POC) <a href="#d-03-adr-adr-060-laco-do-raft-nunca-espera-o-apply-e-admissao-por-atraso">060</a>. <strong>POC: Sim</strong>.</li>
 </ul>
 <h5 id="d-estado-atual--37-modo-degradado-promoção-e-retorno-da-aws">3.7 Modo degradado, promoção e retorno da AWS</h5>
 <ul>
-<li><code>DEGRADED_POLICY</code> é obrigatória por instalação, sem padrão: <code>accept</code> ou <code>reject</code> <a href="#d-03-adr-adr-045-politica-de-degradacao-por-instalacao">045</a>. <strong>POC: Parcial</strong> (fixa em <code>reject</code>).</li>
+<li><code>DEGRADED_POLICY</code> é obrigatória por instalação, sem padrão: <code>accept</code> ou <code>reject</code> <a href="#d-03-adr-adr-045-politica-de-degradacao-por-instalacao">045</a>. <strong>POC: Fora</strong>.</li>
 <li>Com <code>accept</code>: depois de <code>DEGRADE_AFTER</code> (2 s) sem a Azure, a líder propõe <code>DEGRADE</code> com lease D, contado desde o último contato com a maioria Azure (<code>t_c</code>). As respostas levam <code>x-dr-mode: degraded</code>. Ao fim de D sem <code>RENEW</code> humano, <code>503 LEASE_EXPIRED</code>. Uma líder nova herda o modo, mas não o <code>t_c</code> <a href="#d-03-adr-adr-014-modo-degradado-opcao-b">014</a> <a href="#d-03-adr-adr-027-sinalizacao-do-modo-degradado">027</a> <a href="#d-03-adr-adr-044-lease-do-modo-degradado-e-promocao-da-azure">044</a>. <strong>POC: Fora</strong>.</li>
 <li>Com <code>reject</code>: sem o gate da Azure a escrita não é ACKada (<code>503 PENDING</code>); RPO 0 sempre <a href="#d-03-adr-adr-045-politica-de-degradacao-por-instalacao">045</a>.</li>
 <li>Link lento abaixo de <code>DEGRADE_AFTER</code> (a "faixa cinzenta") só gera alerta <a href="#d-03-adr-adr-037-faixa-cinzenta-do-link-so-alerta">037</a>.</li>
@@ -392,7 +392,7 @@ Em caso de divergência, vale o Markdown do pacote.</div>
 </ul>
 <h5 id="d-estado-atual--312-verificação">3.12 Verificação</h5>
 <ul>
-<li>O modelo TLA+ (gate, <code>DEGRADE</code>/<code>RESTORE</code>, lease e promoção, troca de membros, dedupe, resultado desconhecido, DELETE e replay, barreira, log volátil e durável) vem <strong>antes</strong> do código do gate com learners reais <a href="#d-03-adr-adr-030-verificacao-formal-tla">030</a>. A POC usa gate = commit e o código de domínio do gate, testado com learners simulados, não conta para essa regra. <strong>POC: Fora</strong> (o modelo não existe ainda).</li>
+<li>O modelo TLA+ (gate, <code>DEGRADE</code>/<code>RESTORE</code>, lease e promoção, troca de membros, dedupe, resultado desconhecido, DELETE e replay, barreira, log volátil e durável) vem <strong>antes</strong> do código do gate com learners reais <a href="#d-03-adr-adr-030-verificacao-formal-tla">030</a>. A POC usa gate = commit, sem learners, e não conta para essa regra. <strong>POC: Fora</strong> (o modelo não existe ainda).</li>
 <li>Spikes que fixam números: S1 (fsync e IOPS), S1b (síncrono x assíncrono), S5 (apply e <code>APPLY_WORKERS</code>) <a href="#d-03-adr-adr-056-group-commit-por-shard-e-nada-sai-antes-do-fsync">056</a> <a href="#d-03-adr-adr-058-apply-paralelo-por-chave-com-marca-dagua">058</a>.</li>
 </ul>
 <h4 id="d-estado-atual--4-o-que-mudou">4. O que mudou</h4>
@@ -5929,7 +5929,7 @@ gate         = max(gate, candidato)            -- nunca recua
 <p>Por que não confiar no "Z1 diz que tem 306" que chega por fora, no passo 2? Porque aquela 306 era a do termo 5, de A1, que <strong>nunca foi commitada e foi apagada</strong> no passo 3. Se A2 contasse esse número, acharia que a 306 dela já estava na Azure quando não estava. Esse é o caso que o ADR-046 fecha.</p>
 <p>Os clientes que escreveram 306 (termo 5) em A1 recebem timeout ou <code>503 PENDING</code>; o retry vai para A2 e o dedupe resolve. Escritas de A1 já ACKadas (até 304) estão abaixo do gate antigo e nunca se perdem, porque o Raft garante que A2 tem tudo o que foi commitado.</p>
 <h5 id="d-02-cenarios-complexos-x07-gate-explicado-com-exemplos--cenário-6--poc-só-aws-g-08">Cenário 6 — POC só AWS (G-08)</h5>
-<p>Com <code>LEARNERS</code> vazia: não existe maioriaAzure, então <strong>gate = commitRaft</strong> e o gate está sempre pronto. O <code>/status</code> mostra <code>azure: "off"</code>.</p>
+<p>A POC não tem learners: não existe maioriaAzure, então <strong>gate = commitRaft</strong> na líder e o gate está sempre pronto.</p>
 <div class="tabela"><table>
 <thead>
 <tr>
@@ -5984,7 +5984,7 @@ gate         = max(gate, candidato)            -- nunca recua
 </tr>
 </tbody>
 </table></div>
-<p>O que a POC prova: o caminho Raft → gate → apply → ACK, a propagação do gate (G-06) e <code>aplicado &lt;= gate</code> nas três células. O que <strong>não</strong> prova: nenhuma espera pela Azure, nada dos cenários 2 a 5. Essas regras (G-01 a G-05, G-07) ficam nos testes de unidade com learners simulados (O-02).</p>
+<p>O que a POC prova: o caminho Raft → gate → apply → ACK, a propagação do gate (G-06) e <code>aplicado &lt;= gate</code> nas três células. O que <strong>não</strong> prova: nenhuma espera pela Azure, nada dos cenários 2 a 5. Essas regras não estão no código da POC; só no esboço do produto (<code>doc/05_implementacao/codigo_exemplo</code>).</p>
 <h4 id="d-02-cenarios-complexos-x07-gate-explicado-com-exemplos--pontos-em-aberto">Pontos em aberto</h4>
 <h5 id="d-02-cenarios-complexos-x07-gate-explicado-com-exemplos--cenários-ocultos">Cenários ocultos</h5>
 <ol>
@@ -5995,8 +5995,8 @@ gate         = max(gate, candidato)            -- nunca recua
 </ol>
 <h5 id="d-02-cenarios-complexos-x07-gate-explicado-com-exemplos--perguntas-para-o-bruno">Perguntas para o Bruno</h5>
 <p><strong>1. A POC deve ter um learner simulado de ponta a ponta?</strong>
-- <strong>a)</strong> Manter como está: gate = commit na POC, regras da Azure só em teste de unidade.
-- <strong>b) (recomendado)</strong> Adicionar à POC um quarto processo DR como learner (sem DynamoDB, sem voto), com atraso injetável no <code>docker compose</code>. Com <code>LEARNERS=1</code> id, a maioria Azure seria "1 de 1" só para teste. Prova o <code>MsgAppResp</code> virando evento, o termo e o cenário 5 de verdade, sem trazer a Azure para a POC.</p>
+- <strong>a)</strong> Manter como está: gate = commit na POC, sem learners.
+- <strong>b) (recomendado)</strong> Adicionar à POC um quarto processo DR como learner (sem DynamoDB, sem voto), com atraso injetável no <code>docker compose</code>. Com um learner só, a maioria Azure seria "1 de 1" só para teste. Prova o <code>MsgAppResp</code> virando evento, o termo e o cenário 5 de verdade, sem trazer a Azure para a POC.</p>
 <p><strong>2. Como tratar o canal de progresso do gate quando o consumidor atrasa?</strong>
 - <strong>a)</strong> Manter o canal que bloqueia (G-04) e medir no spike se o laço <code>Ready</code> chega a travar.
 - <strong>b) (recomendado)</strong> Trocar o canal por um "último valor por learner" (variável atômica por (learner, termo) que só sobe, com um sinal de acordar). Não perde progresso, porque o progresso é monotônico e só o maior valor importa, e nunca bloqueia o Raft. Exigiria ajustar a G-04 na spec.</p></article><article class="doc" id="d-02-cenarios-complexos-x08-leitura-forte-com-exemplos"><h3>X08 — Leitura forte explicada com dados mock</h3><p class="fonte">Fonte: <a href="02_cenarios/complexos/X08-leitura-forte-com-exemplos.md">02_cenarios/complexos/X08-leitura-forte-com-exemplos.md</a></p><p><strong>Status:</strong> Explicação didática (14/10/2026). Não decide nada novo, exceto a pergunta 3 no fim · <strong>ADRs:</strong> <a href="#d-03-adr-adr-049-barreira-da-leitura-forte-e-o-gate">ADR-049</a>, <a href="#d-03-adr-adr-057-um-unico-modo-strong-consistency">ADR-057</a>, <a href="#d-03-adr-adr-039-sem-lider-conhecida-espera-ate-1s-e-503">ADR-039</a>, <a href="#d-03-adr-adr-029-gate-monotonico-na-troca-de-lider">ADR-029</a>, <a href="#d-03-adr-adr-046-gate-so-conta-progresso-validado-pelo-raft">ADR-046</a> · <strong>Relacionados:</strong> <a href="#d-02-cenarios-complexos-x07-gate-explicado-com-exemplos">X07</a>, <a href="#d-02-cenarios-atualizados-c05-leitura-strong">C05</a>, <a href="#d-02-cenarios-a-rever-r16-leitura-forte-em-celulas-follower">R16</a>, <a href="../spec/SPEC_POC_LOCAL.md">SPEC_POC_LOCAL</a> (A.6)</p>
@@ -7111,7 +7111,7 @@ gate         = max(gate, candidato)            -- nunca recua
 <td>Vigente, complementado</td>
 <td>044 (lease), 045 (política), 027</td>
 <td>Fora</td>
-<td>Política fixa <code>reject</code> na POC</td>
+<td>A POC não tem modo degradado</td>
 </tr>
 <tr>
 <td><a href="#d-03-adr-adr-015-wal-post-image-e-versao">015</a></td>
@@ -8009,7 +8009,7 @@ gate         = max(gate, candidato)            -- nunca recua
 <h4 id="d-03-adr-adr-030-verificacao-formal-tla--atualização-de-13102026-group-commit-adr-056">Atualização de 13/10/2026 (group commit, ADR-056)</h4>
 <p>O modelo separa <strong>log volátil e log durável</strong> por nó, com queda que perde o volátil em qualquer passo; <code>MsgAppResp</code>, voto e auto-ACK da líder dependem só do durável. Invariante nova: <strong>toda entrada ACKada está no log durável de pelo menos 2 nós AWS e 2 nós Azure</strong>. Cobre o modo síncrono com F3 (só a líder envia <code>MsgApp</code> antes de gravar) e o <code>AsyncStorageWrites</code>, antes do código do adaptador <code>etcdraft</code> (<a href="#d-03-adr-adr-056-group-commit-por-shard-e-nada-sai-antes-do-fsync">ADR-056</a>). O modelo do próprio <code>etcd-io/raft</code> (<code>tla/etcdraft.tla</code>) não cobre o gate nem o lease.</p>
 <h4 id="d-03-adr-adr-030-verificacao-formal-tla--atualização-de-14102026-inventário-dos-adrs-resposta-8a">Atualização de 14/10/2026 (inventário dos ADRs, resposta 8a)</h4>
-<p>"Antes do código do gate" vale para o <strong>gate com learners reais</strong> (fase AWS). A POC roda sem Azure, com gate = commit do Raft, e o código de domínio do gate (<code>domain/gate.go</code>, testado com learners simulados) não conta como o código do gate para esta regra. O modelo continua obrigatório antes de ligar learners reais.</p>
+<p>"Antes do código do gate" vale para o <strong>gate com learners reais</strong> (fase AWS). A POC roda sem Azure e sem learners, com gate = commit do Raft, e não conta como o código do gate para esta regra. O modelo continua obrigatório antes de ligar learners reais.</p>
 <h4 id="d-03-adr-adr-030-verificacao-formal-tla--onde-está-o-detalhe">Onde está o detalhe</h4>
 <ul>
 <li><a href="#d-01-arquitetura-03-consenso-raft-quorum-e-gate">03_consenso_raft_quorum_e_gate.md</a></li>
@@ -8710,7 +8710,6 @@ gate         = max(gate, candidato)            -- nunca recua
 <li><strong>Timeout de eleição configurável (3a).</strong> <code>ELECTION_TICKS</code> (de 3 a 100, padrão 10, ou 1 s com tick de 100 ms). O compose da POC usa 30 (3 s), porque o fsync do notebook tem picos de 1 a 2 s. Em produção o valor sai do spike S1, acima do P99.9 do fsync. O S1b (<code>AsyncStorageWrites</code>) ganha mais um motivo: no modo assíncrono a líder continua mandando heartbeat durante o fsync.</li>
 <li><strong>Ambiente de teste de carga (4a).</strong>
    - Começar de volumes limpos (<code>task clean</code>).
-   - <code>task bench-localstack</code> mede o teto do LocalStack sozinho, com o mesmo PutItem condicional do applier (binário <code>benchstore</code>).
    - <strong>Sem banco em memória</strong> (Bruno, 14/10, depois da decisão 4a): ele aceita o limite do LocalStack, testa localmente com TPS baixo (por exemplo 10 TPS) e depois na AWS. Com TPS baixo o applier acompanha a carga, então o desacoplamento do laço (item 1) e a admissão (item 2) quase não são exercitados localmente. Para exercitar a admissão sem carga alta, <code>APPLY_LAG_MAX</code> pode ser baixado no compose (<code>task start APPLY_LAG_MAX=50</code>).
    - <strong>Um LocalStack por célula</strong> (Bruno, 14/10: 1a 2a 3a), como em produção: cada célula tem o seu escritor do DynamoDB Local, com <code>DYNAMODB_HEAP_SIZE=512m</code> por instância (o padrão é 256m). <code>task test-banco-lento CELL=N</code> pausa o banco de uma só célula e confere que o termo do Raft não muda: é a validação local do item 1 sem carga alta.</li>
 <li><strong>Partida não reaplica o log inteiro (5a).</strong> O ponto de retomada é o índice do progresso do applier; sem progresso, começa em 1. O Raft recebe <code>Applied = retomada - 1</code> (limitado entre o snapshot e o commit gravado) e o <code>CommitPump</code> começa na retomada; o replay vem do WAL do Raft. O progresso não tem fsync, então numa queda de host ele pode estar atrás do banco: isso só alonga o replay, que é idempotente pela versão. A entrada do progresso é reentregue inteira, e o applier pula os itens já gravados pela ordem salva.</li>
@@ -8740,14 +8739,14 @@ gate         = max(gate, candidato)            -- nunca recua
 <li><strong>Memória:</strong> as entradas não consumidas ficam no <code>MemoryStorage</code>. Na POC isso já acontecia, porque a compactação está desligada. Em produção a memória do Raft é limitada pela compactação até <code>RaftCompactLimit</code> e pelo teto do volume do Raft (<a href="#d-03-adr-adr-041-disco-do-log-teto-de-70-por-cento-sem-s3-na-v1">ADR-041</a>); num modo degradado longo ela cresce com o atraso da Azure até esse teto, o que ainda precisa de mitigação (teto também por bytes em memória, ou um <code>raft.Storage</code> que lê do WAL em disco) e de medição no spike S1.</li>
 <li><strong>O timeout de eleição maior aumenta o RTO</strong> na queda da líder: de 1 a 2 s para 3 a 6 s na POC.</li>
 <li><strong>A causa <code>nao_lider</code> continua possível</strong> numa janela curta depois de uma troca de líder, porque <code>n.lead</code> ainda é atualizado pelo laço. Com o laço sem bloqueio a janela fica do tamanho de um <code>Ready</code>, e a métrica mostra quando acontece.</li>
-<li><strong>O teste local com TPS baixo não exercita os itens 1 e 2.</strong> Eles ficam provados pelos testes de unidade (laço com consumidores parados, admissão) e, de verdade, no teste na AWS. O teto do apply local sai do <code>task bench-localstack</code> e, em produção, do spike S5.</li>
+<li><strong>O teste local com TPS baixo não exercita os itens 1 e 2.</strong> Eles ficam provados pelos testes de unidade (laço com consumidores parados, admissão) e, de verdade, no teste na AWS. O teto do apply local sai das métricas do applier (<code>task diag</code>) e, em produção, do spike S5.</li>
 </ul>
 <h4 id="d-03-adr-adr-060-laco-do-raft-nunca-espera-o-apply-e-admissao-por-atraso--código">Código</h4>
 <ul>
 <li><code>DataReplicationApp/internal/adapter/out/etcdraft/node.go</code>: publicação do commit, <code>CommitIndex</code>, <code>CommitChanged</code>, <code>CommittedEntries</code>, <code>FirstIndex</code>, causa do descarte, <code>ElectionTicks</code>, <code>Applied</code> na partida, métricas do laço e do tick.</li>
 <li><code>DataReplicationApp/internal/usecase/replicate.go</code>: <code>CommitPump</code> por faixa, goroutine do gate, <code>ResumeFrom</code>, <code>Delivered</code>.</li>
 <li><code>DataReplicationApp/internal/usecase/write.go</code>: admissão (<code>MaxApplyLag</code>) e <code>BackpressureError</code> com a causa.</li>
-<li><code>DataReplicationApp/cmd/benchstore</code>, <code>internal/platform/config</code> (<code>APPLY_LAG_MAX</code>, <code>ELECTION_TICKS</code>), <code>internal/adapter/in/dynamohttp/handler.go</code> (métricas HTTP), <code>internal/adapter/out/prommetrics</code>, <code>observability/grafana/dashboards/datareplication-v2.json</code> e <code>taskfile.yaml</code> (<code>bench-localstack</code>, <code>diag</code>, <code>start APPLY_LAG_MAX=...</code>).</li>
+<li><code>DataReplicationApp/internal/platform/config</code> (<code>APPLY_LAG_MAX</code>, <code>ELECTION_TICKS</code>), <code>internal/adapter/in/dynamohttp/handler.go</code> (métricas HTTP), <code>internal/adapter/out/prommetrics</code>, <code>observability/grafana/dashboards/datareplication-v2.json</code> e <code>taskfile.yaml</code> (<code>diag</code>, <code>start APPLY_LAG_MAX=...</code>).</li>
 <li>Testes: laço do Raft com consumidores parados (3.000 propostas de 64 clientes, sem eleição), causa <code>nao_lider</code>, gate da POC acompanhando o commit com o applier parado, retomada, admissão, configuração e métricas.</li>
 <li>Spec da POC: RT-04, RT-06, RT-07, RT-09, RT-13, AP-01, AP-12, AP-13, AP-15, O-15, CA-17 e CA-18, SG-17, risco 3 fechado, em <a href="../spec/SPEC_POC_LOCAL.md">SPEC_POC_LOCAL.md</a>. Prompt do SPDD: passos O-27 (laço, admissão, retomada) e O-28 (métricas HTTP, dashboard e tasks).</li>
 </ul>
@@ -10709,7 +10708,7 @@ func TestNoLeaderWaitsThenFailsWithoutPropose(t *testing.T) {
 }
 </code></pre>
 <h5 id="d-05-implementacao-03-exemplos-de-codigo--74b-caso-de-uso-ligar-o-raft-ao-gate-e-ao-applier">7.4b Caso de uso: ligar o Raft ao gate e ao applier</h5>
-<p>No esboço, duas goroutines: uma só de progresso (cada resposta de learner alimenta o gate na hora) e uma de commits. Um applier parado não atrasa o progresso da Azure no gate. Na POC (<a href="#d-03-adr-adr-060-laco-do-raft-nunca-espera-o-apply-e-admissao-por-atraso">ADR-060</a>) são três: progresso, gate (segue o commit) e commits (lê as entradas commitadas por faixa da memória do Raft e entrega ao <code>Applier</code>).</p>
+<p>No esboço, duas goroutines: uma só de progresso (cada resposta de learner alimenta o gate na hora) e uma de commits. Um applier parado não atrasa o progresso da Azure no gate. Na POC (<a href="#d-03-adr-adr-060-laco-do-raft-nunca-espera-o-apply-e-admissao-por-atraso">ADR-060</a>) são duas: gate (segue o commit) e commits (lê as entradas commitadas por faixa da memória do Raft e entrega ao <code>Applier</code>).</p>
 <pre><code class="language-go">package usecase
 
 import (

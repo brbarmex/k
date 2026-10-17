@@ -196,7 +196,7 @@ Os clientes que escreveram 306 (termo 5) em A1 recebem timeout ou `503 PENDING`;
 
 ### Cenário 6 — POC só AWS (G-08)
 
-Com `LEARNERS` vazia: não existe maioriaAzure, então **gate = commitRaft** e o gate está sempre pronto. O `/status` mostra `azure: "off"`.
+A POC não tem learners: não existe maioriaAzure, então **gate = commitRaft** na líder e o gate está sempre pronto.
 
 | t | Evento | commitRaft (cell_1 líder) | gate cell_1 | commit local cell_2 / cell_3 | gate cell_2 / cell_3 |
 |---|---|---|---|---|---|
@@ -206,7 +206,7 @@ Com `LEARNERS` vazia: não existe maioriaAzure, então **gate = commitRaft** e o
 | 5 ms | publica gate 101 | | | 101 / 100 | **101 / 100** (cell_3 limitada pelo commit local) |
 | 9 ms | cell_3 recebe o commit | | | 101 / 101 | 101 / **101** |
 
-O que a POC prova: o caminho Raft → gate → apply → ACK, a propagação do gate (G-06) e `aplicado <= gate` nas três células. O que **não** prova: nenhuma espera pela Azure, nada dos cenários 2 a 5. Essas regras (G-01 a G-05, G-07) ficam nos testes de unidade com learners simulados (O-02).
+O que a POC prova: o caminho Raft → gate → apply → ACK, a propagação do gate (G-06) e `aplicado <= gate` nas três células. O que **não** prova: nenhuma espera pela Azure, nada dos cenários 2 a 5. Essas regras não estão no código da POC; só no esboço do produto (`doc/05_implementacao/codigo_exemplo`).
 
 ## Pontos em aberto
 
@@ -220,8 +220,8 @@ O que a POC prova: o caminho Raft → gate → apply → ACK, a propagação do 
 ### Perguntas para o Bruno
 
 **1. A POC deve ter um learner simulado de ponta a ponta?**
-- **a)** Manter como está: gate = commit na POC, regras da Azure só em teste de unidade.
-- **b) (recomendado)** Adicionar à POC um quarto processo DR como learner (sem DynamoDB, sem voto), com atraso injetável no `docker compose`. Com `LEARNERS=1` id, a maioria Azure seria "1 de 1" só para teste. Prova o `MsgAppResp` virando evento, o termo e o cenário 5 de verdade, sem trazer a Azure para a POC.
+- **a)** Manter como está: gate = commit na POC, sem learners.
+- **b) (recomendado)** Adicionar à POC um quarto processo DR como learner (sem DynamoDB, sem voto), com atraso injetável no `docker compose`. Com um learner só, a maioria Azure seria "1 de 1" só para teste. Prova o `MsgAppResp` virando evento, o termo e o cenário 5 de verdade, sem trazer a Azure para a POC.
 
 **2. Como tratar o canal de progresso do gate quando o consumidor atrasa?**
 - **a)** Manter o canal que bloqueia (G-04) e medir no spike se o laço `Ready` chega a travar.
