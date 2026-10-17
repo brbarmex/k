@@ -35,7 +35,7 @@ Todos os comandos rodam dentro desta pasta (`DataReplicationApp/`).
 ```bash
 task clean   # starts from empty Docker volumes
 task start   # builds the image, starts Compose, creates tables, waits for all cells
-task status  # one leader, same leader and term on all cells, "azure":"off"
+task status  # one leader, same leader and term on all cells
 ```
 
 `task start` takes about 30 seconds with the image already built. The first build takes longer.
@@ -265,7 +265,7 @@ This scenario intentionally edits the cluster configuration and is not automated
 
 **Expected result:**
 - Cells using old volumes exit at startup and `/readyz` does not respond.
-- `task logs` reports that `PEERS/LEARNERS` differ from the values persisted in the WAL.
+- `task logs` reports that `PEERS` differs from the values persisted in the WAL.
 - Restore the original Compose configuration and run `docker compose up -d` to recover.
 
 ## 7. Stop and clean
@@ -283,7 +283,7 @@ task clean  # docker compose down -v; remove named volumes
 |---|---|---|
 | `docker-credential-desktop: executable file not found` | Docker Desktop binaries are not on `PATH` | See section 1 |
 | `start` fails with "not ready within 60 s" | LocalStack is slow or a table is missing | Run `task logs`; look for table readiness and `TABLE_WAIT` |
-| Cell exits with "PEERS/LEARNERS differ from WAL" | Configuration changed while old volumes remain | Restore the configuration; only then use `task clean` if resetting data is intended |
+| Cell exits with "PEERS difere do que está gravado no WAL" | Configuration changed while old volumes remain | Restore the configuration; only then use `task clean` if resetting data is intended |
 | `write` returns `NO_LEADER` | Election in progress or quorum unavailable | Wait 1-2 seconds and check `task status` |
 | `/readyz` reports a stopped applier | Database rejected an item after commit (poison entry) | Check `erroApply` in `task status`; recovery requires operator action (ADR-038) |
 | Tables are empty after `stop` and `start` | LocalStack is not persistent | Use `task clean` then `task start` to reset coherently |

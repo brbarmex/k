@@ -21,11 +21,7 @@ type Config struct {
 	RaftDir   string // env RAFT_DIR: subdiretório do volume (C-04)
 
 	// Membros do shard: id → endereço gRPC. Iguais em todas as células (RT-03).
-	Peers    map[uint64]string // env PEERS: votantes
-	Learners map[uint64]string // env LEARNERS: vazia = POC sem Azure (G-08)
-	// POCNoAzure (env POC_SEM_AZURE=true) é a única forma de aceitar LEARNERS vazia.
-	// SÓ DA POC (SG-12): em produção LEARNERS vazia derruba a partida.
-	POCNoAzure bool
+	Peers map[uint64]string // env PEERS: votantes
 
 	Tables         []string // env TABLES: nomes lógicos com {cell}
 	DynamoEndpoint string   // env DYNAMODB_ENDPOINT: vazio = AWS real
@@ -91,7 +87,6 @@ func LoadFrom(getenv func(string) string) (Config, error) {
 		RaftDir:        orDefault(getenv("RAFT_DIR"), "/var/lib/dr/raft/wal"),
 		DynamoEndpoint: getenv("DYNAMODB_ENDPOINT"),
 		AWSRegion:      getenv("AWS_REGION"),
-		POCNoAzure:     getenv("POC_SEM_AZURE") == "true",
 	}
 	dur := func(key string, def time.Duration, required bool) time.Duration {
 		s := getenv(key)
@@ -156,20 +151,6 @@ func LoadFrom(getenv func(string) string) (Config, error) {
 		errs = append(errs, errors.New("variável obrigatória ausente: PEERS"))
 	} else if _, ok := c.Peers[c.NodeID]; c.NodeID != 0 && !ok {
 		errs = append(errs, fmt.Errorf("PEERS não contém o NODE_ID %d", c.NodeID))
-	}
-	if c.Learners, err = parseMembers("LEARNERS", getenv("LEARNERS")); err != nil {
-		errs = append(errs, err)
-	}
-	switch {
-	case len(c.Learners) == 0 && !c.POCNoAzure:
-		errs = append(errs, errors.New("LEARNERS vazia só é aceita na POC (POC_SEM_AZURE=true)"))
-	case len(c.Learners) != 0 && len(c.Learners) != 3:
-		errs = append(errs, fmt.Errorf("LEARNERS precisa ter 3 learners, veio %d", len(c.Learners)))
-	}
-	for id := range c.Learners {
-		if _, dup := c.Peers[id]; dup {
-			errs = append(errs, fmt.Errorf("o id %d está em PEERS e em LEARNERS", id))
-		}
 	}
 	if t := getenv("TABLES"); t == "" {
 		errs = append(errs, errors.New("variável obrigatória ausente: TABLES"))

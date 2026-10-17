@@ -11,18 +11,14 @@ import (
 	"example.com/datareplication/internal/port"
 )
 
-// ErrStreamClosed: um canal do motor de consenso fechou (o motor parou). É fatal para o
-// processo: sem eventos o gate nunca mais avança.
+// ErrStreamClosed: o canal de entradas do applier fechou. É fatal para o processo.
 var ErrStreamClosed = errors.New("canal do consenso fechado")
 
-// CommitPump liga o Raft ao resto, em TRÊS goroutines independentes:
+// CommitPump liga o Raft ao resto, em DUAS goroutines independentes:
 //
-//  1. progresso: cada resposta de learner da Azure (evento) alimenta o gate no momento
-//     em que chega, com termo e identidade (ADR-046). Não depende de haver commit novo nem
-//     de o applier estar lento;
-//  2. gate: cada avanço do commit publicado pelo Raft vai direto ao gate (ADR-060). O gate
+//  1. gate: cada avanço do commit publicado pelo Raft vai direto ao gate (ADR-060). O gate
 //     não depende da fila do applier;
-//  3. commits: lê as entradas commitadas POR FAIXA da memória do Raft, a partir de From,
+//  2. commits: lê as entradas commitadas POR FAIXA da memória do Raft, a partir de From,
 //     e as entrega ao Applier.
 //
 // O commit é um sinal, não uma fila (ADR-060): o laço do Raft nunca espera esta bomba.
@@ -55,26 +51,17 @@ func ResumeFrom(progressIdx domain.Index) domain.Index {
 func (p *CommitPump) Delivered() domain.Index { return domain.Index(p.delivered.Load()) }
 
 func (p *CommitPump) Run(ctx context.Context) error {
-	ctx, cancel := context.WithCancelCause(ctx)
-	defer cancel(nil)
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
 	var wg sync.WaitGroup
-	wg.Add(2)
-	go func() {
-		defer wg.Done()
-		if err := p.runProgress(ctx); err != nil {
-			cancel(err)
-		}
-	}()
+	wg.Add(1)
 	go func() {
 		defer wg.Done()
 		p.runGate(ctx)
 	}()
 	err := p.runCommits(ctx)
-	cancel(err)
+	cancel()
 	wg.Wait()
-	if cause := context.Cause(ctx); cause != nil && !errors.Is(cause, context.Canceled) {
-		return cause
-	}
 	return err
 }
 
@@ -82,30 +69,11 @@ func (p *CommitPump) Run(ctx context.Context) error {
 func (p *CommitPump) runGate(ctx context.Context) {
 	for {
 		changed := p.Consensus.CommitChanged()
-		p.Gate.SetTerm(p.Consensus.Term())
 		p.Gate.SetRaftCommit(p.Consensus.CommitIndex())
 		select {
 		case <-ctx.Done():
 			return
 		case <-changed:
-		}
-	}
-}
-
-func (p *CommitPump) runProgress(ctx context.Context) error {
-	events := p.Consensus.LearnerEvents()
-	for {
-		select {
-		case <-ctx.Done():
-			return nil
-		case ev, ok := <-events:
-			if !ok {
-				return ErrStreamClosed
-			}
-			// O termo vem do motor antes do evento: líder nova descarta o progresso
-			// herdado e só adota o confirmado no termo novo (ADR-046, item 3).
-			p.Gate.SetTerm(p.Consensus.Term())
-			p.Gate.SetAzureDurable(ev.Term, ev.Index, ev.Learner)
 		}
 	}
 }

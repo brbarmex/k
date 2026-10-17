@@ -77,7 +77,6 @@ func newRead(leaderLocal bool, ri domain.Index, gate *domain.Gate, ap *recApplie
 // Na líder: gate pronto, ReadIndex, e espera o apply até min(ReadIndex, gate).
 func TestLeaderReadWaitsMinOfReadIndexAndGate(t *testing.T) {
 	g := &domain.Gate{}
-	g.SetAzureOff(true)
 	g.SetRaftCommit(8)
 	ap := &recApplied{applied: 8}
 	s, st := newRead(true, 10, g, ap, &fakeBarrierClient{})
@@ -104,7 +103,6 @@ func (stoppedApplied) WaitApplied(context.Context, domain.Index) error { return 
 // ErrApplierStopped, e não com READ_TIMEOUT depois do prazo; o banco não é lido.
 func TestReadFailsFastWhenApplierIsStopped(t *testing.T) {
 	g := &domain.Gate{}
-	g.SetAzureOff(true)
 	g.SetRaftCommit(8)
 	s, st := newRead(true, 8, g, &recApplied{}, &fakeBarrierClient{})
 	s.Applied = stoppedApplied{}
@@ -125,7 +123,6 @@ func TestReadFailsFastWhenApplierIsStopped(t *testing.T) {
 // Na follower: usa a barreira da líder, nunca o gate local.
 func TestFollowerReadUsesLeaderBarrier(t *testing.T) {
 	g := &domain.Gate{}
-	g.SetAzureOff(true)
 	g.SetRaftCommit(100) // gate local alto não pode ser usado
 	ap := &recApplied{applied: 50}
 	bc := &fakeBarrierClient{ri: 7, gate: 6}
@@ -143,18 +140,9 @@ func TestFollowerReadUsesLeaderBarrier(t *testing.T) {
 	}
 }
 
-// G-07: líder sem gate pronto não atende leitura forte.
-func TestLeaderReadGateNotReady(t *testing.T) {
-	s, _ := newRead(true, 1, &domain.Gate{}, &recApplied{}, &fakeBarrierClient{})
-	if _, err := s.Get(context.Background(), "t_{cell}", nil); !errors.Is(err, ErrGateNotReady) {
-		t.Fatalf("erro = %v", err)
-	}
-}
-
 // Apply local atrasado vira ErrReadTimeout; sem líder vira ErrNoLeader.
 func TestReadTimeoutAndNoLeader(t *testing.T) {
 	g := &domain.Gate{}
-	g.SetAzureOff(true)
 	g.SetRaftCommit(5)
 	s, _ := newRead(true, 5, g, &recApplied{applied: 1}, &fakeBarrierClient{})
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
@@ -193,7 +181,6 @@ func (p *recPublisher) get() (domain.Index, int) {
 func TestGateSync(t *testing.T) {
 	fc := newFakeConsensus()
 	g := &domain.Gate{}
-	g.SetAzureOff(true)
 	pub := &recPublisher{}
 	s := &GateSync{Consensus: fc, Gate: g, Publisher: pub, Interval: 5 * time.Millisecond}
 	ctx, cancel := context.WithCancel(context.Background())
@@ -207,7 +194,7 @@ func TestGateSync(t *testing.T) {
 	waitUntil(t, func() bool { _, m := pub.get(); return m > n+2 }, "a líder não republicou no intervalo")
 
 	fc.setLeader(port.LeaderInfo{NodeID: "2"}, true) // vira follower
-	waitUntil(t, func() bool { // follower não publica: o papel foi atualizado
+	waitUntil(t, func() bool {                       // follower não publica: o papel foi atualizado
 		_, m := pub.get()
 		time.Sleep(20 * time.Millisecond)
 		_, m2 := pub.get()

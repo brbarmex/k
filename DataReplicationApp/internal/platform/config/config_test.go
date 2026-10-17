@@ -12,7 +12,7 @@ func valid() map[string]string {
 	return map[string]string{
 		"CELL_ID": "a",
 		"NODE_ID": "1", "PEERS": "1=cell-1:7000,2=cell-2:7000,3=cell-3:7000",
-		"POC_SEM_AZURE": "true", "TABLES": "cadastro_cliente_cell_{cell}", "AWS_REGION": "sa-east-1",
+		"TABLES": "cadastro_cliente_cell_{cell}", "AWS_REGION": "sa-east-1",
 	}
 }
 
@@ -85,7 +85,7 @@ func TestClusterVars(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c.NodeID != 1 || len(c.Peers) != 3 || c.Peers[2] != "cell-2:7000" || len(c.Learners) != 0 || !c.POCNoAzure {
+	if c.NodeID != 1 || len(c.Peers) != 3 || c.Peers[2] != "cell-2:7000" {
 		t.Fatalf("membros: %+v", c)
 	}
 	if c.RaftDir != "/var/lib/dr/raft/wal" || c.PeerAddr != ":7000" ||
@@ -103,9 +103,6 @@ func TestClusterVars(t *testing.T) {
 		{"NODE_ID", "9", "não contém o NODE_ID"},
 		{"PEERS", "1=a,1=b", "repetido"},
 		{"PEERS", "x", "PEERS inválida"},
-		{"POC_SEM_AZURE", "", "LEARNERS vazia só é aceita na POC"},
-		{"LEARNERS", "4=a:1", "3 learners"},
-		{"LEARNERS", "1=a:1,5=b:1,6=c:1", "PEERS e em LEARNERS"},
 		{"TABLES", "sem_marcador", "{cell}"},
 		{"TABLES", "", "TABLES"},
 		{"AWS_REGION", "", "AWS_REGION"},
@@ -116,12 +113,6 @@ func TestClusterVars(t *testing.T) {
 		if _, err := LoadFrom(env(m)); err == nil || !strings.Contains(err.Error(), b.want) {
 			t.Errorf("%s=%q: erro %v, quer %q", b.key, b.val, err, b.want)
 		}
-	}
-	m := valid()
-	m["LEARNERS"] = "4=az-1:7000,5=az-2:7000,6=az-3:7000"
-	delete(m, "POC_SEM_AZURE")
-	if c, err := LoadFrom(env(m)); err != nil || len(c.Learners) != 3 {
-		t.Fatalf("com learners: %v %+v", err, c.Learners)
 	}
 }
 

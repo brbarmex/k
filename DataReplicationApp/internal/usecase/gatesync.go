@@ -54,7 +54,7 @@ func (s *GateSync) Run(ctx context.Context) error {
 			if idle >= stallTicks && !stalled {
 				stalled = true
 				s.Log.Warn().Uint64("gate", uint64(st.Index)).Uint64("commit", uint64(st.RaftCommit)).
-					Uint64("termo", uint64(st.Term)).Msg("gate parado")
+					Uint64("termo", uint64(s.Consensus.Term())).Msg("gate parado")
 			}
 		}
 		s.Tick()
@@ -66,7 +66,6 @@ func (s *GateSync) Tick() {
 	l, ok := s.Consensus.Leader()
 	leader := ok && l.Local
 	s.Gate.SetFollower(!leader)
-	s.Gate.SetTerm(s.Consensus.Term())
 	if leader {
 		s.Publisher.Publish(s.Gate.Index())
 	}

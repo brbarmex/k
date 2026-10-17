@@ -2,12 +2,10 @@ package usecase
 
 import (
 	"context"
-	"errors"
 	"testing"
 	"time"
 
 	"example.com/datareplication/internal/domain"
-	"example.com/datareplication/internal/port"
 )
 
 type pumpRig struct {
@@ -61,15 +59,6 @@ func (r *pumpRig) nextApplied(t *testing.T) []domain.Entry {
 	}
 }
 
-func (r *pumpRig) learner(t *testing.T, id string, term domain.Term, idx domain.Index) {
-	t.Helper()
-	select {
-	case r.cons.events <- port.LearnerProgress{Term: term, Index: idx, Learner: id}:
-	case <-time.After(2 * time.Second):
-		t.Fatal("o pump não aceitou o evento do learner")
-	}
-}
-
 func waitGate(t *testing.T, g *domain.Gate, idx domain.Index) {
 	t.Helper()
 	ctx, cancel := timeout(2 * time.Second)
@@ -79,36 +68,11 @@ func waitGate(t *testing.T, g *domain.Gate, idx domain.Index) {
 	}
 }
 
-// O defeito principal: o commit chega ANTES da confirmação da Azure e nenhum commit novo
-// vem depois. Com o gate alimentado só por lote, a escrita ficava esperando até o
-// timeout. Com evento, cada resposta de learner libera o gate na hora.
-func TestGateIsFedByLearnerEventsWithoutNewCommit(t *testing.T) {
-	r := startPump(t, 10)
-	r.commit(t, 5)
-	r.nextApplied(t)
-	if r.g.Index() != 0 {
-		t.Fatalf("sem Azure o gate não passa de 0, veio %d", r.g.Index())
-	}
-	r.learner(t, "az1", 1, 5)
-	r.learner(t, "az2", 1, 5)
-	waitGate(t, r.g, 5) // nenhum commit novo foi enviado
-}
-
-func TestGateAdvancesWhileApplierIsStuck(t *testing.T) {
-	r := startPump(t, 0) // canal sem buffer, ninguém lê: applier parado
-	r.commit(t, 9)
-	time.Sleep(20 * time.Millisecond)
-	r.learner(t, "az1", 1, 9)
-	r.learner(t, "az2", 1, 9)
-	waitGate(t, r.g, 9)
-}
-
-// ADR-060: o gate da POC (gate = commit) acompanha o commit publicado mesmo com o
+// ADR-060: o gate (gate = commit) acompanha o commit publicado mesmo com o
 // Applier parado. Antes, o gate só andava quando o lote entrava na fila do Applier, e o
 // teste de carga de 14/10 mostrou 73 mil entradas de "commit sem gate".
 func TestPOCGateFollowsCommitWhileApplierIsStuck(t *testing.T) {
 	r := startPump(t, 0) // ninguém lê o Applier
-	r.g.SetAzureOff(true)
 	for i := domain.Index(1); i <= 50; i++ {
 		r.commit(t, i)
 	}
@@ -147,31 +111,6 @@ func TestResumeFrom(t *testing.T) {
 	}
 }
 
-// Só conta o termo atual: um evento de termo antigo (sufixo de líder antiga) é ignorado,
-// e líder nova só adota o confirmado no termo novo.
-func TestPumpIgnoresStaleTermAndRebuildsOnNewTerm(t *testing.T) {
-	r := startPump(t, 10)
-	r.commit(t, 10)
-	r.learner(t, "az1", 1, 10)
-	r.learner(t, "az2", 1, 10)
-	waitGate(t, r.g, 10)
-
-	r.cons.setTerm(2)
-	r.commit(t, 20)
-	r.learner(t, "az1", 1, 20) // atrasado, do termo antigo
-	r.learner(t, "az2", 1, 20)
-	time.Sleep(30 * time.Millisecond)
-	if r.g.Index() != 10 {
-		t.Fatalf("progresso do termo antigo foi adotado: %d", r.g.Index())
-	}
-	r.learner(t, "az1", 2, 20)
-	r.learner(t, "az2", 2, 18)
-	waitGate(t, r.g, 18)
-	if r.g.Index() != 18 {
-		t.Fatalf("esperado 18, veio %d", r.g.Index())
-	}
-}
-
 // Sinal sem commit novo não derruba nem faz o pump entregar lote vazio.
 func TestSignalWithoutNewCommitIsHarmless(t *testing.T) {
 	r := startPump(t, 10)
@@ -184,32 +123,5 @@ func TestSignalWithoutNewCommitIsHarmless(t *testing.T) {
 	case err := <-r.done:
 		t.Fatalf("o pump parou: %v", err)
 	default:
-	}
-}
-
-// Canal de eventos fechado devolve erro (o motor parou) em vez de girar em falso.
-func TestClosedEventsChannelReturnsError(t *testing.T) {
-	cons := newFakeConsensus()
-	p := &CommitPump{Consensus: cons, Gate: &domain.Gate{}, ToApplier: make(chan []domain.Entry, 1)}
-	done := make(chan error, 1)
-	go func() { done <- p.Run(context.Background()) }()
-	close(cons.events)
-	select {
-	case err := <-done:
-		if !errors.Is(err, ErrStreamClosed) {
-			t.Fatalf("esperado ErrStreamClosed, veio %v", err)
-		}
-	case <-time.After(2 * time.Second):
-		t.Fatal("o pump não terminou com o canal fechado")
-	}
-}
-
-func TestPumpStopsOnContext(t *testing.T) {
-	r := startPump(t, 1)
-	r.cancel()
-	select {
-	case <-r.done:
-	case <-time.After(2 * time.Second):
-		t.Fatal("não parou com o contexto")
 	}
 }

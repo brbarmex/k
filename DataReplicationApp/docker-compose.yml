@@ -4,8 +4,6 @@
 # Variáveis iguais nas três células: a ConfState de partida tem de ser a mesma (RT-03).
 x-dr-env: &dr-env
   PEERS: "1=cell-1:7000,2=cell-2:7000,3=cell-3:7000"
-  LEARNERS: ""
-  POC_SEM_AZURE: "true" # SÓ DA POC (G-08, SG-12)
   TABLES: "cadastro_cliente_cell_{cell}"
   AWS_REGION: "sa-east-1"
   AWS_ACCESS_KEY_ID: "test"

@@ -20,7 +20,7 @@ func (fakeCatalogReady) Ready() bool { return true }
 
 func newStatus(info port.RaftInfo) *StatusReporter {
 	return &StatusReporter{CellID: "1", NodeID: 1, Raft: fakeRaftStatus{info}, Gate: &domain.Gate{},
-		Applier: &Applier{}, Catalog: fakeCatalogReady{}, AzureOff: true}
+		Applier: &Applier{}, Catalog: fakeCatalogReady{}}
 }
 
 // O-14: o quórum aparece só na líder, com Ok = maioria dos votantes ativa.
@@ -67,7 +67,6 @@ func TestStatusShowsApplyLagAndUndelivered(t *testing.T) {
 	pump := &CommitPump{Consensus: cons}
 	pump.delivered.Store(40)
 	s := newStatus(port.RaftInfo{NodeID: 1, Lead: 1, Running: true, Commit: 100})
-	s.Gate.SetAzureOff(true)
 	s.Gate.SetRaftCommit(90)
 	s.Pump, s.ApplyInbox, s.ApplyLagMax, s.ElectionTicks = pump, func() int { return 3 }, 4096, 30
 	st := s.Status()

@@ -35,20 +35,8 @@ type ConsensusEngine interface {
 	CommitChanged() <-chan struct{}
 	CommittedEntries(lo, hi domain.Index, maxBytes uint64) ([]domain.Entry, error)
 	FirstIndex() domain.Index
-	// Term é o termo atual da líder local (ADR-046: o gate só adota progresso desse termo).
+	// Term é o termo atual visto pelo nó local.
 	Term() domain.Term
-	// LearnerEvents entrega CADA resposta de AppendEntries dos learners da Azure, no
-	// momento em que chega (o gate é alimentado por evento, ADR-046). O progresso da
-	// Azure não tem outro canal.
-	LearnerEvents() <-chan LearnerProgress
-}
-
-// LearnerProgress é o índice de casamento devolvido por um learner depois do fsync,
-// com o termo em que foi confirmado e a identidade do learner (ADR-046, ADR-034).
-type LearnerProgress struct {
-	Term    domain.Term
-	Index   domain.Index
-	Learner string
 }
 
 type LeaderInfo struct {

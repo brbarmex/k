@@ -92,7 +92,7 @@ func TestApplierNeverPassesTheGate(t *testing.T) {
 	if st.count() != 0 {
 		t.Fatalf("aplicou %d itens antes do gate", st.count())
 	}
-	releaseGate(g, 1, 1)
+	releaseGate(g, 1)
 	ctx, c2 := context.WithTimeout(context.Background(), time.Second)
 	defer c2()
 	if err := a.WaitApplied(ctx, 1); err != nil {
@@ -102,7 +102,7 @@ func TestApplierNeverPassesTheGate(t *testing.T) {
 	if a.Applied() != 1 || st.count() != 1 {
 		t.Fatalf("applied = %d, itens = %d; o gate estava em 1", a.Applied(), st.count())
 	}
-	releaseGate(g, 1, 2)
+	releaseGate(g, 2)
 	if err := a.WaitApplied(ctx, 2); err != nil {
 		t.Fatal(err)
 	}
@@ -110,7 +110,7 @@ func TestApplierNeverPassesTheGate(t *testing.T) {
 
 func TestApplierResumesFromItemProgress(t *testing.T) {
 	g := &domain.Gate{}
-	releaseGate(g, 1, 10)
+	releaseGate(g, 10)
 	in := make(chan []domain.Entry, 1)
 	st := &fakeStore{}
 	// Antes da queda, a entrada 5 tinha os itens 1 e 2 de 3 aplicados.
@@ -139,7 +139,7 @@ func TestApplierResumesFromItemProgress(t *testing.T) {
 // estacionar; um índice anterior ao item venenoso continua sendo atendido.
 func TestWaitAppliedFailsFastWhenParked(t *testing.T) {
 	g := &domain.Gate{}
-	releaseGate(g, 1, 10)
+	releaseGate(g, 10)
 	in := make(chan []domain.Entry, 1)
 	a := &Applier{Gate: g, Store: &fakeStore{failAt: 2}, Progress: &fakeProgress{}, In: in}
 	cancel, _ := startApplier(t, a)
@@ -174,7 +174,7 @@ func TestWaitAppliedFailsFastWhenParked(t *testing.T) {
 // AP-07: erro permanente estaciona o applier sem pular e sem derrubar o processo.
 func TestPoisonItemStopsTheShard(t *testing.T) {
 	g := &domain.Gate{}
-	releaseGate(g, 1, 10)
+	releaseGate(g, 10)
 	in := make(chan []domain.Entry, 1)
 	st := &fakeStore{failAt: 2}
 	a := &Applier{Gate: g, Store: st, Progress: &fakeProgress{}, In: in}
@@ -206,7 +206,7 @@ func TestPoisonItemStopsTheShard(t *testing.T) {
 // AP-07: erro transitório é repetido com backoff até dar certo.
 func TestTransientErrorIsRetried(t *testing.T) {
 	g := &domain.Gate{}
-	releaseGate(g, 1, 10)
+	releaseGate(g, 10)
 	in := make(chan []domain.Entry, 1)
 	st := &fakeStore{transient: 2}
 	a := &Applier{Gate: g, Store: st, Progress: &fakeProgress{}, In: in,
@@ -290,7 +290,7 @@ func (s *gatedStore) peakNow() int {
 // ADR-058: chaves diferentes são gravadas ao mesmo tempo, até o número de workers.
 func TestApplierWritesDifferentKeysInParallel(t *testing.T) {
 	g := &domain.Gate{}
-	releaseGate(g, 1, 100)
+	releaseGate(g, 100)
 	in := make(chan []domain.Entry, 1)
 	st := newGatedStore()
 	a := &Applier{Gate: g, Store: st, Progress: &fakeProgress{}, In: in, Workers: 64}
@@ -324,7 +324,7 @@ func TestApplierWritesDifferentKeysInParallel(t *testing.T) {
 // e o progresso salvo é a marca d'água.
 func TestWatermarkWaitsForTheSlowestEarlierKey(t *testing.T) {
 	g := &domain.Gate{}
-	releaseGate(g, 1, 100)
+	releaseGate(g, 100)
 	in := make(chan []domain.Entry, 1)
 	st := newGatedStore()
 	prog := &fakeProgress{}
@@ -362,7 +362,7 @@ func TestWatermarkWaitsForTheSlowestEarlierKey(t *testing.T) {
 // A mesma chave é gravada na ordem do log, mesmo com muitos workers.
 func TestSameKeyIsAppliedInLogOrder(t *testing.T) {
 	g := &domain.Gate{}
-	releaseGate(g, 1, 1000)
+	releaseGate(g, 1000)
 	in := make(chan []domain.Entry, 1)
 	st := newGatedStore()
 	for _, k := range []string{"x", "y", "z"} {
@@ -397,7 +397,7 @@ func TestSameKeyIsAppliedInLogOrder(t *testing.T) {
 // anteriores de outras chaves terminam e nenhum item posterior é gravado depois da parada.
 func TestPoisonItemStopsTheWatermarkWithParallelWorkers(t *testing.T) {
 	g := &domain.Gate{}
-	releaseGate(g, 1, 100)
+	releaseGate(g, 100)
 	in := make(chan []domain.Entry, 1)
 	st := &fakeStore{failAt: 4}
 	a := &Applier{Gate: g, Store: st, Progress: &fakeProgress{}, In: in, Workers: 8}
@@ -474,7 +474,6 @@ func BenchmarkApplierThroughput(b *testing.B) {
 		b.Run(fmt.Sprintf("workers=%d", workers), func(b *testing.B) {
 			const items = 2000
 			g := &domain.Gate{}
-			g.SetAzureOff(true)
 			g.SetRaftCommit(items)
 			for i := 0; i < b.N; i++ {
 				in := make(chan []domain.Entry, 1)

@@ -3141,98 +3141,6 @@
         "type": "prometheus",
         "uid": "prometheus-dr"
       },
-      "description": "1 quando gate pode servir leitura forte; ausência de dados é distinta de 0.",
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "thresholds"
-          },
-          "custom": {
-            "axisPlacement": "auto",
-            "fillOpacity": 80,
-            "hideFrom": {
-              "legend": false,
-              "tooltip": false,
-              "viz": false
-            },
-            "insertNulls": false,
-            "lineWidth": 0,
-            "spanNulls": false
-          },
-          "mappings": [
-            {
-              "options": {
-                "0": {
-                  "color": "orange",
-                  "index": 1,
-                  "text": "não pronto"
-                },
-                "1": {
-                  "color": "green",
-                  "index": 0,
-                  "text": "pronto"
-                }
-              },
-              "type": "value"
-            }
-          ],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": 0
-              }
-            ]
-          }
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 6,
-        "w": 12,
-        "x": 0,
-        "y": 104
-      },
-      "id": 38,
-      "options": {
-        "alignValue": "center",
-        "legend": {
-          "displayMode": "list",
-          "placement": "bottom",
-          "showLegend": true
-        },
-        "mergeValues": true,
-        "rowHeight": 0.8,
-        "showValue": "never",
-        "tooltip": {
-          "hideZeros": false,
-          "mode": "single",
-          "sort": "none"
-        }
-      },
-      "pluginVersion": "12.1.0",
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus-dr"
-          },
-          "expr": "max by (celula) (dr_gate_ready{celula=~\"$celula\"})",
-          "instant": false,
-          "legendFormat": "cell-{{celula}}",
-          "range": true,
-          "refId": "A"
-        }
-      ],
-      "title": "Gate pronto | histórico",
-      "type": "state-timeline"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus-dr"
-      },
       "description": "1 quando aplicação parou numa entrada não aplicável. Não confundir com atraso normal.",
       "fieldConfig": {
         "defaults": {
@@ -3424,109 +3332,6 @@
       ],
       "title": "Readiness por célula",
       "type": "state-timeline"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus-dr"
-      },
-      "description": "1 identifica operação sem Azure nesta POC. Não representa saúde de replicação multicloud.",
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
-          "custom": {
-            "axisBorderShow": false,
-            "axisCenteredZero": false,
-            "axisColorMode": "text",
-            "axisLabel": "",
-            "axisPlacement": "auto",
-            "barAlignment": 0,
-            "barWidthFactor": 0.6,
-            "drawStyle": "line",
-            "fillOpacity": 10,
-            "gradientMode": "none",
-            "hideFrom": {
-              "legend": false,
-              "tooltip": false,
-              "viz": false
-            },
-            "insertNulls": false,
-            "lineInterpolation": "stepAfter",
-            "lineWidth": 2,
-            "pointSize": 5,
-            "scaleDistribution": {
-              "type": "linear"
-            },
-            "showPoints": "never",
-            "spanNulls": false,
-            "stacking": {
-              "group": "A",
-              "mode": "none"
-            },
-            "thresholdsStyle": {
-              "mode": "off"
-            }
-          },
-          "decimals": 0,
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": 0
-              },
-              {
-                "color": "red",
-                "value": 80
-              }
-            ]
-          },
-          "unit": "short"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 7,
-        "w": 12,
-        "x": 12,
-        "y": 111
-      },
-      "id": 42,
-      "options": {
-        "legend": {
-          "calcs": [
-            "lastNotNull",
-            "max"
-          ],
-          "displayMode": "table",
-          "placement": "bottom",
-          "showLegend": true
-        },
-        "tooltip": {
-          "hideZeros": false,
-          "mode": "multi",
-          "sort": "desc"
-        }
-      },
-      "pluginVersion": "12.1.0",
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus-dr"
-          },
-          "expr": "dr_azure_off{celula=~\"$celula\"}",
-          "instant": false,
-          "legendFormat": "{{celula}}",
-          "range": true,
-          "refId": "A"
-        }
-      ],
-      "title": "Modo sem Azure | POC",
-      "type": "timeseries"
     },
     {
       "collapsed": false,
@@ -4367,7 +4172,7 @@
         "type": "prometheus",
         "uid": "prometheus-dr"
       },
-      "description": "Itens gravados no banco da célula por segundo. É o teto de TPS sustentado: acima disso o atraso cresce até a admissão recusar. Compare com task bench-localstack.",
+      "description": "Itens gravados no banco da célula por segundo. É o teto de TPS sustentado: acima disso o atraso cresce até a admissão recusar.",
       "fieldConfig": {
         "defaults": {
           "color": {

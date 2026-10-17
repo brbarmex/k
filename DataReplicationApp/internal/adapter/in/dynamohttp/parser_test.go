@@ -150,7 +150,7 @@ func TestReadResponsesAndIndexHeader(t *testing.T) {
 	if c = call(s, "GetItem", `{"TableName":"cadastro_cliente_cell_1","Key":{"pk":{"S":"x"}}}`); string(c.Response.Body()) != `{}` {
 		t.Fatalf("GetItem sem item: %s", c.Response.Body())
 	}
-	for err, code := range map[error]string{usecase.ErrReadTimeout: "READ_TIMEOUT", usecase.ErrGateNotReady: "GATE_NOT_READY", usecase.ErrNoLeader: "NO_LEADER"} {
+	for err, code := range map[error]string{usecase.ErrReadTimeout: "READ_TIMEOUT", usecase.ErrNoLeader: "NO_LEADER"} {
 		s = New(fakeWriter{}, fakeReader{err: err}, p.Parse, Options{Deadline: Deadline(time.Second), IdleTimeout: 120 * time.Second})
 		c = call(s, "GetItem", `{"TableName":"cadastro_cliente_cell_1","Key":{"pk":{"S":"x"}}}`)
 		if c.Response.StatusCode() != 503 || string(c.Response.Header.Peek("x-dr-code")) != code {

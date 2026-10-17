@@ -9,21 +9,19 @@ import (
 
 // CellStatus é o retrato da célula para o /status (S.7).
 type CellStatus struct {
-	Celula     string       `json:"celula"`
-	No         uint64       `json:"no"`
-	Papel      string       `json:"papel"`
-	Lider      uint64       `json:"lider"`
-	Termo      domain.Term  `json:"termo"`
-	Commit     domain.Index `json:"commit"`
-	Gate       domain.Index `json:"gate"`
-	GatePronto bool         `json:"gatePronto"`
-	Aplicado   domain.Index `json:"aplicado"`
-	Apply      ApplyStatus  `json:"apply"`
+	Celula   string       `json:"celula"`
+	No       uint64       `json:"no"`
+	Papel    string       `json:"papel"`
+	Lider    uint64       `json:"lider"`
+	Termo    domain.Term  `json:"termo"`
+	Commit   domain.Index `json:"commit"`
+	Gate     domain.Index `json:"gate"`
+	Aplicado domain.Index `json:"aplicado"`
+	Apply    ApplyStatus  `json:"apply"`
 	// CommitNaoEntregue: entradas commitadas que o CommitPump ainda não entregou ao
 	// applier (ADR-060). Ficam na memória do Raft; o laço do Raft não espera por elas.
 	CommitNaoEntregue uint64            `json:"commitNaoEntregue"`
 	ElectionTicks     int               `json:"electionTicks"`
-	Azure             string            `json:"azure"`
 	ErroApply         string            `json:"erroApply,omitempty"`
 	Match             map[string]uint64 `json:"match,omitempty"`
 	Quorum            *QuorumStatus     `json:"quorum,omitempty"` // só na líder
@@ -51,13 +49,12 @@ type ApplyStatus struct {
 
 // StatusReporter agrega Raft, gate, applier e catálogo.
 type StatusReporter struct {
-	CellID   string
-	NodeID   uint64
-	Raft     port.RaftStatus
-	Gate     *domain.Gate
-	Applier  *Applier
-	Catalog  port.Catalog
-	AzureOff bool
+	CellID  string
+	NodeID  uint64
+	Raft    port.RaftStatus
+	Gate    *domain.Gate
+	Applier *Applier
+	Catalog port.Catalog
 
 	// Opcionais (ADR-060): o CommitPump (commit não entregue), o tamanho da fila do
 	// applier e a configuração mostrada no /status.
@@ -72,11 +69,8 @@ func (r *StatusReporter) Status() CellStatus {
 	g := r.Gate.Snapshot()
 	st := CellStatus{
 		Celula: r.CellID, No: r.NodeID, Papel: "follower", Lider: ri.Lead, Termo: ri.Term, Commit: ri.Commit,
-		Gate: g.Index, GatePronto: g.Ready, Aplicado: r.Applier.Applied(), Azure: "on",
+		Gate: g.Index, Aplicado: r.Applier.Applied(),
 		Apply: ApplyStatus{Workers: r.Applier.WorkerCount(), EmVoo: r.Applier.InFlight()},
-	}
-	if r.AzureOff {
-		st.Azure = "off"
 	}
 	st.Apply.AtrasoMax = r.ApplyLagMax
 	if st.Gate > st.Aplicado {

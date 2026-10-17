@@ -14,7 +14,6 @@ const (
 	CodeNotLeader    = "NOT_LEADER"
 	CodePending      = "PENDING"
 	CodeThrottling   = "THROTTLING"
-	CodeGateNotReady = "GATE_NOT_READY"
 	CodeReadTimeout  = "READ_TIMEOUT"
 	CodeInternal     = "INTERNAL"
 )
@@ -35,8 +34,6 @@ func CodeOf(err error) string {
 		return CodePending
 	case errors.Is(err, usecase.ErrBackpressure):
 		return CodeThrottling
-	case errors.Is(err, usecase.ErrGateNotReady):
-		return CodeGateNotReady
 	case errors.Is(err, usecase.ErrReadTimeout):
 		return CodeReadTimeout
 	default:
@@ -57,8 +54,6 @@ func ErrOf(code string) error {
 		return usecase.ErrPending
 	case CodeThrottling:
 		return usecase.ErrBackpressure
-	case CodeGateNotReady:
-		return usecase.ErrGateNotReady
 	case CodeReadTimeout:
 		return usecase.ErrReadTimeout
 	default:

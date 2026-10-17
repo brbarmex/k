@@ -7,7 +7,7 @@ func TestOnlyLeaderMsgAppBeforeSync(t *testing.T) {
 		MsgHeartbeat, MsgHeartbeatResp, MsgSnap, MsgOther}
 	for _, k := range all {
 		if CanSendBeforeSync(false, k) {
-			t.Errorf("seguidor ou learner não pode enviar %d antes do fsync", k)
+			t.Errorf("follower não pode enviar %d antes do fsync", k)
 		}
 		if want := k == MsgApp; CanSendBeforeSync(true, k) != want {
 			t.Errorf("líder, tipo %d: esperado %v", k, want)
@@ -32,7 +32,7 @@ func TestSplitKeepsOrder(t *testing.T) {
 		t.Fatalf("depois do fsync: %v", after)
 	}
 
-	// Um learner da Azure nunca antecipa nada, nem MsgApp (não deveria gerar, mas a regra vale).
+	// Uma follower nunca antecipa nada, nem MsgApp (não deveria gerar, mas a regra vale).
 	before, after = SplitBeforeSync(false, msgs, kind)
 	if len(before) != 0 || len(after) != len(msgs) {
 		t.Fatalf("não líder: antes=%v depois=%v", before, after)

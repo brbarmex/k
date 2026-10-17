@@ -25,7 +25,7 @@ type Metrics interface {
 	Forwarded()
 	// WriteDone: resultado em ok, no_leader, pending, throttling, recusada, erro.
 	WriteDone(resultado string, d time.Duration)
-	// ReadDone: op em get, scan; resultado em ok, no_leader, gate_not_ready, read_timeout,
+	// ReadDone: op em get, scan; resultado em ok, no_leader, read_timeout,
 	// recusada, erro.
 	ReadDone(op string, resultado string)
 	// ReadBarrier: duração da barreira de leitura mais a espera do apply.

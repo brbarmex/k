@@ -33,8 +33,7 @@ type Sender interface {
 type Config struct {
 	ID           uint64
 	Voters       []uint64
-	Learners     []uint64 // vazio na POC (G-08)
-	Dir          string   // diretório do WAL; um subdiretório do volume (C-04)
+	Dir          string // diretório do WAL; um subdiretório do volume (C-04)
 	TickInterval time.Duration
 	// ElectionTicks é o timeout de eleição em ticks (ELECTION_TICKS, ADR-060). O heartbeat
 	// é sempre 1 tick. 0 = 10 (1 s com tick de 100 ms).
@@ -49,16 +48,13 @@ type Config struct {
 // Node é o motor de consenso real. Implementa port.ConsensusEngine, port.RaftInbound e
 // port.RaftStatus.
 type Node struct {
-	cfg      Config
-	node     raft.Node
-	storage  *raft.MemoryStorage
-	wal      *wal.WAL
-	send     Sender
-	log      zerolog.Logger
-	metrics  port.Metrics
-	learners map[uint64]bool
-
-	events chan port.LearnerProgress
+	cfg     Config
+	node    raft.Node
+	storage *raft.MemoryStorage
+	wal     *wal.WAL
+	send    Sender
+	log     zerolog.Logger
+	metrics port.Metrics
 
 	// O commit é um SINAL, não uma fila (ADR-060): o laço do Ready publica o índice e
 	// fecha commitCh; quem consome lê as entradas por faixa do MemoryStorage. O laço nunca
@@ -85,7 +81,7 @@ var (
 )
 
 // Open abre o WAL (ou cria, na partida do zero) e reinicia o nó Raft a partir dele.
-// Votantes ou learners diferentes do que está gravado impedem a partida (RT-10).
+// Votantes diferentes do que está gravado impedem a partida (RT-10).
 func Open(cfg Config, send Sender, log zerolog.Logger) (*Node, error) {
 	if cfg.TickInterval <= 0 {
 		cfg.TickInterval = 100 * time.Millisecond
@@ -96,14 +92,9 @@ func Open(cfg Config, send Sender, log zerolog.Logger) (*Node, error) {
 	}
 	n := &Node{
 		cfg: cfg, storage: ms, wal: w, send: send, log: log, metrics: port.MetricsOrNop(cfg.Metrics),
-		learners: make(map[uint64]bool, len(cfg.Learners)),
-		events:   make(chan port.LearnerProgress, 1024),
 		commitCh: make(chan struct{}),
 		pending:  make(map[uint64]chan domain.Index),
 		reads:    make(map[string]chan domain.Index),
-	}
-	for _, l := range cfg.Learners {
-		n.learners[l] = true
 	}
 	n.nextProposal.Store(uint64(time.Now().UnixNano()))
 	if hs, _, err := ms.InitialState(); err == nil {
@@ -349,9 +340,7 @@ func (n *Node) ReadIndex(ctx context.Context) (domain.Index, error) {
 	}
 }
 
-// Step entrega ao Raft as mensagens recebidas de um par. Uma resposta de AppendEntries
-// sem rejeição, vinda de um learner, vira evento de progresso (G-04): heartbeat não conta
-// e nenhum evento é descartado (o canal bloqueia).
+// Step entrega ao Raft as mensagens recebidas de um par.
 func (n *Node) Step(ctx context.Context, msgs [][]byte) error {
 	for _, data := range msgs {
 		m := &raftpb.Message{}
@@ -361,17 +350,6 @@ func (n *Node) Step(ctx context.Context, msgs [][]byte) error {
 		n.metrics.RaftMessageReceived(typeName(m))
 		if t := m.GetType(); t == raftpb.MsgHeartbeat || t == raftpb.MsgHeartbeatResp {
 			n.metrics.HeartbeatSeen()
-		}
-		if m.GetType() == raftpb.MsgAppResp && !m.GetReject() && n.learners[m.GetFrom()] {
-			ev := port.LearnerProgress{
-				Term: domain.Term(m.GetTerm()), Index: domain.Index(m.GetIndex()),
-				Learner: strconv.FormatUint(m.GetFrom(), 10),
-			}
-			select {
-			case n.events <- ev:
-			case <-ctx.Done():
-				return ctx.Err()
-			}
 		}
 		if err := n.node.Step(ctx, m); err != nil && !errors.Is(err, raft.ErrStopped) {
 			return err
@@ -432,8 +410,7 @@ func (n *Node) CommittedEntries(lo, hi domain.Index, maxBytes uint64) ([]domain.
 	return out, nil
 }
 
-func (n *Node) Term() domain.Term                          { return domain.Term(n.term.Load()) }
-func (n *Node) LearnerEvents() <-chan port.LearnerProgress { return n.events }
+func (n *Node) Term() domain.Term { return domain.Term(n.term.Load()) }
 
 // Status devolve o retrato do Raft local; Match só na líder.
 func (n *Node) Status() port.RaftInfo {

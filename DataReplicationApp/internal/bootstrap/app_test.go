@@ -7,7 +7,6 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/rs/zerolog"
 	"go.uber.org/fx"
 
 	"example.com/datareplication/internal/adapter/in/dynamohttp"
@@ -39,8 +38,7 @@ func (*stubConsensus) FirstIndex() domain.Index       { return 1 }
 func (*stubConsensus) CommittedEntries(domain.Index, domain.Index, uint64) ([]domain.Entry, error) {
 	return nil, nil
 }
-func (*stubConsensus) Term() domain.Term                          { return 1 }
-func (*stubConsensus) LearnerEvents() <-chan port.LearnerProgress { return nil }
+func (*stubConsensus) Term() domain.Term { return 1 }
 
 type stubForwarder struct{}
 
@@ -64,7 +62,6 @@ func setEnv(t *testing.T) {
 	t.Setenv("CELL_ID", "a")
 	t.Setenv("NODE_ID", "1")
 	t.Setenv("PEERS", "1=cell-1:7000,2=cell-2:7000,3=cell-3:7000")
-	t.Setenv("LEARNERS", "4=az-1:7000,5=az-2:7000,6=az-3:7000") // gate com Azure, como em produção
 	t.Setenv("TABLES", "cadastro_cliente_cell_{cell}")
 	t.Setenv("AWS_REGION", "sa-east-1")
 }
@@ -99,10 +96,7 @@ func build(t *testing.T) (port.Writer, *domain.Gate) {
 // O grafo do núcleo fecha e a escrita ACKa quando o gate libera.
 func TestWriterWiring(t *testing.T) {
 	w, g := build(t)
-	g.SetTerm(1)
 	g.SetRaftCommit(100)
-	g.SetAzureDurable(1, 100, "az1")
-	g.SetAzureDurable(1, 100, "az2")
 	if _, err := w.Write(context.Background(), port.WriteRequest{}); err != nil {
 		t.Fatal(err)
 	}
@@ -111,8 +105,6 @@ func TestWriterWiring(t *testing.T) {
 // O grafo completo de produção fecha (O-09): todos os provedores e invocações casam.
 func TestProductionGraphIsValid(t *testing.T) {
 	setEnv(t)
-	t.Setenv("LEARNERS", "")
-	t.Setenv("POC_SEM_AZURE", "true")
 	if err := fx.ValidateApp(fx.NopLogger, Runtime(), fx.Provide(
 		config.Load, newLogger, newGate,
 		fx.Annotate(newWriteService, fx.As(new(port.Writer))),
@@ -120,25 +112,6 @@ func TestProductionGraphIsValid(t *testing.T) {
 		dynamohttp.New,
 	), fx.Invoke(runHTTP)); err != nil {
 		t.Fatalf("grafo de produção inválido: %v", err)
-	}
-}
-
-// Sem learners e sem POC_SEM_AZURE a partida falha (SG-12).
-func TestEmptyLearnersNeedsPOCFlag(t *testing.T) {
-	setEnv(t)
-	t.Setenv("LEARNERS", "")
-	if _, err := config.Load(); err == nil {
-		t.Fatal("LEARNERS vazia sem POC_SEM_AZURE devia falhar")
-	}
-	t.Setenv("POC_SEM_AZURE", "true")
-	cfg, err := config.Load()
-	if err != nil {
-		t.Fatal(err)
-	}
-	g := newGate(cfg, zerolog.Nop())
-	g.SetRaftCommit(5)
-	if g.Index() != 5 || !g.Ready() {
-		t.Fatal("sem learners o gate devia estar no modo sem Azure (gate = commit)")
 	}
 }
 

@@ -19,8 +19,6 @@ type fakeConsensus struct {
 	onPropose  func(domain.Entry) // gancho executado dentro do Propose (sem o mutex)
 	proposeErr error
 
-	events chan port.LearnerProgress
-
 	// Memória do Raft e commit publicado (ADR-060): log[i-1] é a entrada de índice i.
 	cmu       sync.Mutex
 	log       []domain.Entry
@@ -31,7 +29,7 @@ type fakeConsensus struct {
 func newFakeConsensus() *fakeConsensus {
 	return &fakeConsensus{
 		hasLeader: true, leader: port.LeaderInfo{NodeID: "n1", Local: true}, term: 1, next: 4,
-		events: make(chan port.LearnerProgress), changed: make(chan struct{}),
+		changed: make(chan struct{}),
 	}
 }
 
@@ -127,16 +125,10 @@ func (f *fakeConsensus) Leader() (port.LeaderInfo, bool) {
 	defer f.mu.Unlock()
 	return f.leader, f.hasLeader
 }
-func (f *fakeConsensus) LearnerEvents() <-chan port.LearnerProgress { return f.events }
 func (f *fakeConsensus) Term() domain.Term {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return f.term
-}
-func (f *fakeConsensus) setTerm(t domain.Term) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	f.term = t
 }
 
 // fakeApplied: bloqueia até done fechar; onWait roda antes (simula pausa de processo).
@@ -178,10 +170,5 @@ func (f *fakeForwarder) Forward(_ context.Context, _ string, r port.WriteRequest
 	return port.WriteResult{Index: 99}, nil
 }
 
-// releaseGate libera o gate até idx no termo term, como se Raft e Azure tivessem confirmado.
-func releaseGate(g *domain.Gate, term domain.Term, idx domain.Index) {
-	g.SetTerm(term)
-	g.SetRaftCommit(idx)
-	g.SetAzureDurable(term, idx, "az1")
-	g.SetAzureDurable(term, idx, "az2")
-}
+// releaseGate libera o gate até idx, como se o Raft tivesse feito o commit.
+func releaseGate(g *domain.Gate, idx domain.Index) { g.SetRaftCommit(idx) }

@@ -27,7 +27,7 @@ var (
 	MsgTypes     = []string{"app", "app_resp", "vote", "vote_resp", "prevote", "prevote_resp", "heartbeat", "heartbeat_resp", "snap", "outro"}
 	WriteResults = []string{"ok", "no_leader", "pending", "throttling", "recusada", "erro"}
 	ReadOps      = []string{"get", "scan"}
-	ReadResults  = []string{"ok", "no_leader", "gate_not_ready", "read_timeout", "applier_stopped", "recusada", "erro"}
+	ReadResults  = []string{"ok", "no_leader", "read_timeout", "applier_stopped", "recusada", "erro"}
 	// ThrottleCauses são as causas da contrapressão (O-27, ADR-060).
 	ThrottleCauses = []string{"buffer_cheio", "nao_lider", "atraso_apply"}
 	// HTTPOps são as operações pré-inicializadas na porta de API (O-28).

@@ -26,8 +26,7 @@ func (f fakeSource) Ready() (bool, string)      { return f.ready, "" }
 
 func leaderSource() fakeSource {
 	return fakeSource{ready: true, st: usecase.CellStatus{
-		Celula: "1", No: 1, Papel: "lider", Lider: 1, Termo: 3, Commit: 10, Gate: 10, GatePronto: true, Aplicado: 9,
-		Azure:  "off",
+		Celula: "1", No: 1, Papel: "lider", Lider: 1, Termo: 3, Commit: 10, Gate: 10, Aplicado: 9,
 		Match:  map[string]uint64{"1": 10, "2": 10, "3": 7},
 		Quorum: &usecase.QuorumStatus{Ativos: 2, Votantes: 3, Ok: true},
 	}}
@@ -95,10 +94,10 @@ func TestStateCollectorLeaderAndFollower(t *testing.T) {
 	out := scrape(t, r)
 	for _, want := range []string{
 		`dr_is_leader{celula="1"} 1`, `dr_leader_id{celula="1"} 1`, `dr_raft_term{celula="1"} 3`,
-		`dr_commit_index{celula="1"} 10`, `dr_applied_index{celula="1"} 9`, `dr_gate_ready{celula="1"} 1`,
+		`dr_commit_index{celula="1"} 10`, `dr_applied_index{celula="1"} 9`,
 		`dr_quorum_active{celula="1"} 2`, `dr_quorum_ok{celula="1"} 1`, `dr_quorum_voters{celula="1"} 3`,
 		`dr_peer_lag{celula="1",par="3"} 3`, `dr_peer_match_index{celula="1",par="2"} 10`,
-		`dr_ready{celula="1"} 1`, `dr_azure_off{celula="1"} 1`,
+		`dr_ready{celula="1"} 1`,
 		`dr_applier_stopped{celula="1"} 0`,
 	} {
 		if !strings.Contains(out, want+"\n") {
@@ -158,9 +157,9 @@ func TestAllSeriesRegistered(t *testing.T) {
 		"dr_raft_last_heartbeat_timestamp_seconds", "dr_wal_fsync_duration_seconds", "dr_peer_send_dropped_total",
 		"dr_forwards_total", "dr_writes_total", "dr_write_duration_seconds", "dr_reads_total",
 		"dr_read_barrier_duration_seconds", "dr_is_leader", "dr_leader_id", "dr_raft_term", "dr_commit_index",
-		"dr_gate_index", "dr_gate_ready", "dr_applied_index",
+		"dr_gate_index", "dr_applied_index",
 		"dr_quorum_active", "dr_quorum_voters", "dr_quorum_ok", "dr_peer_match_index", "dr_peer_lag",
-		"dr_applier_stopped", "dr_ready", "dr_azure_off", "dr_apply_workers", "dr_apply_inflight",
+		"dr_applier_stopped", "dr_ready", "dr_apply_workers", "dr_apply_inflight",
 		"dr_apply_item_duration_seconds",
 		// ADR-060 (O-27, O-28)
 		"dr_raft_loop_duration_seconds", "dr_raft_tick_gap_seconds", "dr_throttled_total",

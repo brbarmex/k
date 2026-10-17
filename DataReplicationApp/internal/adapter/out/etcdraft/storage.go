@@ -17,9 +17,9 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-// ErrMembership: os votantes ou learners da configuração diferem da ConfState gravada no
-// WAL (RT-10). A POC não troca membros: a célula não sobe.
-var ErrMembership = errors.New("PEERS/LEARNERS diferem do que está gravado no WAL")
+// ErrMembership: os votantes da configuração diferem da ConfState gravada no WAL (RT-10).
+// A POC não troca membros: a célula não sobe.
+var ErrMembership = errors.New("PEERS difere do que está gravado no WAL")
 
 // bootIndex e bootTerm são o snapshot sintético de partida (RT-03): todas as células
 // nascem dele, com a mesma ConfState. A primeira entrada útil tem índice 2.
@@ -33,7 +33,7 @@ const (
 // ConfState gravada com a configuração e recarrega HardState e entradas (RT-09, RT-10).
 func openStorage(cfg Config) (*wal.WAL, *raft.MemoryStorage, error) {
 	lg := zap.NewNop()
-	cs := &raftpb.ConfState{Voters: sorted(cfg.Voters), Learners: sorted(cfg.Learners)}
+	cs := &raftpb.ConfState{Voters: sorted(cfg.Voters)}
 	ms := raft.NewMemoryStorage()
 
 	if !wal.Exist(cfg.Dir) {
@@ -68,9 +68,9 @@ func openStorage(cfg Config) (*wal.WAL, *raft.MemoryStorage, error) {
 	}
 	last := snaps[len(snaps)-1]
 	got := last.GetConfState()
-	if !slices.Equal(sorted(got.GetVoters()), cs.Voters) || !slices.Equal(sorted(got.GetLearners()), cs.Learners) {
-		return nil, nil, fmt.Errorf("%w (gravado: votantes %v, learners %v; configuração: votantes %v, learners %v); rode task limpar",
-			ErrMembership, got.GetVoters(), got.GetLearners(), cs.Voters, cs.Learners)
+	if !slices.Equal(sorted(got.GetVoters()), cs.Voters) || len(got.GetLearners()) != 0 {
+		return nil, nil, fmt.Errorf("%w (gravado: votantes %v; configuração: votantes %v); rode task limpar",
+			ErrMembership, got.GetVoters(), cs.Voters)
 	}
 	w, err := wal.Open(lg, cfg.Dir, last)
 	if err != nil {

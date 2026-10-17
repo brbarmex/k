@@ -15,7 +15,7 @@ type fakeReporter struct {
 }
 
 func (f fakeReporter) Status() usecase.CellStatus {
-	return usecase.CellStatus{Celula: "1", No: 1, Papel: "lider", Azure: "off", Gate: 7}
+	return usecase.CellStatus{Celula: "1", No: 1, Papel: "lider", Gate: 7}
 }
 func (f fakeReporter) Ready() (bool, string) { return f.ready, f.why }
 
@@ -35,7 +35,7 @@ func TestAdmin(t *testing.T) {
 	}
 	rec := get(h, "/status")
 	var st map[string]any
-	if err := json.Unmarshal(rec.Body.Bytes(), &st); err != nil || st["azure"] != "off" || st["papel"] != "lider" || st["gate"] != float64(7) {
+	if err := json.Unmarshal(rec.Body.Bytes(), &st); err != nil || st["papel"] != "lider" || st["gate"] != float64(7) {
 		t.Fatalf("status %s %v", rec.Body.String(), err)
 	}
 	if rec := get(New(":0", fakeReporter{ready: true}, nil).srv.Handler, "/readyz"); rec.Code != 200 {

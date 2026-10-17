@@ -277,42 +277,6 @@ func TestReopenWithOtherMembersFails(t *testing.T) {
 	}
 }
 
-// G-04: só MsgAppResp sem rejeição de um learner vira evento; heartbeat não conta.
-func TestLearnerAppRespBecomesProgressEvent(t *testing.T) {
-	dir := filepath.Join(t.TempDir(), "wal")
-	n, err := Open(Config{ID: 1, Voters: []uint64{1, 2, 3}, Learners: []uint64{4}, Dir: dir}, memSender{net: &memNet{}}, zerolog.Nop())
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer n.Close()
-	msg := func(tp raftpb.MessageType, from uint64, reject bool) []byte {
-		b, _ := proto.Marshal(&raftpb.Message{Type: tp.Enum(), From: proto.Uint64(from), To: proto.Uint64(1),
-			Term: proto.Uint64(1), Index: proto.Uint64(7), Reject: proto.Bool(reject)})
-		return b
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-	defer cancel()
-	_ = n.Step(ctx, [][]byte{
-		msg(raftpb.MsgHeartbeatResp, 4, false),
-		msg(raftpb.MsgAppResp, 4, true),
-		msg(raftpb.MsgAppResp, 2, false),
-		msg(raftpb.MsgAppResp, 4, false),
-	})
-	select {
-	case ev := <-n.LearnerEvents():
-		if ev.Learner != "4" || ev.Index != 7 || ev.Term != 1 {
-			t.Fatalf("evento = %+v", ev)
-		}
-	default:
-		t.Fatal("o MsgAppResp do learner não virou evento")
-	}
-	select {
-	case ev := <-n.LearnerEvents():
-		t.Fatalf("evento a mais: %+v", ev)
-	default:
-	}
-}
-
 // SG-03: no Ready, só o MsgApp da líder sai antes do fsync.
 func TestOnlyLeaderMsgAppBeforeSync(t *testing.T) {
 	msgs := []*raftpb.Message{

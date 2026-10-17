@@ -12,10 +12,10 @@ type StateCollector struct {
 	source StatusSource
 
 	isLeader, leaderID, term             *prometheus.Desc
-	commit, gate, gateReady, applied     *prometheus.Desc
+	commit, gate, applied                *prometheus.Desc
 	quorumActive, quorumVoters, quorumOk *prometheus.Desc
 	peerMatch, peerLag                   *prometheus.Desc
-	applierStopped, ready, azureOff      *prometheus.Desc
+	applierStopped, ready                *prometheus.Desc
 	applyWorkers, applyInFlight          *prometheus.Desc
 	applyLag, applyLagMax, applyInbox    *prometheus.Desc
 	commitUndelivered, electionTicks     *prometheus.Desc
@@ -33,7 +33,6 @@ func NewStateCollector(source StatusSource) *StateCollector {
 		term:              d("dr_raft_term", "Termo atual do Raft visto por esta célula."),
 		commit:            d("dr_commit_index", "Último índice commitado pelo Raft nesta célula."),
 		gate:              d("dr_gate_index", "Índice até onde o gate libera ACK e apply nesta célula."),
-		gateReady:         d("dr_gate_ready", "1 se o gate está pronto para leitura forte."),
 		applied:           d("dr_applied_index", "Último índice aplicado no banco desta célula."),
 		quorumActive:      d("dr_quorum_active", "Votantes ativos recentemente vistos pela líder (contando ela). Só na líder."),
 		quorumVoters:      d("dr_quorum_voters", "Número de votantes do cluster. Só na líder."),
@@ -42,7 +41,6 @@ func NewStateCollector(source StatusSource) *StateCollector {
 		peerLag:           d("dr_peer_lag", "Entradas que cada par está atrás do commit da líder. Só na líder.", "par"),
 		applierStopped:    d("dr_applier_stopped", "1 se o applier desta célula está parado numa entrada venenosa."),
 		ready:             d("dr_ready", "1 se a célula está pronta (/readyz 200)."),
-		azureOff:          d("dr_azure_off", "1 no modo sem Azure da POC (G-08)."),
 		applyWorkers:      d("dr_apply_workers", "Workers do applier desta célula: itens gravados em paralelo, por chave (ADR-058)."),
 		applyInFlight:     d("dr_apply_inflight", "Itens despachados ao banco e ainda não concluídos pelo applier desta célula."),
 		applyLag:          d("dr_apply_lag", "Entradas que o apply desta célula está atrás do gate (gate - aplicado)."),
@@ -54,9 +52,9 @@ func NewStateCollector(source StatusSource) *StateCollector {
 }
 
 func (c *StateCollector) Describe(ch chan<- *prometheus.Desc) {
-	for _, d := range []*prometheus.Desc{c.isLeader, c.leaderID, c.term, c.commit, c.gate, c.gateReady, c.applied,
+	for _, d := range []*prometheus.Desc{c.isLeader, c.leaderID, c.term, c.commit, c.gate, c.applied,
 		c.quorumActive, c.quorumVoters, c.quorumOk, c.peerMatch, c.peerLag,
-		c.applierStopped, c.ready, c.azureOff, c.applyWorkers, c.applyInFlight,
+		c.applierStopped, c.ready, c.applyWorkers, c.applyInFlight,
 		c.applyLag, c.applyLagMax, c.applyInbox, c.commitUndelivered, c.electionTicks} {
 		ch <- d
 	}
@@ -80,7 +78,6 @@ func (c *StateCollector) Collect(ch chan<- prometheus.Metric) {
 	g(c.term, float64(st.Termo))
 	g(c.commit, float64(st.Commit))
 	g(c.gate, float64(st.Gate))
-	g(c.gateReady, b2f(st.GatePronto))
 	g(c.applied, float64(st.Aplicado))
 	if q := st.Quorum; q != nil {
 		g(c.quorumActive, float64(q.Ativos))
@@ -100,7 +97,6 @@ func (c *StateCollector) Collect(ch chan<- prometheus.Metric) {
 	}
 	g(c.applierStopped, b2f(st.ErroApply != ""))
 	g(c.ready, b2f(ok))
-	g(c.azureOff, b2f(st.Azure == "off"))
 	g(c.applyWorkers, float64(st.Apply.Workers))
 	g(c.applyInFlight, float64(st.Apply.EmVoo))
 	g(c.applyLag, float64(st.Apply.Atraso))

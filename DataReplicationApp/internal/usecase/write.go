@@ -81,7 +81,7 @@ func (s *WriteService) Write(ctx context.Context, r port.WriteRequest) (port.Wri
 	if err != nil {
 		return port.WriteResult{}, err
 	}
-	if err := s.Gate.WaitFor(ctx, idx); err != nil { // + 2/3 Azure com fsync
+	if err := s.Gate.WaitFor(ctx, idx); err != nil {
 		return port.WriteResult{}, ErrPending
 	}
 	if err := s.Applied.WaitApplied(ctx, idx); err != nil { // apply no banco da célula da líder
@@ -90,8 +90,7 @@ func (s *WriteService) Write(ctx context.Context, r port.WriteRequest) (port.Wri
 	return port.WriteResult{Index: idx}, nil
 }
 
-// admit recusa a escrita quando gate - aplicado passa de MaxApplyLag. Mede contra o gate,
-// não contra o commit: entradas que esperam a Azure não são atraso do apply.
+// admit recusa a escrita quando gate - aplicado passa de MaxApplyLag.
 func (s *WriteService) admit() error {
 	if s.MaxApplyLag == 0 {
 		return nil

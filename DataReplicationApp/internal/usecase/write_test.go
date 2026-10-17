@@ -21,7 +21,6 @@ type rig struct {
 
 func newRig(applied fakeApplied) *rig {
 	g := &domain.Gate{}
-	g.SetTerm(1)
 	cons := newFakeConsensus()
 	fwd := &fakeForwarder{}
 	svc := &WriteService{Consensus: cons, Forward: fwd, Gate: g, Applied: applied}
@@ -36,7 +35,7 @@ func timeout(d time.Duration) (context.Context, context.CancelFunc) {
 func TestAckWaitsForGateAndApply(t *testing.T) {
 	applied := fakeApplied{done: make(chan struct{})}
 	r := newRig(applied)
-	releaseGate(r.g, 1, 100)
+	releaseGate(r.g, 100)
 
 	ctx, cancel := timeout(30 * time.Millisecond)
 	defer cancel()
@@ -51,10 +50,9 @@ func TestAckWaitsForGateAndApply(t *testing.T) {
 	}
 }
 
-// Sem o gate (Azure não confirmou), o ACK também espera, mesmo com o apply pronto.
-func TestAckWaitsForAzureGate(t *testing.T) {
+// Sem o gate (sem commit), o ACK também espera, mesmo com o apply pronto.
+func TestAckWaitsForGate(t *testing.T) {
 	r := newRig(appliedOK())
-	r.g.SetRaftCommit(5)
 
 	ctx, cancel := timeout(30 * time.Millisecond)
 	defer cancel()
@@ -86,7 +84,7 @@ func TestNoLeaderWaitsThenFailsWithoutPropose(t *testing.T) {
 
 func TestLeaderAppearsDuringWait(t *testing.T) {
 	r := newRig(appliedOK())
-	releaseGate(r.g, 1, 100)
+	releaseGate(r.g, 100)
 	r.cons.setLeader(port.LeaderInfo{}, false)
 	r.svc.WaitLeader = 2 * time.Second
 	go func() {
@@ -175,7 +173,7 @@ func TestConcurrentWritesHappyPath(t *testing.T) {
 			case <-stop:
 				return
 			default:
-				releaseGate(r.g, 1, i)
+				releaseGate(r.g, i)
 				time.Sleep(time.Millisecond)
 			}
 		}
@@ -227,7 +225,6 @@ func TestAdmissionRefusesWhenApplyLags(t *testing.T) {
 	m := &recMetrics{}
 	r := newRig(fakeApplied{done: make(chan struct{}), applied: 10})
 	r.svc.MaxApplyLag, r.svc.Metrics = 100, m
-	r.g.SetAzureOff(true)
 	r.g.SetRaftCommit(500) // gate 500, aplicado 10: atraso 490
 	_, err := r.svc.Write(context.Background(), port.WriteRequest{})
 	var bp *BackpressureError
@@ -243,12 +240,11 @@ func TestAdmissionRefusesWhenApplyLags(t *testing.T) {
 }
 
 // No limite (atraso igual a MaxApplyLag) a escrita entra; a admissão mede contra o gate,
-// não contra o commit (entradas esperando a Azure não são atraso do apply).
-func TestAdmissionAllowsUpToLimitAndIgnoresAzureWait(t *testing.T) {
+// não contra o commit (na follower, entradas esperando o gate da líder não são atraso do apply).
+func TestAdmissionAllowsUpToLimitAndIgnoresGateWait(t *testing.T) {
 	r := newRig(appliedOK())
 	r.svc.Applied = fakeApplied{done: appliedOK().done, applied: 400}
 	r.svc.MaxApplyLag = 100
-	r.g.SetAzureOff(true)
 	r.g.SetRaftCommit(500)
 	if _, err := r.svc.Write(context.Background(), port.WriteRequest{}); err != nil {
 		t.Fatalf("atraso no limite devia passar: %v", err)
@@ -256,10 +252,11 @@ func TestAdmissionAllowsUpToLimitAndIgnoresAzureWait(t *testing.T) {
 
 	r2 := newRig(fakeApplied{done: make(chan struct{}), applied: 0})
 	r2.svc.MaxApplyLag = 100
-	r2.g.SetRaftCommit(10_000) // commit muito à frente, mas a Azure não confirmou: gate 0
+	r2.g.SetFollower(true)
+	r2.g.SetRaftCommit(10_000) // commit muito à frente, mas a líder não publicou o gate: gate 0
 	ctx, cancel := timeout(30 * time.Millisecond)
 	defer cancel()
 	if _, err := r2.svc.Write(ctx, port.WriteRequest{}); errors.Is(err, ErrBackpressure) {
-		t.Fatal("espera da Azure não é atraso do apply")
+		t.Fatal("espera do gate não é atraso do apply")
 	}
 }

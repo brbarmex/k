@@ -25,8 +25,8 @@ const (
 
 // CanSendBeforeSync diz se uma mensagem do Ready pode sair antes do fsync do lote,
 // no modo síncrono com F3. Só o MsgApp da líder pode. Todo o resto (em especial
-// MsgAppResp e MsgVoteResp) espera o fsync: um MsgAppResp de learner antes do fsync
-// faria o gate contar uma durabilidade da Azure que não existe (risco 34).
+// MsgAppResp e MsgVoteResp) espera o fsync: um MsgAppResp antes do fsync faria a líder
+// contar no quórum uma durabilidade que não existe.
 func CanSendBeforeSync(isLeader bool, k MsgKind) bool {
 	return isLeader && k == MsgApp
 }

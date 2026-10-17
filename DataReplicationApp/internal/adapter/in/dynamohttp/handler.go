@@ -205,8 +205,6 @@ func resultOf(err error) string {
 		return "no_leader"
 	case errors.Is(err, usecase.ErrBackpressure):
 		return "throttling"
-	case errors.Is(err, usecase.ErrGateNotReady):
-		return "gate_not_ready"
 	case errors.Is(err, usecase.ErrReadTimeout):
 		return "read_timeout"
 	case errors.Is(err, usecase.ErrApplierStopped):
@@ -230,8 +228,6 @@ func writeError(c *fasthttp.RequestCtx, err error) {
 	case errors.Is(err, usecase.ErrBackpressure):
 		// 400 ThrottlingException: os SDKs repetem com backoff; nada entrou no log (ADR-056).
 		writeErr(c, 400, "ThrottlingException", "rate of requests exceeds the allowed throughput")
-	case errors.Is(err, usecase.ErrGateNotReady):
-		writeCoded(c, "GATE_NOT_READY", "gate not ready on the new leader, retry")
 	case errors.Is(err, usecase.ErrReadTimeout):
 		writeCoded(c, "READ_TIMEOUT", "strong read barrier not reached in time, retry")
 	case errors.Is(err, usecase.ErrApplierStopped):

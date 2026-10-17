@@ -12,8 +12,6 @@ import (
 var (
 	// ErrNotLeader: a célula local não é a líder (ReadIndex e barreira só na líder).
 	ErrNotLeader = errors.New("esta célula não é a líder")
-	// ErrGateNotReady: líder nova sem o gate reconstruído no termo dela (G-07, ADR-049).
-	ErrGateNotReady = errors.New("gate ainda não está pronto nesta líder")
 	// ErrReadTimeout: a barreira de leitura ou o apply local não chegaram no prazo.
 	ErrReadTimeout = errors.New("leitura forte não alcançou a barreira no prazo")
 	// ErrApplierStopped: o applier da célula estacionou num item venenoso antes da barreira;
@@ -24,7 +22,7 @@ var (
 // ReadService é a leitura forte (A.6, ADR-049, ADR-057). Toda leitura é forte e paga uma
 // barreira por chamada (cada página do Scan é uma chamada):
 //
-//   - na líder: gate pronto (G-07), ReadIndex (confirma a liderança com o quórum) e o
+//   - na líder: ReadIndex (confirma a liderança com o quórum) e o
 //     gate lido DEPOIS do ReadIndex;
 //   - na follower: pergunta à líder ReadIndex e gate na MESMA resposta (R16); nunca usa
 //     um gate guardado;
@@ -46,9 +44,6 @@ var _ port.Reader = (*ReadService)(nil)
 func (s *ReadService) LeaderBarrier(ctx context.Context) (domain.Index, domain.Index, error) {
 	if l, ok := s.Consensus.Leader(); !ok || !l.Local {
 		return 0, 0, ErrNotLeader
-	}
-	if !s.Gate.Ready() {
-		return 0, 0, ErrGateNotReady
 	}
 	ri, err := s.Consensus.ReadIndex(ctx)
 	if err != nil {

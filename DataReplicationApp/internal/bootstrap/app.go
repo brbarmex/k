@@ -73,17 +73,7 @@ func newLogger(cfg config.Config) zerolog.Logger {
 	return logx.New().With().Str("celula", cfg.CellID).Uint64("no", cfg.NodeID).Logger()
 }
 
-// newGate liga o modo sem Azure quando LEARNERS está vazia; config.Load só aceita isso
-// com POC_SEM_AZURE=true (SG-12).
-func newGate(cfg config.Config, log zerolog.Logger) *domain.Gate {
-	g := &domain.Gate{}
-	if len(cfg.Learners) == 0 {
-		// SÓ DA POC (G-08): sem learners o gate é o commit do Raft. Nunca em produção.
-		g.SetAzureOff(true)
-		log.Warn().Msg("POC sem Azure: gate = commit do Raft; nunca usar em produção")
-	}
-	return g
-}
+func newGate() *domain.Gate { return &domain.Gate{} }
 
 // writeServiceIn: as métricas são opcionais no núcleo; o Runtime as provê (O-27).
 type writeServiceIn struct {
@@ -198,14 +188,7 @@ func newResume(p port.ApplyProgress) (Resume, error) {
 }
 
 func newPeerClient(lc fx.Lifecycle, cfg config.Config, log zerolog.Logger, m port.Metrics) (*peerclient.Client, error) {
-	members := make(map[uint64]string, len(cfg.Peers)+len(cfg.Learners))
-	for id, a := range cfg.Peers {
-		members[id] = a
-	}
-	for id, a := range cfg.Learners {
-		members[id] = a
-	}
-	c, err := peerclient.New(cfg.NodeID, members, cfg.ForwardTimeout, log)
+	c, err := peerclient.New(cfg.NodeID, cfg.Peers, cfg.ForwardTimeout, log)
 	if err != nil {
 		return nil, err
 	}
@@ -219,7 +202,7 @@ func newRaft(lc fx.Lifecycle, cfg config.Config, send *peerclient.Client, log ze
 		return nil, err
 	}
 	n, err := etcdraft.Open(etcdraft.Config{
-		ID: cfg.NodeID, Voters: config.IDs(cfg.Peers), Learners: config.IDs(cfg.Learners),
+		ID: cfg.NodeID, Voters: config.IDs(cfg.Peers),
 		Dir: cfg.RaftDir, TickInterval: 100 * time.Millisecond, ElectionTicks: cfg.ElectionTicks,
 		Applied: uint64(r.From) - 1, Metrics: m,
 	}, send, log)
@@ -250,7 +233,7 @@ func newCommitPump(n *etcdraft.Node, g *domain.Gate, to chan []domain.Entry, r R
 func newStatus(cfg config.Config, r port.RaftStatus, g *domain.Gate, a *usecase.Applier, cat port.Catalog,
 	p *usecase.CommitPump, inbox chan []domain.Entry) *usecase.StatusReporter {
 	return &usecase.StatusReporter{CellID: cfg.CellID, NodeID: cfg.NodeID, Raft: r, Gate: g, Applier: a, Catalog: cat,
-		AzureOff: len(cfg.Learners) == 0, Pump: p, ApplyInbox: func() int { return len(inbox) },
+		Pump: p, ApplyInbox: func() int { return len(inbox) },
 		ApplyLagMax: cfg.ApplyLagMax, ElectionTicks: cfg.ElectionTicks}
 }
 
