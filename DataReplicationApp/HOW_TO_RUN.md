@@ -106,14 +106,7 @@ O perfil usa a mesma descoberta da célula líder e a mesma rampa. Cada iteraç�
 
 1. **Comece de volumes limpos.** `task clean` e depois `task start`. Volumes de testes anteriores deixam o apply com atraso desde o início (no teste de 14/10 eram cerca de 210 mil entradas).
 2. **Meça o disco** no diretório dos volumes do Docker: `fio --rw=write --ioengine=sync --fdatasync=1 --size=22m --bs=2300 --name=wal`. O P99 do fdatasync dá a ordem de grandeza do `ELECTION_TICKS` necessário.
-3. **Meça os LocalStacks sozinhos** (um por célula, as três instâncias ao mesmo tempo), com o mesmo `PutItem` condicional do applier:
-
-   ```bash
-   task bench-localstack                         # 16 workers por célula, 30 s
-   task bench-localstack WORKERS=32 DURATION=60s
-   ```
-
-   A vazão impressa é o teto do apply na sua máquina. Se o gerador de carga passar disso, o atraso do apply cresce e a líder passa a recusar com `atraso_apply`. É o comportamento esperado, não defeito. Cada LocalStack sobe com `DYNAMODB_HEAP_SIZE=512m`; mude a variável de ambiente para testar outro valor.
+3. **O LocalStack é o teto do apply na sua máquina.** Se o gerador de carga passar dele, o atraso do apply cresce e a líder passa a recusar com `atraso_apply`. É o comportamento esperado, não defeito. Cada LocalStack sobe com `DYNAMODB_HEAP_SIZE=512m`; mude a variável de ambiente para testar outro valor.
 4. **Use TPS baixo localmente** (por exemplo 10 TPS). O LocalStack não aguenta a vazão de produção; a vazão se mede na AWS. Com carga baixa o apply acompanha e não deve haver contrapressão. Para ver a admissão por atraso funcionar sem carga alta, suba com um teto baixo:
 
    ```bash
@@ -140,7 +133,7 @@ O perfil usa a mesma descoberta da célula líder e a mesma rampa. Cada iteraç�
 
    O `task diag` imprime, por célula: entrada HTTP, ACK, pending, vazão e latência do apply, atraso, commit não entregue, tick e fsync P99, trocas de líder e contrapressão por causa.
 
-**O que olhar no dashboard:** seção **08** (TPS de entrada por célula, códigos HTTP, contrapressão por causa) e seção **09** (atraso do apply contra o teto, commit não entregue, fila do applier, duração do `Ready`, intervalo entre ticks). Sinal de saúde: o termo não muda durante a carga e o intervalo entre ticks fica perto de 100 ms. Se aparecer contrapressão, a causa diz o motivo: `atraso_apply` (banco lento), `buffer_cheio` (Raft sem conseguir commitar), `nao_lider` (logo depois de uma troca de líder) ou `transferencia`.
+**O que olhar no dashboard:** seção **08** (TPS de entrada por célula, códigos HTTP, contrapressão por causa) e seção **09** (atraso do apply contra o teto, commit não entregue, fila do applier, duração do `Ready`, intervalo entre ticks). Sinal de saúde: o termo não muda durante a carga e o intervalo entre ticks fica perto de 100 ms. Se aparecer contrapressão, a causa diz o motivo: `atraso_apply` (banco lento), `buffer_cheio` (Raft sem conseguir commitar), ou `nao_lider` (logo depois de uma troca de líder).
 
 ## 5. Teste automático
 
@@ -294,5 +287,5 @@ task clean  # docker compose down -v; remove named volumes
 | `write` returns `NO_LEADER` | Election in progress or quorum unavailable | Wait 1-2 seconds and check `task status` |
 | `/readyz` reports a stopped applier | Database rejected an item after commit (poison entry) | Check `erroApply` in `task status`; recovery requires operator action (ADR-038) |
 | Tables are empty after `stop` and `start` | LocalStack is not persistent | Use `task clean` then `task start` to reset coherently |
-| Muita `ThrottlingException` com causa `atraso_apply` | O apply não acompanha a carga (banco lento) | Compare com `task bench-localstack`; reduza a carga ou aumente `APPLY_WORKERS`; a vazão real se mede na AWS |
+| Muita `ThrottlingException` com causa `atraso_apply` | O apply não acompanha a carga (banco lento) | Reduza a carga ou aumente `APPLY_WORKERS`; a vazão real se mede na AWS |
 | Trocas de líder durante a carga | Laço do Raft lento: fsync com picos acima do timeout de eleição | Veja `dr_raft_loop_duration_seconds`, `dr_raft_tick_gap_seconds` e o fsync P99 no `task diag`; meça o disco com `fio`; `ELECTION_TICKS` já é 30 no compose |

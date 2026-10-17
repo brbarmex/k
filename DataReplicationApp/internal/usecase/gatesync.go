@@ -66,12 +66,11 @@ func (s *GateSync) Tick() {
 	l, ok := s.Consensus.Leader()
 	leader := ok && l.Local
 	s.Gate.SetFollower(!leader)
-	term := s.Consensus.Term()
-	s.Gate.SetTerm(term)
+	s.Gate.SetTerm(s.Consensus.Term())
 	if leader {
-		s.Publisher.Publish(term, s.Gate.Index())
+		s.Publisher.Publish(s.Gate.Index())
 	}
 }
 
 // OnGateUpdate recebe o gate publicado pela líder.
-func (s *GateSync) OnGateUpdate(_ domain.Term, gate domain.Index) { s.Gate.SetReceived(gate) }
+func (s *GateSync) OnGateUpdate(gate domain.Index) { s.Gate.SetReceived(gate) }

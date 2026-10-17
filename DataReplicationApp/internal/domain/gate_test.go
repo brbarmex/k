@@ -32,10 +32,6 @@ func TestGate(t *testing.T) {
 	if g.WaitFor(ctx, 9) == nil {
 		t.Fatal("não devia liberar")
 	}
-	g.SetDegraded(true)
-	if g.WaitFor(context.Background(), 10) != nil {
-		t.Fatal("degradado devia liberar até o commit Raft")
-	}
 }
 
 // Com menos de 2 learners confirmados a Azure não forma quórum.
@@ -101,22 +97,18 @@ func TestGateNewTermRebuildsWithoutRecuar(t *testing.T) {
 		t.Fatalf("esperado 55 e pronto, veio %d %v", g.Index(), g.Ready())
 	}
 	g.SetTerm(1) // termo menor é ignorado
-	if g.Term() != 2 {
-		t.Fatalf("termo recuou: %d", g.Term())
+	if g.Snapshot().Term != 2 {
+		t.Fatalf("termo recuou: %d", g.Snapshot().Term)
 	}
 }
 
-func TestGateRejectsFourthLearnerUntilForget(t *testing.T) {
+func TestGateRejectsFourthLearner(t *testing.T) {
 	g := newGate(1)
 	for _, id := range []string{"a", "b", "c"} {
 		g.SetAzureDurable(1, 1, id)
 	}
 	if g.SetAzureDurable(1, 9, "d") {
 		t.Fatal("quarto learner devia ser recusado")
-	}
-	g.ForgetLearner("c") // disco trocado, identidade nova (ADR-034)
-	if !g.SetAzureDurable(1, 9, "d") {
-		t.Fatal("depois do Forget a identidade nova entra")
 	}
 }
 
@@ -136,7 +128,7 @@ func TestWaitForRemovesWaiterOnTimeout(t *testing.T) {
 		}()
 	}
 	wg.Wait()
-	if n := g.Waiting(); n != 0 {
+	if n := g.waiting(); n != 0 {
 		t.Fatalf("vazamento: %d waiters depois dos timeouts", n)
 	}
 }
@@ -148,7 +140,7 @@ func TestWaitForCancelBeforeAndRelease(t *testing.T) {
 	if err := g.WaitFor(ctx, 5); err == nil {
 		t.Fatal("contexto cancelado devia falhar")
 	}
-	if g.Waiting() != 0 {
+	if g.waiting() != 0 {
 		t.Fatal("waiter ficou para trás")
 	}
 	g.SetRaftCommit(5)
@@ -225,8 +217,8 @@ func TestGateConcurrentAdvanceIsMonotonicAndReleasesAll(t *testing.T) {
 	wg.Wait()
 	close(stop)
 	mon.Wait()
-	if released.Load() != n || g.Index() != n || g.Waiting() != 0 {
-		t.Fatalf("liberados=%d idx=%d waiting=%d", released.Load(), g.Index(), g.Waiting())
+	if released.Load() != n || g.Index() != n || g.waiting() != 0 {
+		t.Fatalf("liberados=%d idx=%d waiting=%d", released.Load(), g.Index(), g.waiting())
 	}
 }
 
@@ -249,8 +241,15 @@ func TestWaitForRaceReleaseVsTimeout(t *testing.T) {
 		g.SetAzureDurable(1, 1, "a")
 		g.SetAzureDurable(1, 1, "b")
 		wg.Wait()
-		if g.Waiting() != 0 {
-			t.Fatalf("rodada %d: %d waiters vazados", round, g.Waiting())
+		if g.waiting() != 0 {
+			t.Fatalf("rodada %d: %d waiters vazados", round, g.waiting())
 		}
 	}
+}
+
+// waiting devolve quantos waiters estão registrados (testes de vazamento).
+func (g *Gate) waiting() int {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return len(g.waiters)
 }

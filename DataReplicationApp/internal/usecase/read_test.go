@@ -177,7 +177,7 @@ type recPublisher struct {
 	n    int
 }
 
-func (p *recPublisher) Publish(_ domain.Term, g domain.Index) {
+func (p *recPublisher) Publish(g domain.Index) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.last, p.n = g, p.n+1
@@ -207,9 +207,14 @@ func TestGateSync(t *testing.T) {
 	waitUntil(t, func() bool { _, m := pub.get(); return m > n+2 }, "a líder não republicou no intervalo")
 
 	fc.setLeader(port.LeaderInfo{NodeID: "2"}, true) // vira follower
-	waitUntil(t, func() bool { return g.Snapshot().Follower }, "o papel não foi atualizado")
+	waitUntil(t, func() bool { // follower não publica: o papel foi atualizado
+		_, m := pub.get()
+		time.Sleep(20 * time.Millisecond)
+		_, m2 := pub.get()
+		return m == m2
+	}, "o papel não foi atualizado")
 	g.SetRaftCommit(10)
-	s.OnGateUpdate(1, 20)
+	s.OnGateUpdate(20)
 	if g.Index() != 10 {
 		t.Fatalf("follower: gate = %d, quer 10 (commit local limita)", g.Index())
 	}

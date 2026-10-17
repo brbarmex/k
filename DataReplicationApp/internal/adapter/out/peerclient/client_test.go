@@ -61,7 +61,7 @@ type fakeGate struct {
 	last domain.Index
 }
 
-func (f *fakeGate) OnGateUpdate(_ domain.Term, g domain.Index) {
+func (f *fakeGate) OnGateUpdate(g domain.Index) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.last = g
@@ -123,7 +123,7 @@ func TestRoundTrip(t *testing.T) {
 	}
 
 	for i := domain.Index(1); i <= 20; i++ {
-		c.Publish(3, i)
+		c.Publish(i)
 	}
 	deadline = time.Now().Add(2 * time.Second)
 	for g.get() != 20 && time.Now().Before(deadline) {
@@ -138,7 +138,7 @@ func TestRoundTrip(t *testing.T) {
 func TestForwardPreservesErrorClass(t *testing.T) {
 	w := &fakeWriter{}
 	c := setup(t, &peergrpc.Server{Raft: &fakeRaft{}, Writer: w, Barrier: fakeBarrier{err: usecase.ErrNotLeader}, Gate: &fakeGate{}})
-	for _, want := range []error{usecase.ErrNoLeader, usecase.ErrPending, usecase.ErrBackpressure, usecase.ErrLeaseExpired} {
+	for _, want := range []error{usecase.ErrNoLeader, usecase.ErrPending, usecase.ErrBackpressure} {
 		w.err = want
 		if _, err := c.Forward(context.Background(), "2", port.WriteRequest{}); !errors.Is(err, want) {
 			t.Fatalf("Forward devolveu %v, quer %v", err, want)

@@ -45,9 +45,6 @@ func New(extra ...fx.Option) *fx.App {
 			config.Load,
 			newLogger,
 			newGate,
-			func() *domain.Lease { return &domain.Lease{} },
-			func() domain.Clock { return time.Now }, // monotônico; os testes injetam outro
-			fx.Annotate(newDegradeService, fx.As(new(usecase.Degrader))),
 			fx.Annotate(newWriteService, fx.As(new(port.Writer))),
 			newHTTPOptions,
 			dynamohttp.New,
@@ -88,16 +85,6 @@ func newGate(cfg config.Config, log zerolog.Logger) *domain.Gate {
 	return g
 }
 
-// newDegradeService liga a política e o lease da configuração ao estado do shard.
-// DEGRADED_POLICY e DEGRADED_LEASE já foram validadas por config.Load.
-func newDegradeService(cfg config.Config, c port.ConsensusEngine, g *domain.Gate, l *domain.Lease, clk domain.Clock) (*usecase.DegradeService, error) {
-	policy, err := domain.ParseDegradedPolicy(cfg.DegradedPolicy)
-	if err != nil {
-		return nil, err
-	}
-	return &usecase.DegradeService{Policy: policy, LeaseDuration: cfg.DegradedLease, Consensus: c, Gate: g, Lease: l, Clock: clk}, nil
-}
-
 // writeServiceIn: as métricas são opcionais no núcleo; o Runtime as provê (O-27).
 type writeServiceIn struct {
 	fx.In
@@ -106,17 +93,15 @@ type writeServiceIn struct {
 	F       port.Forwarder
 	A       port.AppliedWaiter
 	G       *domain.Gate
-	D       usecase.Degrader
 	Metrics port.Metrics `optional:"true"`
 }
 
-// newWriteService: o header x-dr-mode vem do estado REAL do shard (o Degrader consulta o
-// lease), não de uma função fixa. A admissão por atraso do apply usa APPLY_LAG_MAX (ADR-060).
+// newWriteService: a admissão por atraso do apply usa APPLY_LAG_MAX (ADR-060).
 func newWriteService(in writeServiceIn) *usecase.WriteService {
 	return &usecase.WriteService{
-		Consensus: in.C, Forward: in.F, Gate: in.G, Applied: in.A, Degrade: in.D, Metrics: in.Metrics,
+		Consensus: in.C, Forward: in.F, Gate: in.G, Applied: in.A, Metrics: in.Metrics,
 		MaxApplyLag: domain.Index(in.Cfg.ApplyLagMax),
-		WaitLeader:  in.Cfg.WaitLeader, DegradeAfter: in.Cfg.DegradeAfter, MaxWaitingLeader: maxWaitingLeader,
+		WaitLeader:  in.Cfg.WaitLeader, MaxWaitingLeader: maxWaitingLeader,
 	}
 }
 
@@ -258,8 +243,8 @@ func newGateSync(cfg config.Config, c port.ConsensusEngine, g *domain.Gate, p po
 	return &usecase.GateSync{Consensus: c, Gate: g, Publisher: p, Interval: cfg.GatePublishInterval, Log: log}
 }
 
-func newCommitPump(n *etcdraft.Node, g *domain.Gate, lease *domain.Lease, to chan []domain.Entry, r Resume) *usecase.CommitPump {
-	return &usecase.CommitPump{Consensus: n, Gate: g, Lease: lease, ToApplier: to, From: r.From}
+func newCommitPump(n *etcdraft.Node, g *domain.Gate, to chan []domain.Entry, r Resume) *usecase.CommitPump {
+	return &usecase.CommitPump{Consensus: n, Gate: g, ToApplier: to, From: r.From}
 }
 
 func newStatus(cfg config.Config, r port.RaftStatus, g *domain.Gate, a *usecase.Applier, cat port.Catalog,
@@ -295,14 +280,10 @@ type runtimeDeps struct {
 	Store    CellStore
 	Pump     *usecase.CommitPump
 	Node     *etcdraft.Node
-	Gate     *domain.Gate
-	Lease    *domain.Lease
 	Applier  *usecase.Applier
-	ToApply  chan []domain.Entry
 	GateSync *usecase.GateSync
 	Reads    *usecase.ReadService
 	Writer   port.Writer
-	Metrics  port.Metrics
 }
 
 // runRuntime confere as tabelas, abre o gRPC entre células e roda os laços de fundo.

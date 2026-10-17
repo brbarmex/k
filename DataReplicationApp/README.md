@@ -113,7 +113,7 @@ O adaptador `prometheus/client_golang` fica isolado em `internal/adapter/out/pro
 | `dr_http_requests_total` | contador, `op`, `codigo` | Toda requisição da porta de API, por operação e código HTTP: é o TPS de entrada por célula (ADR-060). Operação desconhecida conta como `outra`. |
 | `dr_http_request_duration_seconds` | histograma, `op` | Latência de todas as respostas da porta de API, inclusive recusas e erros. |
 | `dr_http_inflight` | gauge | Requisições em andamento na porta de API. |
-| `dr_throttled_total` | contador, `causa` | Escritas recusadas com `ThrottlingException`, pela causa: `buffer_cheio`, `nao_lider`, `transferencia` ou `atraso_apply`, na célula onde a causa nasceu. |
+| `dr_throttled_total` | contador, `causa` | Escritas recusadas com `ThrottlingException`, pela causa: `buffer_cheio`, `nao_lider` ou `atraso_apply`, na célula onde a causa nasceu. |
 | `dr_raft_loop_duration_seconds` | histograma | Duração de cada `Ready` do laço do Raft (inclui o fsync). |
 | `dr_raft_tick_gap_seconds` | histograma | Intervalo real entre dois ticks. Perto de `ELECTION_TICKS × 100 ms`, a célula some para as outras. |
 | `dr_apply_lag` | gauge | Gate menos aplicado: o que a admissão compara com `APPLY_LAG_MAX`. |

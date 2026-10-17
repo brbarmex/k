@@ -21,8 +21,6 @@ const MaxLearners = 3
 //   - quando o termo avança, o progresso dos learners é descartado e só volta a
 //     contar depois da primeira confirmação no termo novo (reconstrução do gate);
 //     o valor já liberado (current) não recua;
-//   - em modo degradado a Azure sai da conta (a validade do lease é conferida por
-//     quem ACKa, ver usecase.DegradeService);
 //   - numa célula follower o gate é min(commit local, maior gate recebido da líder)
 //     (G-06): um gate recebido é um valor já provado e o commit local continua limitando;
 //   - no modo sem Azure (G-08, SÓ DA POC) a líder usa gate = commit do Raft.
@@ -38,7 +36,6 @@ type Gate struct {
 	azureQuorum Index
 	current     Index
 	waiters     map[*waiter]struct{}
-	degraded    bool          // em modo degradado a Azure sai da conta
 	received    Index         // maior gate recebido da líder (G-06)
 	follower    bool          // a célula não é a líder: o gate segue o recebido
 	azureOff    bool          // SÓ DA POC (G-08): sem learners, gate = commit do Raft
@@ -47,14 +44,10 @@ type Gate struct {
 
 // GateState é um retrato do gate para o /status e os testes.
 type GateState struct {
-	Index       Index
-	Term        Term
-	RaftCommit  Index
-	Received    Index
-	AzureQuorum Index
-	Ready       bool
-	Follower    bool
-	AzureOff    bool
+	Index      Index
+	Term       Term
+	RaftCommit Index
+	Ready      bool
 }
 
 type waiter struct {
@@ -66,13 +59,6 @@ func (g *Gate) Index() Index {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	return g.current
-}
-
-// Term devolve o termo atual conhecido pelo gate.
-func (g *Gate) Term() Term {
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	return g.term
 }
 
 // SetTerm informa o termo atual da líder. Termo menor ou igual ao atual é ignorado.
@@ -92,8 +78,8 @@ func (g *Gate) SetRaftCommit(i Index) { g.update(func() { g.raftCommit = max(g.r
 
 // SetAzureDurable registra o índice durável de UM learner, vindo da resposta do
 // AppendEntries (ADR-046). Devolve true se o valor foi adotado. Não é adotado quando
-// o termo difere do atual, quando o learner é um quarto nome distinto (troca de membro
-// passa por ForgetLearner) ou quando o valor não avança o do próprio learner.
+// o termo difere do atual, quando o learner é um quarto nome distinto ou quando o valor
+// não avança o do próprio learner.
 func (g *Gate) SetAzureDurable(term Term, idx Index, learner string) bool {
 	adopted := false
 	g.update(func() {
@@ -116,15 +102,6 @@ func (g *Gate) SetAzureDurable(term Term, idx Index, learner string) bool {
 	return adopted
 }
 
-// ForgetLearner remove um learner que saiu do conjunto (disco trocado, identidade nova,
-// ADR-034). O valor já liberado do gate não recua.
-func (g *Gate) ForgetLearner(learner string) {
-	g.update(func() {
-		delete(g.learners, learner)
-		g.azureQuorum = g.quorumLocked()
-	})
-}
-
 // quorumLocked devolve o 2º maior índice entre os learners que já confirmaram no termo
 // atual, ou 0 enquanto menos de 2 confirmaram.
 func (g *Gate) quorumLocked() Index {
@@ -140,7 +117,7 @@ func (g *Gate) quorumLocked() Index {
 }
 
 // Ready diz se o gate foi reconstruído no termo atual: pelo menos 2 learners
-// confirmaram nele (ou o modo é degradado, ou a Azure está desligada na POC). A leitura
+// confirmaram nele (ou a Azure está desligada na POC). A leitura
 // forte da líder nova só começa depois disso (ADR-049, G-07).
 func (g *Gate) Ready() bool {
 	g.mu.Lock()
@@ -149,7 +126,7 @@ func (g *Gate) Ready() bool {
 }
 
 func (g *Gate) readyLocked() bool {
-	return g.azureOff || g.degraded || len(g.learners) >= 2
+	return g.azureOff || len(g.learners) >= 2
 }
 
 // SetReceived registra um gate publicado pela líder (G-06). Adota o máximo: um gate
@@ -181,12 +158,9 @@ func (g *Gate) Snapshot() GateState {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	return GateState{
-		Index: g.current, Term: g.term, RaftCommit: g.raftCommit, Received: g.received,
-		AzureQuorum: g.azureQuorum, Ready: g.readyLocked(), Follower: g.follower, AzureOff: g.azureOff,
+		Index: g.current, Term: g.term, RaftCommit: g.raftCommit, Ready: g.readyLocked(),
 	}
 }
-
-func (g *Gate) SetDegraded(on bool) { g.update(func() { g.degraded = on }) }
 
 func (g *Gate) update(mutate func()) {
 	g.mu.Lock()
@@ -196,7 +170,7 @@ func (g *Gate) update(mutate func()) {
 	switch {
 	case g.follower:
 		next = min(next, g.received) // G-06
-	case !g.degraded && !g.azureOff:
+	case !g.azureOff:
 		next = min(next, g.azureQuorum) // G-01
 	}
 	prev := g.current
@@ -211,13 +185,6 @@ func (g *Gate) update(mutate func()) {
 			delete(g.waiters, w)
 		}
 	}
-}
-
-// Waiting devolve quantos waiters estão registrados (diagnóstico e testes de vazamento).
-func (g *Gate) Waiting() int {
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	return len(g.waiters)
 }
 
 // WaitFor bloqueia até o gate alcançar idx ou o contexto expirar. Quando o contexto

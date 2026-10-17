@@ -313,18 +313,13 @@ func (n *Node) Propose(ctx context.Context, e domain.Entry) (domain.Index, error
 }
 
 // dropCause diz por que o Raft descartou a proposta (O-27): a célula não é mais a líder
-// (n.lead ainda não viu a troca), há transferência de liderança em curso, ou o buffer de
-// entradas não commitadas (MaxUncommittedEntriesSize) está cheio.
+// (n.lead ainda não viu a troca) ou o buffer de entradas não commitadas
+// (MaxUncommittedEntriesSize) está cheio.
 func (n *Node) dropCause() string {
-	st := n.node.Status()
-	switch {
-	case st.RaftState != raft.StateLeader:
+	if n.node.Status().RaftState != raft.StateLeader {
 		return usecase.CauseNotLeader
-	case st.LeadTransferee != raft.None:
-		return usecase.CauseTransfer
-	default:
-		return usecase.CauseBufferFull
 	}
+	return usecase.CauseBufferFull
 }
 
 // ReadIndex confirma a liderança com o quórum e devolve o índice de leitura. Só na líder.
@@ -370,7 +365,7 @@ func (n *Node) Step(ctx context.Context, msgs [][]byte) error {
 		if m.GetType() == raftpb.MsgAppResp && !m.GetReject() && n.learners[m.GetFrom()] {
 			ev := port.LearnerProgress{
 				Term: domain.Term(m.GetTerm()), Index: domain.Index(m.GetIndex()),
-				Learner: strconv.FormatUint(m.GetFrom(), 10), SentAt: time.Now(),
+				Learner: strconv.FormatUint(m.GetFrom(), 10),
 			}
 			select {
 			case n.events <- ev:
@@ -391,15 +386,6 @@ func (n *Node) Leader() (port.LeaderInfo, bool) {
 		return port.LeaderInfo{}, false
 	}
 	return port.LeaderInfo{NodeID: strconv.FormatUint(l, 10), Local: l == n.cfg.ID}, true
-}
-
-func (n *Node) TransferLeadership(ctx context.Context, to string) error {
-	id, err := strconv.ParseUint(to, 10, 64)
-	if err != nil {
-		return fmt.Errorf("etcdraft: nó inválido %q", to)
-	}
-	n.node.TransferLeadership(ctx, n.lead.Load(), id)
-	return nil
 }
 
 // CommitIndex é o último índice commitado publicado pelo laço (ADR-060).
@@ -448,9 +434,6 @@ func (n *Node) CommittedEntries(lo, hi domain.Index, maxBytes uint64) ([]domain.
 
 func (n *Node) Term() domain.Term                          { return domain.Term(n.term.Load()) }
 func (n *Node) LearnerEvents() <-chan port.LearnerProgress { return n.events }
-
-// LearnerDurable não tem retrato na POC: o progresso dos learners chega só por evento.
-func (n *Node) LearnerDurable() []port.LearnerProgress { return nil }
 
 // Status devolve o retrato do Raft local; Match só na líder.
 func (n *Node) Status() port.RaftInfo {

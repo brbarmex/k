@@ -10,7 +10,6 @@ x-dr-env: &dr-env
   AWS_REGION: "sa-east-1"
   AWS_ACCESS_KEY_ID: "test"
   AWS_SECRET_ACCESS_KEY: "test"
-  DEGRADED_POLICY: "reject"
   TABLE_WAIT: "120s"
   GATE_PUBLISH_INTERVAL: "100ms"
   APPLY_WORKERS: "16"
@@ -131,7 +130,7 @@ services:
       GF_AUTH_ANONYMOUS_ENABLED: "true"
       GF_AUTH_ANONYMOUS_ORG_ROLE: Admin
       GF_AUTH_DISABLE_LOGIN_FORM: "true"
-      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /var/lib/grafana/dashboards/datareplication.json
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /var/lib/grafana/dashboards/datareplication-v2.json
       GF_USERS_DEFAULT_THEME: dark
     volumes:
       - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro

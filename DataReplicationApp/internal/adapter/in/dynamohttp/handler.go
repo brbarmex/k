@@ -70,9 +70,9 @@ func (e *APIError) Error() string { return e.Type + ": " + e.Message }
 // ValidateIndex aplica o ADR-050: Query ou Scan em índice secundário global (GSI) é
 // recusado com ValidationException, com ou sem ConsistentRead, porque o GSI nunca é
 // forte e o DataReplication tem um único modo, strong (ADR-057). O parser de Query/Scan
-// chama esta função assim que lê IndexName; isGlobal vem do catálogo de tabelas.
-func ValidateIndex(indexName string, isGlobal bool) error {
-	if indexName != "" && isGlobal {
+// chama esta função assim que lê IndexName; todo índice é recusado.
+func ValidateIndex(indexName string) error {
+	if indexName != "" {
 		return &APIError{Status: 400, Type: "ValidationException", Message: "Queries on global secondary indexes are not supported: the DataReplication serves only strongly consistent reads"}
 	}
 	return nil
@@ -151,9 +151,6 @@ func (s *Server) serve(c *fasthttp.RequestCtx, start time.Time) {
 			writeError(c, err)
 			return
 		}
-		if res.Degraded {
-			c.Response.Header.Set("x-dr-mode", "degraded") // D10
-		}
 		c.Response.Header.Set("x-dr-index", strconv.FormatUint(uint64(res.Index), 10)) // extensão da POC (N-05)
 		c.SetContentType("application/x-amz-json-1.0")
 		c.SetBodyString("{}")
@@ -204,8 +201,6 @@ func resultOf(err error) string {
 			return "throttling"
 		}
 		return "recusada"
-	case errors.Is(err, usecase.ErrLeaseExpired):
-		return "lease_expired"
 	case errors.Is(err, usecase.ErrNoLeader):
 		return "no_leader"
 	case errors.Is(err, usecase.ErrBackpressure):
@@ -229,9 +224,6 @@ func writeError(c *fasthttp.RequestCtx, err error) {
 	switch {
 	case errors.As(err, &ae):
 		writeErr(c, ae.Status, ae.Type, ae.Message)
-	case errors.Is(err, usecase.ErrLeaseExpired):
-		c.Response.Header.Set("x-dr-mode", "degraded") // ainda degradado, mas sem escrever (ADR-044)
-		writeCoded(c, "LEASE_EXPIRED", "degraded-mode lease expired: writes are refused until a human renews it")
 	case errors.Is(err, usecase.ErrNoLeader):
 		c.Response.Header.Set("Retry-After", strconv.Itoa(1))
 		writeCoded(c, "NO_LEADER", "no leader known, retry")

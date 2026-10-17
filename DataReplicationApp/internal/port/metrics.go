@@ -23,7 +23,7 @@ type Metrics interface {
 	PeerSendDropped(par uint64)
 	// Forwarded: escrita encaminhada pela follower à líder.
 	Forwarded()
-	// WriteDone: resultado em ok, no_leader, pending, throttling, lease_expired, recusada, erro.
+	// WriteDone: resultado em ok, no_leader, pending, throttling, recusada, erro.
 	WriteDone(resultado string, d time.Duration)
 	// ReadDone: op em get, scan; resultado em ok, no_leader, gate_not_ready, read_timeout,
 	// recusada, erro.
@@ -41,7 +41,7 @@ type Metrics interface {
 	// esteve preso e a célula ficou sem heartbeat nem contagem de eleição.
 	RaftTickGap(d time.Duration)
 	// Throttled: escrita recusada por contrapressão, por causa: buffer_cheio, nao_lider,
-	// transferencia, atraso_apply. Registrada na célula onde a causa nasceu.
+	// atraso_apply. Registrada na célula onde a causa nasceu.
 	Throttled(causa string)
 	// HTTPRequest: requisição terminada na porta de API (O-28). op é a operação do
 	// DynamoDB (PutItem, GetItem, Scan, ...; "outra" se desconhecida) e status o código

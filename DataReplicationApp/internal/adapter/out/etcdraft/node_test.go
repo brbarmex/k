@@ -23,7 +23,6 @@ type memNet struct {
 	mu    sync.Mutex
 	nodes map[uint64]*Node
 	down  map[uint64]bool
-	sent  []raftpb.MessageType // ordem de envio de quem usa record
 	ctx   context.Context
 }
 

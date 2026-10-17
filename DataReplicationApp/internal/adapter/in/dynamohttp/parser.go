@@ -158,7 +158,7 @@ func (p *Parser) parseScan(raw map[string]json.RawMessage, table domain.LogicalT
 	if v, ok := raw["IndexName"]; ok {
 		var name string
 		_ = json.Unmarshal(v, &name)
-		if err := ValidateIndex(name, true); err != nil {
+		if err := ValidateIndex(name); err != nil {
 			return Request{}, err
 		}
 	}

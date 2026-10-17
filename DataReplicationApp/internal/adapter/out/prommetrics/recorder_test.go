@@ -139,7 +139,7 @@ func registeredNames(t *testing.T) map[string]bool {
 	r.WriteDone("ok", time.Millisecond)
 	r.WALFsync(time.Millisecond)
 	r.ReadBarrier(time.Millisecond)
-	mfs, err := r.Registry().Gather()
+	mfs, err := r.registry.Gather()
 	if err != nil {
 		t.Fatal(err)
 	}

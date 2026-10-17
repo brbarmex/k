@@ -83,7 +83,6 @@ func TestErrorMapping(t *testing.T) {
 	}{
 		{"pending", usecase.ErrPending, 503, "PENDING"},
 		{"deadline", fmt.Errorf("propose: %w", context.DeadlineExceeded), 503, "PENDING"},
-		{"lease", usecase.ErrLeaseExpired, 503, "LEASE_EXPIRED"},
 		{"noleader", usecase.ErrNoLeader, 503, "NO_LEADER"},
 		{"applier", usecase.ErrApplierStopped, 503, "APPLIER_STOPPED"},
 		{"backpressure", fmt.Errorf("propose: %w", usecase.ErrBackpressure), 400, ""},
@@ -99,35 +98,21 @@ func TestErrorMapping(t *testing.T) {
 			t.Errorf("%s: x-dr-code %q", tc.name, got)
 		}
 	}
-	if got := do(newServer(fakeWriter{err: usecase.ErrLeaseExpired}, okParse)).Response.Header.Peek("x-dr-mode"); string(got) != "degraded" {
-		t.Errorf("LEASE_EXPIRED deve manter x-dr-mode: degraded, veio %q", got)
-	}
 	if got := do(newServer(fakeWriter{err: usecase.ErrNoLeader}, okParse)).Response.Header.Peek("Retry-After"); string(got) != "1" {
 		t.Errorf("NO_LEADER deve levar Retry-After, veio %q", got)
 	}
 }
 
-func TestDegradedHeader(t *testing.T) {
-	c := do(newServer(fakeWriter{res: port.WriteResult{Index: 3, Degraded: true}}, okParse))
-	if c.Response.StatusCode() != 200 || string(c.Response.Header.Peek("x-dr-mode")) != "degraded" {
-		t.Fatalf("esperava 200 com x-dr-mode: degraded, veio %d %q", c.Response.StatusCode(), c.Response.Header.Peek("x-dr-mode"))
-	}
-	c = do(newServer(fakeWriter{res: port.WriteResult{Index: 3}}, okParse))
-	if len(c.Response.Header.Peek("x-dr-mode")) != 0 {
-		t.Fatal("fora do degradado o header não deve existir")
-	}
-}
-
 // ADR-050: toda Query em GSI vira ValidationException 400 via erro tipado do parser.
 func TestQueryOnGSIRefused(t *testing.T) {
-	if err := ValidateIndex("", false); err != nil {
+	if err := ValidateIndex(""); err != nil {
 		t.Fatalf("tabela base deve ser aceita: %v", err)
 	}
-	if err := ValidateIndex("gsi1", true); err == nil {
+	if err := ValidateIndex("gsi1"); err == nil {
 		t.Fatal("Query em GSI deve ser recusada, com ou sem ConsistentRead")
 	}
 	s := newServer(fakeWriter{}, func(string, []byte) (Request, error) {
-		return Request{}, ValidateIndex("gsi1", true)
+		return Request{}, ValidateIndex("gsi1")
 	})
 	c := do(s)
 	if c.Response.StatusCode() != 400 {
@@ -141,13 +126,13 @@ func TestQueryOnGSIRefused(t *testing.T) {
 // Sem estado compartilhado no handler: muitas requisições em paralelo, cada uma com a
 // sua resposta, sem corrida.
 func TestHandlerParallel(t *testing.T) {
-	s := newServer(fakeWriter{res: port.WriteResult{Degraded: true}}, okParse)
+	s := newServer(fakeWriter{res: port.WriteResult{Index: 3}}, okParse)
 	var wg sync.WaitGroup
 	for i := 0; i < 64; i++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			if c := do(s); c.Response.StatusCode() != 200 || string(c.Response.Header.Peek("x-dr-mode")) != "degraded" {
+			if c := do(s); c.Response.StatusCode() != 200 || string(c.Response.Header.Peek("x-dr-index")) != "3" {
 				t.Error("resposta inesperada")
 			}
 		}()

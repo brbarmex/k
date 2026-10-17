@@ -2040,21 +2040,6 @@
                 }
               }
             ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "lease_expired"
-            },
-            "properties": [
-              {
-                "id": "color",
-                "value": {
-                  "fixedColor": "dark-red",
-                  "mode": "fixed"
-                }
-              }
-            ]
           }
         ]
       },
@@ -3798,7 +3783,7 @@
         "type": "prometheus",
         "uid": "prometheus-dr"
       },
-      "description": "ThrottlingException por causa, na célula onde a causa nasceu (encaminhadas contam na líder). buffer_cheio = MaxUncommittedEntriesSize do Raft; nao_lider = a célula deixou de ser líder e ainda não viu a troca; transferencia = troca planejada; atraso_apply = gate - aplicado acima de APPLY_LAG_MAX (admissão).",
+      "description": "ThrottlingException por causa, na célula onde a causa nasceu (encaminhadas contam na líder). buffer_cheio = MaxUncommittedEntriesSize do Raft; nao_lider = a célula deixou de ser líder e ainda não viu a troca; atraso_apply = gate - aplicado acima de APPLY_LAG_MAX (admissão).",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -3900,7 +3885,7 @@
         "type": "prometheus",
         "uid": "prometheus-dr"
       },
-      "description": "Todas as requisições da porta de API por operação do DynamoDB e código HTTP: 200 ok, 400 recusada ou ThrottlingException, 503 NO_LEADER/PENDING/LEASE_EXPIRED, 500 erro.",
+      "description": "Todas as requisições da porta de API por operação do DynamoDB e código HTTP: 200 ok, 400 recusada ou ThrottlingException, 503 NO_LEADER/PENDING, 500 erro.",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -5012,7 +4997,7 @@
     ]
   },
   "timezone": "browser",
-  "title": "DataReplication | Operação, Raft e Garantias (v3)",
+  "title": "DataReplication | Operação, Raft e Garantias",
   "uid": "datareplication",
   "version": 7
 }

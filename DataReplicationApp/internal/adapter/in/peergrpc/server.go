@@ -22,7 +22,7 @@ type LeaderBarrier interface {
 
 // GateReceiver recebe o gate publicado pela líder (usecase.GateSync).
 type GateReceiver interface {
-	OnGateUpdate(term domain.Term, gate domain.Index)
+	OnGateUpdate(gate domain.Index)
 }
 
 // Server implementa peerv1.PeerServer.
@@ -53,12 +53,8 @@ func (s *Server) Step(ctx context.Context, req *peerv1.StepRequest) (*peerv1.Emp
 // Forward executa na líder o mesmo caminho da escrita local; a requisição vem marcada
 // como encaminhada e nunca é reencaminhada (um salto, ADR-010).
 func (s *Server) Forward(ctx context.Context, req *peerv1.ForwardRequest) (*peerv1.ForwardResponse, error) {
-	res, err := s.Writer.Write(ctx, port.WriteRequest{Ops: req.Ops, ClientID: req.ClientID, Deadline: req.Deadline, Forwarded: true})
-	out := &peerv1.ForwardResponse{Code: peerv1.CodeOf(err), Index: uint64(res.Index)}
-	if err != nil {
-		out.Message = err.Error()
-	}
-	return out, nil
+	res, err := s.Writer.Write(ctx, port.WriteRequest{Ops: req.Ops, Forwarded: true})
+	return &peerv1.ForwardResponse{Code: peerv1.CodeOf(err), Index: uint64(res.Index)}, nil
 }
 
 func (s *Server) ReadBarrier(ctx context.Context, _ *peerv1.BarrierRequest) (*peerv1.BarrierResponse, error) {
@@ -67,7 +63,7 @@ func (s *Server) ReadBarrier(ctx context.Context, _ *peerv1.BarrierRequest) (*pe
 }
 
 func (s *Server) GateUpdate(_ context.Context, req *peerv1.GateUpdateRequest) (*peerv1.Empty, error) {
-	s.Gate.OnGateUpdate(domain.Term(req.Term), domain.Index(req.Gate))
+	s.Gate.OnGateUpdate(domain.Index(req.Gate))
 	return &peerv1.Empty{}, nil
 }
 

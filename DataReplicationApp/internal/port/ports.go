@@ -3,7 +3,6 @@ package port
 import (
 	"context"
 	"errors"
-	"time"
 
 	"example.com/datareplication/internal/domain"
 )
@@ -23,7 +22,6 @@ type ConsensusEngine interface {
 	Propose(ctx context.Context, e domain.Entry) (domain.Index, error)
 	ReadIndex(ctx context.Context) (domain.Index, error)
 	Leader() (LeaderInfo, bool)
-	TransferLeadership(ctx context.Context, to string) error
 	// Propose devolve usecase.ErrBackpressure (com a causa) quando o Raft descarta a
 	// proposta (ADR-056). Nenhuma resposta do Raft sai antes do fsync do lote.
 	//
@@ -43,8 +41,6 @@ type ConsensusEngine interface {
 	// momento em que chega (o gate é alimentado por evento, ADR-046). O progresso da
 	// Azure não tem outro canal.
 	LearnerEvents() <-chan LearnerProgress
-	// LearnerDurable é o retrato atual do progresso: (termo, índice, identidade) por learner.
-	LearnerDurable() []LearnerProgress
 }
 
 // LearnerProgress é o índice de casamento devolvido por um learner depois do fsync,
@@ -53,10 +49,6 @@ type LearnerProgress struct {
 	Term    domain.Term
 	Index   domain.Index
 	Learner string
-	// SentAt é o instante de ENVIO (relógio monotônico da líder) da mensagem que o
-	// learner confirmou, heartbeat ou AppendEntries. Alimenta t_c, o último contato com a
-	// maioria Azure, de onde o lease do modo degradado conta (ADR-044).
-	SentAt time.Time
 }
 
 type LeaderInfo struct {
@@ -106,7 +98,7 @@ type BarrierClient interface {
 // GatePublisher leva o gate da líder às outras células (G-06). Nunca bloqueia e nunca
 // perde o valor mais recente.
 type GatePublisher interface {
-	Publish(term domain.Term, gate domain.Index)
+	Publish(gate domain.Index)
 }
 
 // RaftInbound recebe mensagens do Raft já serializadas, vindas de um par.
@@ -155,17 +147,14 @@ type AppliedWaiter interface {
 // ---- Portas de entrada (driving): o adaptador chama, o núcleo implementa ----
 
 type WriteRequest struct {
-	Ops      []domain.Op
-	ClientID string // id estável do SDK, se houver
-	Deadline int64  // unix nano
+	Ops []domain.Op
 	// Forwarded marca a requisição que já foi encaminhada por um follower: nunca é
 	// reencaminhada (limite de um salto, ADR-039).
 	Forwarded bool
 }
 
 type WriteResult struct {
-	Index    domain.Index
-	Degraded bool // vira o header x-dr-mode: degraded (D10); vem do estado real do shard
+	Index domain.Index
 }
 
 type Writer interface {

@@ -3,7 +3,6 @@ package usecase
 import (
 	"context"
 	"sync"
-	"time"
 
 	"example.com/datareplication/internal/domain"
 	"example.com/datareplication/internal/port"
@@ -122,21 +121,13 @@ func (f *fakeConsensus) total() int {
 	return len(f.proposed)
 }
 
-func (f *fakeConsensus) entries() []domain.Entry {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	return append([]domain.Entry(nil), f.proposed...)
-}
-
 func (f *fakeConsensus) ReadIndex(context.Context) (domain.Index, error) { return 0, nil }
 func (f *fakeConsensus) Leader() (port.LeaderInfo, bool) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return f.leader, f.hasLeader
 }
-func (f *fakeConsensus) TransferLeadership(context.Context, string) error { return nil }
-func (f *fakeConsensus) LearnerEvents() <-chan port.LearnerProgress       { return f.events }
-func (f *fakeConsensus) LearnerDurable() []port.LearnerProgress           { return nil }
+func (f *fakeConsensus) LearnerEvents() <-chan port.LearnerProgress { return f.events }
 func (f *fakeConsensus) Term() domain.Term {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -185,24 +176,6 @@ func (f *fakeForwarder) Forward(_ context.Context, _ string, r port.WriteRequest
 	defer f.mu.Unlock()
 	f.calls = append(f.calls, r)
 	return port.WriteResult{Index: 99}, nil
-}
-
-// fakeClock é o relógio injetável do lease.
-type fakeClock struct {
-	mu sync.Mutex
-	t  time.Time
-}
-
-func newFakeClock() *fakeClock { return &fakeClock{t: time.Unix(2_000_000, 0)} }
-func (c *fakeClock) Now() time.Time {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	return c.t
-}
-func (c *fakeClock) Advance(d time.Duration) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.t = c.t.Add(d)
 }
 
 // releaseGate libera o gate até idx no termo term, como se Raft e Azure tivessem confirmado.

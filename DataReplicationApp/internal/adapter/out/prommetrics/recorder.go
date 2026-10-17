@@ -25,11 +25,11 @@ type StatusSource interface {
 // Valores pré-inicializados dos rótulos, para as séries existirem desde a partida.
 var (
 	MsgTypes     = []string{"app", "app_resp", "vote", "vote_resp", "prevote", "prevote_resp", "heartbeat", "heartbeat_resp", "snap", "outro"}
-	WriteResults = []string{"ok", "no_leader", "pending", "throttling", "lease_expired", "recusada", "erro"}
+	WriteResults = []string{"ok", "no_leader", "pending", "throttling", "recusada", "erro"}
 	ReadOps      = []string{"get", "scan"}
 	ReadResults  = []string{"ok", "no_leader", "gate_not_ready", "read_timeout", "applier_stopped", "recusada", "erro"}
 	// ThrottleCauses são as causas da contrapressão (O-27, ADR-060).
-	ThrottleCauses = []string{"buffer_cheio", "nao_lider", "transferencia", "atraso_apply"}
+	ThrottleCauses = []string{"buffer_cheio", "nao_lider", "atraso_apply"}
 	// HTTPOps são as operações pré-inicializadas na porta de API (O-28).
 	HTTPOps = []string{"PutItem", "GetItem", "Scan"}
 )
@@ -201,6 +201,3 @@ func (r *Recorder) RegisterState(source StatusSource) {
 func (r *Recorder) Handler() http.Handler {
 	return promhttp.HandlerFor(r.registry, promhttp.HandlerOpts{})
 }
-
-// Registry expõe o registro (testes).
-func (r *Recorder) Registry() *prometheus.Registry { return r.registry }

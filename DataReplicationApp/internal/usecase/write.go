@@ -15,8 +15,6 @@ var (
 	ErrPending = errors.New("resultado desconhecido: o cliente deve repetir")
 	// ErrNoLeader: sem líder conhecida depois de WAIT_LEADER (ADR-039). Nada foi proposto.
 	ErrNoLeader = errors.New("sem líder conhecida")
-	// ErrLeaseExpired: o lease do modo degradado acabou (ADR-044). Alias do domínio.
-	ErrLeaseExpired = domain.ErrLeaseExpired
 	// ErrBackpressure: o buffer de entradas ainda não persistidas do shard está cheio
 	// (MaxUncommittedEntriesSize, ADR-056). Nada entrou no log; vira ThrottlingException
 	// e o SDK repete com backoff. O adaptador etcdraft traduz raft.ErrProposalDropped.
@@ -26,10 +24,9 @@ var (
 // Causas da contrapressão (rótulo `causa` de dr_throttled_total, O-27). Todas viram
 // ThrottlingException e em todas nada entrou no log.
 const (
-	CauseBufferFull = "buffer_cheio"  // MaxUncommittedEntriesSize do Raft (ADR-056)
-	CauseNotLeader  = "nao_lider"     // a célula deixou de ser líder e ainda não viu a troca
-	CauseTransfer   = "transferencia" // transferência de liderança em curso (ADR-013)
-	CauseApplyLag   = "atraso_apply"  // gate - aplicado acima de APPLY_LAG_MAX (ADR-060)
+	CauseBufferFull = "buffer_cheio" // MaxUncommittedEntriesSize do Raft (ADR-056)
+	CauseNotLeader  = "nao_lider"    // a célula deixou de ser líder e ainda não viu a troca
+	CauseApplyLag   = "atraso_apply" // gate - aplicado acima de APPLY_LAG_MAX (ADR-060)
 )
 
 // BackpressureError é ErrBackpressure com a causa. errors.Is(err, ErrBackpressure) vale.
@@ -39,7 +36,7 @@ func (e *BackpressureError) Error() string        { return ErrBackpressure.Error
 func (e *BackpressureError) Is(target error) bool { return target == ErrBackpressure }
 
 // WriteService é o caso de uso "escrever": acha a líder, propõe, espera o gate, espera
-// o apply local, confere o lease e responde. O apply é sempre depois do gate (ADR-057);
+// o apply local e responde. O apply é sempre depois do gate (ADR-057);
 // o ACK é sempre depois do gate E do apply. Antes de propor, a líder recusa a escrita se
 // o apply local está atrasado demais (admissão, ADR-060).
 type WriteService struct {
@@ -47,7 +44,6 @@ type WriteService struct {
 	Forward   port.Forwarder
 	Gate      *domain.Gate
 	Applied   port.AppliedWaiter
-	Degrade   Degrader     // estado real do shard; nil = nunca degradado
 	Metrics   port.Metrics // opcional: causa da contrapressão (O-27)
 
 	// MaxApplyLag (APPLY_LAG_MAX) é quantas entradas o apply local pode estar atrás do
@@ -57,9 +53,7 @@ type WriteService struct {
 	MaxApplyLag domain.Index
 
 	WaitLeader       time.Duration // WAIT_LEADER (1 s); 0 = não espera
-	LeaderPoll       time.Duration // intervalo de consulta da líder; padrão 10 ms
 	MaxWaitingLeader int           // teto de requisições esperando líder; 0 = sem teto
-	DegradeAfter     time.Duration // DEGRADE_AFTER (2 s); 0 = nunca propõe DEGRADE
 
 	waitingLeader atomic.Int64
 }
@@ -77,39 +71,27 @@ func (s *WriteService) Write(ctx context.Context, r port.WriteRequest) (port.Wri
 		return s.Forward.Forward(ctx, leader.NodeID, r) // um salto; a líder responde (ADR-010)
 	}
 
-	// Lease vencido: recusa antes de gastar um índice do log.
-	if err := s.checkLease(); err != nil {
-		return port.WriteResult{}, err
-	}
 	// Admissão por atraso do apply (ADR-060): recusa cedo, sem gastar índice do log.
 	if err := s.admit(); err != nil {
 		return port.WriteResult{}, err
 	}
 
-	e := domain.Entry{Kind: domain.KindWrite, Ops: r.Ops, ClientID: r.ClientID}
+	e := domain.Entry{Kind: domain.KindWrite, Ops: r.Ops}
 	idx, err := s.Consensus.Propose(ctx, e) // commit Raft: 2/3 AWS com fsync
 	if err != nil {
 		return port.WriteResult{}, err
 	}
-	if err := s.waitGate(ctx, idx); err != nil { // + 2/3 Azure com fsync, ou DEGRADE
+	if err := s.Gate.WaitFor(ctx, idx); err != nil { // + 2/3 Azure com fsync
 		return port.WriteResult{}, ErrPending
 	}
 	if err := s.Applied.WaitApplied(ctx, idx); err != nil { // apply no banco da célula da líder
 		return port.WriteResult{}, ErrPending
 	}
-	// Conferência a CADA ACK, depois do fsync e do apply e antes de responder (ADR-044):
-	// uma pausa de processo durante as esperas acima vence o lease e é pega aqui. A
-	// escrita já está commitada: o 503 é "resultado desconhecido" e o retry é absorvido
-	// pelo dedupe.
-	if err := s.checkLease(); err != nil {
-		return port.WriteResult{}, err
-	}
-	return port.WriteResult{Index: idx, Degraded: s.degraded()}, nil
+	return port.WriteResult{Index: idx}, nil
 }
 
 // admit recusa a escrita quando gate - aplicado passa de MaxApplyLag. Mede contra o gate,
-// não contra o commit: entradas que esperam a Azure não são atraso do apply, e o caminho
-// delas é o modo degradado (ADR-044), não a contrapressão.
+// não contra o commit: entradas que esperam a Azure não são atraso do apply.
 func (s *WriteService) admit() error {
 	if s.MaxApplyLag == 0 {
 		return nil
@@ -122,15 +104,6 @@ func (s *WriteService) admit() error {
 	return nil
 }
 
-func (s *WriteService) degraded() bool { return s.Degrade != nil && s.Degrade.Active() }
-
-func (s *WriteService) checkLease() error {
-	if s.Degrade == nil {
-		return nil
-	}
-	return s.Degrade.CheckLease()
-}
-
 // resolveLeader devolve a líder conhecida; sem líder espera até WaitLeader pela eleição
 // e depois falha com ErrNoLeader (ADR-039). O teto de esperantes protege memória e
 // conexões durante a eleição.
@@ -138,52 +111,10 @@ func (s *WriteService) resolveLeader(ctx context.Context) (port.LeaderInfo, erro
 	if l, ok := s.Consensus.Leader(); ok {
 		return l, nil
 	}
-	if s.WaitLeader <= 0 {
-		return port.LeaderInfo{}, ErrNoLeader
-	}
 	n := s.waitingLeader.Add(1)
 	defer s.waitingLeader.Add(-1)
 	if s.MaxWaitingLeader > 0 && n > int64(s.MaxWaitingLeader) {
 		return port.LeaderInfo{}, ErrNoLeader
 	}
-	poll := s.LeaderPoll
-	if poll <= 0 {
-		poll = 10 * time.Millisecond
-	}
-	deadline := time.NewTimer(s.WaitLeader)
-	defer deadline.Stop()
-	tick := time.NewTicker(poll)
-	defer tick.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return port.LeaderInfo{}, ErrNoLeader
-		case <-deadline.C:
-			return port.LeaderInfo{}, ErrNoLeader
-		case <-tick.C:
-			if l, ok := s.Consensus.Leader(); ok {
-				return l, nil
-			}
-		}
-	}
-}
-
-// waitGate espera o gate. Se a Azure não confirma em DegradeAfter, tenta o DEGRADE;
-// com DEGRADED_POLICY=reject o Enter recusa e a espera continua até o prazo da requisição
-// (503 PENDING, RPO 0). Falha do Enter (DEGRADE não commitou) também só segue esperando.
-func (s *WriteService) waitGate(ctx context.Context, idx domain.Index) error {
-	if s.Degrade == nil || s.DegradeAfter <= 0 {
-		return s.Gate.WaitFor(ctx, idx)
-	}
-	gctx, cancel := context.WithTimeout(ctx, s.DegradeAfter)
-	err := s.Gate.WaitFor(gctx, idx)
-	cancel()
-	if err == nil {
-		return nil
-	}
-	if ctx.Err() != nil {
-		return ctx.Err()
-	}
-	_ = s.Degrade.Enter(ctx) // erro ignorado de propósito: o que vale é o gate abaixo
-	return s.Gate.WaitFor(ctx, idx)
+	return waitLeader(ctx, s.Consensus, s.WaitLeader)
 }

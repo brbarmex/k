@@ -46,9 +46,6 @@ func New(addr string, r Reporter, metrics http.Handler) *Server {
 	return &Server{srv: &http.Server{Addr: addr, Handler: mux, ReadHeaderTimeout: 5 * time.Second}}
 }
 
-// Handler expõe as rotas (testes).
-func (s *Server) Handler() http.Handler { return s.srv.Handler }
-
 func (s *Server) ListenAndServe() error {
 	if err := s.srv.ListenAndServe(); err != http.ErrServerClosed {
 		return err

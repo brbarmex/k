@@ -14,7 +14,6 @@ const (
 	CodeNotLeader    = "NOT_LEADER"
 	CodePending      = "PENDING"
 	CodeThrottling   = "THROTTLING"
-	CodeLeaseExpired = "LEASE_EXPIRED"
 	CodeGateNotReady = "GATE_NOT_READY"
 	CodeReadTimeout  = "READ_TIMEOUT"
 	CodeInternal     = "INTERNAL"
@@ -36,8 +35,6 @@ func CodeOf(err error) string {
 		return CodePending
 	case errors.Is(err, usecase.ErrBackpressure):
 		return CodeThrottling
-	case errors.Is(err, usecase.ErrLeaseExpired):
-		return CodeLeaseExpired
 	case errors.Is(err, usecase.ErrGateNotReady):
 		return CodeGateNotReady
 	case errors.Is(err, usecase.ErrReadTimeout):
@@ -60,8 +57,6 @@ func ErrOf(code string) error {
 		return usecase.ErrPending
 	case CodeThrottling:
 		return usecase.ErrBackpressure
-	case CodeLeaseExpired:
-		return usecase.ErrLeaseExpired
 	case CodeGateNotReady:
 		return usecase.ErrGateNotReady
 	case CodeReadTimeout:

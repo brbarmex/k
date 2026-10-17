@@ -143,22 +143,6 @@ tasks:
         elif command -v xdg-open >/dev/null 2>&1; then xdg-open "$URL" >/dev/null 2>&1
         fi
 
-  bench-localstack:
-    desc: Measure the LocalStack ceiling alone with conditional PutItem (ADR-060), WORKERS per cell for DURATION, the three instances at once
-    vars:
-      WORKERS: '{{.WORKERS | default "16"}}'
-      DURATION: '{{.DURATION | default "30s"}}'
-    cmds:
-      - |
-        echo "Measuring the three LocalStacks alone: conditional PutItem, {{.WORKERS}} workers per cell, {{.DURATION}}"
-        echo "Stop any load first: the cells and k6 write to the same LocalStacks."
-        for N in {{.CELLS}}; do
-          docker compose run --rm --no-deps --entrypoint /usr/local/bin/benchstore cell-$N \
-            -endpoint http://localstack-$N:4566 -tables cadastro_cliente_cell_$N \
-            -workers {{.WORKERS}} -duration {{.DURATION}} 2>&1 | sed "s/^/[localstack-$N] /" &
-        done
-        wait
-
   diag:
     desc: Print per-cell input TPS, ACKs, throttling by cause, apply lag and Raft loop health from Prometheus (ADR-060)
     vars:

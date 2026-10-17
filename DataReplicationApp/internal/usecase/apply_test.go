@@ -437,8 +437,8 @@ func TestKeySlotIsStableAndSpreads(t *testing.T) {
 	op := func(table, key string) domain.Op {
 		return domain.Op{Table: domain.LogicalTable(table), Key: []byte(key)}
 	}
-	if keySlot(op("t", "a"), 16) != keySlot(op("t", "a"), 16) {
-		t.Fatal("a mesma chave precisa cair sempre no mesmo worker")
+	if s := keySlot(op("t", "a"), 16); s < 0 || s >= 16 || s != keySlot(op("t", string([]byte{'a'})), 16) {
+		t.Fatal("a mesma chave precisa cair sempre no mesmo worker, dentro da faixa")
 	}
 	if keySlot(op("t", "a"), 1) != 0 || keySlot(op("t", "a"), 0) != 0 {
 		t.Fatal("com 1 worker tudo vai para o 0")

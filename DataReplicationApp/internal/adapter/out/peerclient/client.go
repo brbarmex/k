@@ -28,7 +28,6 @@ const (
 // Client implementa etcdraft.Sender, port.Forwarder, port.BarrierClient e
 // port.GatePublisher.
 type Client struct {
-	self           uint64
 	forwardTimeout time.Duration
 	log            zerolog.Logger
 	peers          map[uint64]*peer
@@ -61,7 +60,7 @@ type peer struct {
 // acrescenta opções de conexão (os testes usam um dialer em memória).
 func New(self uint64, peers map[uint64]string, forwardTimeout time.Duration, log zerolog.Logger, extra ...grpc.DialOption) (*Client, error) {
 	ctx, cancel := context.WithCancel(context.Background())
-	c := &Client{self: self, forwardTimeout: forwardTimeout, log: log, peers: map[uint64]*peer{}, ctx: ctx, cancel: cancel}
+	c := &Client{forwardTimeout: forwardTimeout, log: log, peers: map[uint64]*peer{}, ctx: ctx, cancel: cancel}
 	for id, addr := range peers {
 		if id == self {
 			continue
@@ -136,7 +135,7 @@ func (c *Client) Forward(ctx context.Context, leader string, r port.WriteRequest
 	port.MetricsOrNop(c.Metrics).Forwarded()
 	ctx, cancel := context.WithTimeout(ctx, c.forwardTimeout)
 	defer cancel()
-	resp, err := p.rpc.Forward(ctx, &peerv1.ForwardRequest{Ops: r.Ops, ClientID: r.ClientID, Deadline: r.Deadline})
+	resp, err := p.rpc.Forward(ctx, &peerv1.ForwardRequest{Ops: r.Ops})
 	if err != nil {
 		return port.WriteResult{}, usecase.ErrPending
 	}
@@ -168,10 +167,10 @@ func (c *Client) Barrier(ctx context.Context, leader string) (domain.Index, doma
 
 // Publish guarda o gate mais recente para cada par e acorda o envio. Nunca bloqueia e
 // nunca perde o último valor (G-06).
-func (c *Client) Publish(term domain.Term, gate domain.Index) {
+func (c *Client) Publish(gate domain.Index) {
 	for _, p := range c.peers {
 		p.gateMu.Lock()
-		p.gate = &peerv1.GateUpdateRequest{Term: uint64(term), Gate: uint64(gate), From: c.self}
+		p.gate = &peerv1.GateUpdateRequest{Gate: uint64(gate)}
 		p.gateMu.Unlock()
 		select {
 		case p.gateC <- struct{}{}:

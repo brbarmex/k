@@ -14,7 +14,6 @@ type pumpRig struct {
 	p       *CommitPump
 	cons    *fakeConsensus
 	g       *domain.Gate
-	lease   *domain.Lease
 	toApply chan []domain.Entry
 	done    chan error
 	cancel  context.CancelFunc
@@ -25,8 +24,7 @@ func startPump(t *testing.T, applyBuf int) *pumpRig {
 	cons := newFakeConsensus()
 	g := &domain.Gate{}
 	toApply := make(chan []domain.Entry, applyBuf)
-	lease := &domain.Lease{}
-	p := &CommitPump{Consensus: cons, Gate: g, Lease: lease, ToApplier: toApply}
+	p := &CommitPump{Consensus: cons, Gate: g, ToApplier: toApply}
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
 	go func() { done <- p.Run(ctx) }()
@@ -37,7 +35,7 @@ func startPump(t *testing.T, applyBuf int) *pumpRig {
 		case <-time.After(time.Second):
 		}
 	})
-	return &pumpRig{p: p, cons: cons, g: g, lease: lease, toApply: toApply, done: done, cancel: cancel}
+	return &pumpRig{p: p, cons: cons, g: g, toApply: toApply, done: done, cancel: cancel}
 }
 
 // commit publica o commit até cada índice (o fake preenche os anteriores com Noop). Não
@@ -213,35 +211,5 @@ func TestPumpStopsOnContext(t *testing.T) {
 	case <-r.done:
 	case <-time.After(2 * time.Second):
 		t.Fatal("não parou com o contexto")
-	}
-}
-
-// O pump alimenta t_c: duas confirmações da Azure (heartbeat incluído) formam a maioria, e
-// o termo novo descarta os contatos do antigo.
-func TestPumpFeedsLastContactToLease(t *testing.T) {
-	r := startPump(t, 10)
-	t0 := time.Unix(5_000_000, 0)
-	r.lease.Mark(1, time.Minute)
-	send := func(id string, term domain.Term, at time.Time) {
-		select {
-		case r.cons.events <- port.LearnerProgress{Term: term, Learner: id, SentAt: at}: // heartbeat: sem índice novo
-		case <-time.After(2 * time.Second):
-			t.Fatal("o pump não aceitou o evento")
-		}
-	}
-	send("az1", 1, t0)
-	send("az2", 1, t0)
-	deadline := time.Now().Add(2 * time.Second)
-	for r.lease.Check(t0.Add(time.Second)) != nil {
-		if time.Now().After(deadline) {
-			t.Fatal("o contato com a maioria Azure não chegou ao lease")
-		}
-		time.Sleep(time.Millisecond)
-	}
-	r.cons.setTerm(2)
-	send("az1", 1, t0.Add(time.Second)) // atrasado, do termo antigo (e o pump já viu o termo 2)
-	time.Sleep(30 * time.Millisecond)
-	if r.lease.Check(t0.Add(2*time.Second)) == nil {
-		t.Fatal("líder nova não herda t_c do termo antigo")
 	}
 }

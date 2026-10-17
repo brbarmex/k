@@ -89,7 +89,7 @@ func TestGateChangedAndWaitCleanup(t *testing.T) {
 		}()
 	}
 	wg.Wait()
-	if n := g.Waiting(); n != 0 {
+	if n := g.waiting(); n != 0 {
 		t.Fatalf("restaram %d waiters", n)
 	}
 }

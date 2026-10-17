@@ -21,16 +21,13 @@ type Empty struct{}
 
 // ForwardRequest é a escrita inteira encaminhada pela follower à líder (ADR-010).
 type ForwardRequest struct {
-	Ops      []domain.Op
-	ClientID string
-	Deadline int64
+	Ops []domain.Op
 }
 
 // ForwardResponse traz a classe do resultado e, no OK, o índice commitado.
 type ForwardResponse struct {
-	Code    string
-	Index   uint64
-	Message string
+	Code  string
+	Index uint64
 }
 
 // BarrierRequest pede a barreira de leitura à líder.
@@ -45,9 +42,7 @@ type BarrierResponse struct {
 
 // GateUpdateRequest é o gate publicado pela líder (G-06).
 type GateUpdateRequest struct {
-	Term uint64
 	Gate uint64
-	From uint64
 }
 
 // PeerServer é o servidor entre células.
