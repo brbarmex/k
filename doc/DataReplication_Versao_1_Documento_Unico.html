@@ -51,7 +51,7 @@ footer{margin-top:60px;color:var(--mut);font-size:14px;border-top:1px solid var(
 </nav>
 <main id="topo">
 <h1>DataReplication v1: documento único</h1>
-<div class="meta">Gerado em 14/10/2026 a partir do pacote em Markdown · Dono: Bruno · 151 documentos e 97 diagramas Mermaid.
+<div class="meta">Gerado em 17/10/2026 a partir do pacote em Markdown · Dono: Bruno · 151 documentos e 97 diagramas Mermaid.
 Os links entre documentos levam às seções deste arquivo; os links para código levam aos arquivos do pacote.
 Em caso de divergência, vale o Markdown do pacote.</div>
 <section id="p-estado"><h2>Estado atual</h2><article class="doc" id="d-estado-atual"><h3>Estado atual do DataReplication</h3><p class="fonte">Fonte: <a href="ESTADO_ATUAL.md">ESTADO_ATUAL.md</a></p><p><a href="00_COMECE_AQUI.md">Início</a> · <a href="#d-datareplication-versao-1">Documento principal</a> · <a href="#d-03-adr-inventario">Inventário dos ADRs</a> · <a href="03_adr/INDEX.md">Índice dos ADRs</a></p>
@@ -287,7 +287,7 @@ Em caso de divergência, vale o Markdown do pacote.</div>
 </ul>
 <h5 id="d-estado-atual--35-os-dois-logs-o-fsync-e-a-retenção">3.5 Os dois logs, o fsync e a retenção</h5>
 <ul>
-<li><strong>Log do Raft:</strong> pacote <code>wal</code> do etcd, um por shard, fsync antes de responder; é o <strong>único fsync no caminho do ACK</strong> <a href="#d-03-adr-adr-019-wal-proprio-volume-dedicado">019</a> <a href="#d-03-adr-adr-055-log-de-replicacao-segmentado-derivado-do-raft">055</a>. Group commit por shard sem espera fixa (teto de 1 MiB por lote); modo síncrono com F3; <code>AsyncStorageWrites</code> só se o spike S1b mostrar ganho <a href="#d-03-adr-adr-056-group-commit-por-shard-e-nada-sai-antes-do-fsync">056</a>. <strong>POC: Parcial</strong> (o lote vem só do <code>Ready</code>; o <code>raftstore.Writer</code>, pronto e testado, entra junto com o <code>AsyncStorageWrites</code>, se o S1b aprovar).</li>
+<li><strong>Log do Raft:</strong> pacote <code>wal</code> do etcd, um por shard, fsync antes de responder; é o <strong>único fsync no caminho do ACK</strong> <a href="#d-03-adr-adr-019-wal-proprio-volume-dedicado">019</a> <a href="#d-03-adr-adr-055-log-de-replicacao-segmentado-derivado-do-raft">055</a>. Group commit por shard sem espera fixa (teto de 1 MiB por lote); modo síncrono com F3; <code>AsyncStorageWrites</code> só se o spike S1b mostrar ganho <a href="#d-03-adr-adr-056-group-commit-por-shard-e-nada-sai-antes-do-fsync">056</a>. <strong>POC: Parcial</strong> (o lote vem só do <code>Ready</code>; o teto de 1 MiB entra junto com o <code>AsyncStorageWrites</code>, se o S1b aprovar).</li>
 <li><strong>Log de replicação:</strong> segmentado, nosso, derivado do Raft, gravado depois do commit <strong>sem fsync por entrada</strong>, em goroutine própria com fila limitada. Um checkpoint periódico faz o fsync fora da trava do <code>Append</code> e publica o <code>DurableIndex</code> <a href="#d-03-adr-adr-055-log-de-replicacao-segmentado-derivado-do-raft">055</a> <a href="#d-03-adr-adr-059-checkpoint-do-log-de-replicacao-sem-trava-no-append">059</a>. <strong>POC: Sim</strong>.</li>
 <li><strong>Retenção:</strong> o Raft guarda só uma folga (<code>RAFT_RETAIN_MAX</code>) e é compactado até o <code>DurableIndex</code> (I-08). A retenção longa para a Azure fica no log de replicação, com teto de 70% do volume; passado o teto, a Azure só volta por reconstrução completa. Sem S3 na v1 <a href="#d-03-adr-adr-041-disco-do-log-teto-de-70-por-cento-sem-s3-na-v1">041</a> <a href="#d-03-adr-adr-055-log-de-replicacao-segmentado-derivado-do-raft">055</a>. <strong>POC: Fora</strong> (compactação e truncamento desligados). ⏳ <a href="#d-03-adr-adr-063-snapshot-e-compactacao-do-log-do-raft">063</a>.</li>
 <li><strong>Partida:</strong> retoma em <code>min(último do log de replicação + 1, progresso do applier)</code>, sem reaplicar o log inteiro <a href="#d-03-adr-adr-060-laco-do-raft-nunca-espera-o-apply-e-admissao-por-atraso">060</a>. <strong>POC: Sim</strong>.</li>
@@ -1046,7 +1046,7 @@ Em caso de divergência, vale o Markdown do pacote.</div>
 </table></div>
 <h4 id="d-datareplication-versao-1--9-implementação">9. Implementação</h4>
 <ul>
-<li><strong>Código:</strong> Go 1.27, hexagonal, injeção por Fx (só no <code>bootstrap</code>), <code>fasthttp</code>, <code>grpc-go</code> + <code>vtprotobuf</code>, <code>zerolog</code>, <code>viper</code>, <code>etcd-io/raft/v3</code> com o <code>wal</code> do etcd e escritor de group commit por shard (<code>raftstore</code>, ADR-056), log de replicação segmentado próprio (<code>replog</code>). Guia: <a href="05_implementacao/README.md">05_implementacao/README.md</a>.</li>
+<li><strong>Código:</strong> Go 1.27, hexagonal, injeção por Fx (só no <code>bootstrap</code>), <code>fasthttp</code>, <code>grpc-go</code> + <code>vtprotobuf</code>, <code>zerolog</code>, <code>viper</code>, <code>etcd-io/raft/v3</code> com o <code>wal</code> do etcd e group commit por shard (ADR-056), log de replicação segmentado próprio (<code>replog</code>). Guia: <a href="05_implementacao/README.md">05_implementacao/README.md</a>.</li>
 <li><strong>Estrutura de pastas e regras de lint:</strong> <a href="#d-05-implementacao-01-principios-bibliotecas-e-pastas">01_principios_bibliotecas_e_pastas</a>.</li>
 <li><strong>Desenho e diagramas de processo e de fluxo:</strong> <a href="#d-05-implementacao-02-desenho-e-diagramas">02_desenho_e_diagramas</a>.</li>
 <li><strong>Exemplos de código</strong> (compilados) e <strong>tabela de structs:</strong> <a href="#d-05-implementacao-03-exemplos-de-codigo">03</a>, <a href="#d-05-implementacao-04-tabela-de-structs">04</a>, <a href="05_implementacao/codigo_exemplo/README.md">codigo_exemplo/</a>.</li>
@@ -2208,7 +2208,7 @@ Em caso de divergência, vale o Markdown do pacote.</div>
 - <strong>Eleição e transferência</strong> (ADR-013): o voto só sai depois de termo e voto estarem no disco; a eleição fica um fsync mais lenta.
 - <strong>Fsync lento no modo síncrono</strong> congela o laço do shard: sem heartbeats, seguidores podem iniciar eleição e o processamento das respostas da Azure atrasa, o que pode fazer o lease do modo degradado (5.3.2) parecer vencido. Atenuação: <code>ElectionTick</code> bem acima do P99.9 de fsync (configurável em <code>ELECTION_TICKS</code>, 30 na POC) e F7 (transferir a liderança com fsync lento). O spike S1b mede se o <code>AsyncStorageWrites</code> elimina isso.
 - <strong>Apply lento não congela mais o laço (<a href="#d-03-adr-adr-060-laco-do-raft-nunca-espera-o-apply-e-admissao-por-atraso">ADR-060</a>).</strong> Antes, o laço do <code>Ready</code> entregava os commits por um canal bloqueante, e um banco lento numa célula parava o tick e o heartbeat e derrubava a liderança do grupo (teste de carga de 14/10). Agora o laço só publica o índice commitado (atômico mais aviso) e chama <code>Advance</code>; o <code>CommitPump</code> lê as entradas por faixa do <code>MemoryStorage</code>, e o gate segue o commit numa goroutine própria. Métricas do laço: <code>dr_raft_loop_duration_seconds</code> e <code>dr_raft_tick_gap_seconds</code>. Ver <a href="#d-02-cenarios-atualizados-c35-banco-lento-nao-derruba-a-lideranca">C35</a>.</p>
-<p><strong><code>AsyncStorageWrites</code>: critério de entrada (spike S1b).</strong> Entra se reduzir o P99 do commit em pelo menos 20% <strong>ou</strong> eliminar eleições causadas por fsync lento (atraso de disco injetado de 50 a 500 ms). No modo assíncrono a biblioteca já prende <code>MsgAppResp</code>, votos e o auto-ACK da líder à escrita (<code>msgsAfterAppend</code>) e só entrega à aplicação entradas estáveis localmente. O escritor (<code>raftstore.Writer</code>) já nasce com a forma do assíncrono, então a troca muda só a ligação no adaptador <code>etcdraft</code>. Não há variável para escolher o modo em produção.</p>
+<p><strong><code>AsyncStorageWrites</code>: critério de entrada (spike S1b).</strong> Entra se reduzir o P99 do commit em pelo menos 20% <strong>ou</strong> eliminar eleições causadas por fsync lento (atraso de disco injetado de 50 a 500 ms). No modo assíncrono a biblioteca já prende <code>MsgAppResp</code>, votos e o auto-ACK da líder à escrita (<code>msgsAfterAppend</code>) e só entrega à aplicação entradas estáveis localmente. A troca fica restrita ao adaptador <code>etcdraft</code>. Não há variável para escolher o modo em produção.</p>
 <p><strong>Contrapressão:</strong> <code>MaxUncommittedEntriesSize</code> de 32 MiB por shard e <code>MaxInflightBytes</code> configurado; acima disso a proposta é recusada com <code>ThrottlingException</code>, que os SDKs repetem, e o dedupe absorve a repetição. Desde o <a href="#d-03-adr-adr-060-laco-do-raft-nunca-espera-o-apply-e-admissao-por-atraso">ADR-060</a> há também a <strong>admissão por atraso do apply</strong>: antes do <code>Propose</code>, a líder recusa quando <code>gate − aplicado &gt; APPLY_LAG_MAX</code> (padrão <code>APPLY_WORKERS × 256</code>). Toda recusa leva uma causa em <code>dr_throttled_total{causa}</code>: <code>buffer_cheio</code>, <code>nao_lider</code>, <code>transferencia</code> ou <code>atraso_apply</code>.</p>
 <p><strong>TLA+ (ADR-030):</strong> o modelo separa log volátil e durável por nó, com queda em qualquer passo, e verifica que toda entrada ACKada está no log durável de 2 nós AWS e 2 nós Azure, nos dois modos.</p></article><article class="doc" id="d-01-arquitetura-04-wal-e-fsync"><h3>WAL, retenção, reconstrução e fsync</h3><p class="fonte">Fonte: <a href="01_arquitetura/04_wal_e_fsync.md">01_arquitetura/04_wal_e_fsync.md</a></p><blockquote>
 <p>Detalhe de arquitetura do <strong>DataReplication v1</strong>. A numeração das seções (ex.: 5.3, 6.8) vem do documento de origem e é usada nas referências cruzadas; o mapa está em <a href="00_COMECE_AQUI.md">00_COMECE_AQUI</a>. Visão geral e decisões: <a href="#d-datareplication-versao-1">documento principal</a>.</p>
@@ -2330,7 +2330,7 @@ Em caso de divergência, vale o Markdown do pacote.</div>
 | # | Medida | Efeito | Observação |
 |---|---|---|---|
 | F1 | <strong>Escolha do volume</strong> do WAL: dedicado, com IOPS e vazão provisionados (sem créditos de burst) e sem outro uso | Maior alavanca | Comparar: EBS gp3 e io2 (AWS), Azure Premium SSD v2 e Ultra Disk (Azure). NVMe local descartado pelo Bruno (12/10) |
-| F2 | <strong>Agrupamento natural</strong> (group commit sem espera): enquanto um fsync está em andamento, os registros novos se acumulam e vão no próximo | Mantém a latência de 1 fsync por commit mesmo sob carga | <strong>Decidido (ADR-056): por shard</strong>, sem linger, teto de 1 MiB por lote. O <code>wal.Save</code> do etcd já faz um <code>fdatasync</code> por <code>Ready</code>; o escritor junta os lotes pendentes. Entre shards só pelo gatilho do S1 (6.10) |
+| F2 | <strong>Agrupamento natural</strong> (group commit sem espera): enquanto um fsync está em andamento, os registros novos se acumulam e vão no próximo | Mantém a latência de 1 fsync por commit mesmo sob carga | <strong>Decidido (ADR-056): por shard</strong>, sem linger, teto de 1 MiB por lote. O <code>wal.Save</code> do etcd já faz um <code>fdatasync</code> por <code>Ready</code>, que traz o que chegou durante o fsync anterior. Entre shards só pelo gatilho do S1 (6.10) |
 | F3 | <strong>Líder grava em paralelo ao envio</strong> aos seguidores | Tira o fsync do líder do caminho serial | <strong>Decidido (ADR-056):</strong> modo síncrono, só <code>MsgApp</code> da líder sai antes do fsync (o <code>doc.go</code> do <code>etcd-io/raft</code> permite, seção 10.2.1 da tese); <code>MsgAppResp</code> e votos só depois. O <code>AsyncStorageWrites</code> dá o mesmo ganho e entra só pelo critério do S1b |
 | F4 | <strong>Arquivos pré-alocados e <code>fdatasync</code></strong>, sem mudar o tamanho do arquivo | Evita gravar metadados do sistema de arquivos a cada fsync | Já previsto em 6.3 |
 | F5 | <strong>Escritas alinhadas ao bloco</strong> (4 KiB) | Evita ler-modificar-gravar no dispositivo | Registros com preenchimento ou lotes alinhados; avaliar <code>O_DIRECT</code> + <code>O_DSYNC</code> no volume escolhido e comparar com <code>fdatasync</code> |
@@ -2453,7 +2453,7 @@ Em caso de divergência, vale o Markdown do pacote.</div>
 </tr>
 <tr>
 <td>Entre chamadas</td>
-<td>Cada <code>Save</code> faz o seu fsync: para juntar lotes, o escritor junta <strong>antes</strong> de chamar <code>Save</code></td>
+<td>Cada <code>Save</code> faz o seu fsync: o lote é o que vem no <code>Ready</code></td>
 </tr>
 <tr>
 <td>Entre shards</td>
@@ -2461,13 +2461,11 @@ Em caso de divergência, vale o Markdown do pacote.</div>
 </tr>
 </tbody>
 </table></div>
-<p><strong>Escritor por shard (<code>raftstore.Writer</code>):</strong>
-1. Recebe lotes (entradas, <code>HardState</code>, respostas a liberar) numa fila ordenada.
-2. Assim que o fsync anterior termina, junta <strong>tudo o que está pendente</strong>, até <code>RAFT_BATCH_MAX_BYTES</code> (1 MiB); uma entrada maior vai sozinha. Sem espera fixa: com pouco tráfego, o lote é de uma entrada.
-3. Na junção, uma escrita posterior que reescreve índices (troca de termo) corta o lote anterior a partir do primeiro índice dela; vale o último <code>HardState</code>; snapshot é fronteira de lote.
-4. Um <code>Save</code> com <code>fdatasync</code> → <code>MemoryStorage.Append</code> → libera as respostas, na ordem.
-5. Erro de escrita ou de fsync: o processo encerra <strong>sem liberar nenhuma resposta</strong> do lote (ADR-034).</p>
-<p><strong>Modo da biblioteca:</strong> síncrono com F3 na fase 1 (só <code>MsgApp</code> da líder sai antes do fsync; regra em <code>domain.CanSendBeforeSync</code>). O <code>AsyncStorageWrites</code> entra se o S1b mostrar redução de pelo menos 20% no P99 do commit ou eliminar eleições causadas por fsync lento. O escritor acima já tem a forma do modo assíncrono.</p>
+<p><strong>Laço do Ready por shard (adaptador <code>etcdraft</code>):</strong>
+1. Cada <code>Ready</code> traz as entradas novas e o <code>HardState</code>; o que chegou enquanto o fsync anterior rodava já vem junto no <code>Ready</code> seguinte. Sem espera fixa: com pouco tráfego, o lote é de uma entrada. Teto de lote: <code>RAFT_BATCH_MAX_BYTES</code> (1 MiB).
+2. Um <code>Save</code> com <code>fdatasync</code> → <code>MemoryStorage.Append</code> → envia as respostas, na ordem.
+3. Erro de escrita ou de fsync: o processo encerra <strong>sem enviar nenhuma resposta</strong> do lote (ADR-034).</p>
+<p><strong>Modo da biblioteca:</strong> síncrono com F3 na fase 1 (só <code>MsgApp</code> da líder sai antes do fsync; regra em <code>domain.CanSendBeforeSync</code>). O <code>AsyncStorageWrites</code> entra se o S1b mostrar redução de pelo menos 20% no P99 do commit ou eliminar eleições causadas por fsync lento.</p>
 <p><strong>IOPS e o plano B entre shards.</strong> Com agrupamento natural, um log faz cerca de <code>λ / (1 + λ·t)</code> fsyncs por segundo (<code>λ</code> = escritas por segundo naquele log, <code>t</code> = duração do fsync). A 3.000 TPS e fsync de 1,5 ms: ~545 fsyncs/s com um WAL compartilhado, ~1.900 com 8 shards, ~2.300 com 16. Por isso o volume do Raft tem IOPS provisionadas e há teto de shards por nó. <strong>Gatilho do WAL compartilhado (W2):</strong> no S1, na carga de 2x, fsync P99 acima do orçamento da seção 7 <strong>ou</strong> IOPS de escrita acima de 70% do provisionado. Se disparar, a volta do W2 é uma decisão nova, com a bateria completa de testes da seção 13.</p>
 <p><strong>Contrapressão:</strong> <code>MaxUncommittedEntriesSize</code> 32 MiB por shard e <code>MaxInflightBytes</code>; acima disso, <code>ThrottlingException</code> (os SDKs repetem; o dedupe de 5 min cobre). A líder também recusa antes do <code>Propose</code> quando o apply está atrasado demais (<code>gate − aplicado &gt; APPLY_LAG_MAX</code>, <a href="#d-03-adr-adr-060-laco-do-raft-nunca-espera-o-apply-e-admissao-por-atraso">ADR-060</a>), e o laço do Raft não espera mais o apply: o commit é publicado como sinal e o <code>CommitPump</code> lê por faixa.</p>
 <p><strong>Métricas:</strong> <code>raft_fsync_seconds</code>, <code>raft_fsync_per_second</code>, <code>raft_batch_entries</code>, <code>raft_batch_bytes</code>, <code>raft_unpersisted_bytes</code>, <code>raft_throttled_total</code>, <code>raft_elections_total</code>.</p>
@@ -4141,7 +4139,7 @@ Em caso de divergência, vale o Markdown do pacote.</div>
 </ul></article><article class="doc" id="d-02-cenarios-atualizados-c13-ressincronizacao-da-azure"><h3>C13 — Ressincronização da Azure</h3><p class="fonte">Fonte: <a href="02_cenarios/atualizados/C13-ressincronizacao-da-azure.md">02_cenarios/atualizados/C13-ressincronizacao-da-azure.md</a></p><p><strong>Status:</strong> ✅ Atualizado (modelo v1) · <strong>ADRs:</strong> <a href="#d-03-adr-adr-014-modo-degradado-opcao-b">ADR-014</a>, <a href="#d-03-adr-adr-044-lease-do-modo-degradado-e-promocao-da-azure">ADR-044</a>, <a href="#d-03-adr-adr-047-delete-real-invariante-e-reconstrucao-em-tabela-sombra">ADR-047</a>, <a href="#d-03-adr-adr-018-dois-logs-raft-e-replicacao">ADR-018</a>, <a href="#d-03-adr-adr-055-log-de-replicacao-segmentado-derivado-do-raft">ADR-055</a>, <a href="#d-03-adr-adr-034-fsync-fatal-e-identidade-nova">ADR-034</a> · <strong>Relacionados:</strong> <a href="#d-02-cenarios-complexos-x02-modo-degradado">X02 Modo degradado</a></p>
 <h4 id="d-02-cenarios-atualizados-c13-ressincronizacao-da-azure--cenário">Cenário</h4>
 <p>A Azure (ou o link) volta. Os learners pedem as entradas a partir do último índice durável que têm, e o catch-up é assíncrono. Com o lag abaixo do limiar e histerese, a líder propõe <code>RESTORE(epoch)</code>, o modo degradado e o lease terminam e o gate volta a exigir a maioria Azure. Se o lease já tinha vencido (<code>503 LEASE_EXPIRED</code>), as escritas só voltam com o <code>RESTORE</code> (ou com um <code>RENEW</code> humano). Se a retenção do log na AWS não cobrir o período, a Azure precisa de reconstrução manual assistida (<code>drctl rebuild</code>), que segue o protocolo da tabela sombra (<a href="#d-02-cenarios-atualizados-c33-reconstrucao-em-tabela-sombra">C33</a>).</p>
-<p><strong>Desde o ADR-055 (13/10):</strong> o catch-up longo lê do <strong>log de replicação</strong> da líder, por faixa de índices. O log do Raft só cobre atrasos pequenos (folga <code>RAFT_RETAIN_MAX</code>); um learner que passa dela recebe do Raft um snapshot, que aqui é só um marcador, e busca as entradas no canal de catch-up. <strong>No learner, o lote recebido por esse canal é gravado no log de replicação do learner com </strong>fsync<strong> antes de o learner informar ao Raft o índice alcançado.</strong> Nesse caminho o log de replicação do learner é a única cópia durável daquelas entradas no nó; sem o sync, o gate contaria uma durabilidade da Azure que não existe.</p>
+<p><strong>Desde o ADR-055 (13/10):</strong> o catch-up longo lê do <strong>log de replicação</strong> da líder, por faixa de índices. O log do Raft só cobre atrasos pequenos (folga <code>RAFT_RETAIN_MAX</code>); um learner que passa dela recebe do Raft um snapshot, que aqui é só um marcador, e busca as entradas no canal de catch-up. <strong>No learner, o lote recebido por esse canal é gravado no log de replicação do learner com <strong>fsync</strong> antes de o learner informar ao Raft o índice alcançado.</strong> Nesse caminho o log de replicação do learner é a única cópia durável daquelas entradas no nó; sem o sync, o gate contaria uma durabilidade da Azure que não existe.</p>
 <h4 id="d-02-cenarios-atualizados-c13-ressincronizacao-da-azure--diagrama">Diagrama</h4>
 <div class="diagrama"><pre class="mermaid">sequenceDiagram
     autonumber
@@ -7457,7 +7455,7 @@ gate         = max(gate, candidato)            -- nunca recua
 <td>Vigente, complementado</td>
 <td>060 (risco 35)</td>
 <td>Parcial</td>
-<td>F3 sim (<code>SplitBeforeSync</code>). Pela resposta 6b, o lote da POC vem só do <code>Ready</code>; o <code>raftstore.Writer</code> entra com o <code>AsyncStorageWrites</code> (S1b)</td>
+<td>F3 sim (<code>SplitBeforeSync</code>). Pela resposta 6b, o lote da POC vem só do <code>Ready</code>; o teto de 1 MiB entra com o <code>AsyncStorageWrites</code> (S1b)</td>
 </tr>
 <tr>
 <td><a href="#d-03-adr-adr-057-um-unico-modo-strong-consistency">057</a></td>
@@ -7594,7 +7592,7 @@ gate         = max(gate, candidato)            -- nunca recua
 <li><strong>[Decidido: 3a] ADR-011 (witness):</strong> nenhum ADR posterior o usa, e o snapshot virou só marcador (<a href="#d-03-adr-adr-063-snapshot-e-compactacao-do-log-do-raft">ADR-063</a>). (a) Marcar como sem uso, ou descartado; (b) manter, e dizer onde o witness entra no desenho.</li>
 <li><strong>[Decidido: 4a] ADR-043:</strong> a alternativa "mTLS por aplicação: custo de certificados sem ganho" foi revertida pelo 052; a atualização do 043 só cita o item 3. (a) Acrescentar a nota no 043.</li>
 <li><strong>[Decidido: 5a] ADR-028 x AP-07:</strong> o 028 limita o cliente do banco a "1 s por tentativa e no máximo 2"; o applier repete erro transitório <strong>sem limite</strong>, com espera de até 5 s (<a href="#d-03-adr-adr-058-apply-paralelo-por-chave-com-marca-dagua">ADR-058</a>, AP-07 da spec). (a) O limite do 028 vale só no caminho da requisição (GetItem, Scan); o applier repete sem limite; (b) o applier também tem limite.</li>
-<li><strong>[Decidido: 6b] ADR-056 na POC:</strong> o <code>raftstore.Writer</code> (coalescência, teto de 1 MiB, respostas só depois do fsync) tem testes, mas o nó usa <code>wal.Save</code> direto no <code>Ready</code>. (a) Ligar o escritor na POC; (b) registrar que o lote da POC vem só do <code>Ready</code>, e o escritor entra com o <code>AsyncStorageWrites</code> (S1b).</li>
+<li><strong>[Decidido: 6b] ADR-056 na POC:</strong> o nó usa <code>wal.Save</code> direto no <code>Ready</code>, sem o teto de 1 MiB por lote. (a) Implementar o teto na POC; (b) registrar que o lote da POC vem só do <code>Ready</code>, e o teto entra com o <code>AsyncStorageWrites</code> (S1b).</li>
 <li><strong>[Decidido: 7a] ADR-049, item 4, na POC:</strong> com o applier estacionado, a leitura forte espera até o prazo (7,5 s) em vez de responder 503 na hora. (a) Implementar a falha rápida na POC; (b) deixar para a fase AWS.</li>
 <li><strong>[Decidido: 8a] ADR-030 x código do gate:</strong> o ADR pede o modelo TLA+ antes do código do gate, e o gate já tem código e testes. (a) A regra vale para o gate com learners reais (fase AWS); a POC usa gate = commit e não conta; (b) escrever o modelo antes de continuar o gate.</li>
 </ol>
@@ -8137,7 +8135,7 @@ gate         = max(gate, candidato)            -- nunca recua
 <h4 id="d-03-adr-adr-034-fsync-fatal-e-identidade-nova--consequências">Consequências</h4>
 <p>Reconstrução automática fica como hipótese H-DR1.</p>
 <h4 id="d-03-adr-adr-034-fsync-fatal-e-identidade-nova--atualização-de-13102026-adr-056">Atualização de 13/10/2026 (ADR-056)</h4>
-<p>Com group commit, uma falha de escrita ou de fsync encerra o processo <strong>sem entregar nenhuma resposta do lote</strong> (nem ACK, nem voto, nem <code>MsgAppResp</code>). Vale para o escritor do log do Raft nos modos síncrono e assíncrono (<a href="#d-03-adr-adr-056-group-commit-por-shard-e-nada-sai-antes-do-fsync">ADR-056</a>).</p>
+<p>Com group commit, uma falha de escrita ou de fsync encerra o processo <strong>sem entregar nenhuma resposta do lote</strong> (nem ACK, nem voto, nem <code>MsgAppResp</code>). Vale para a gravação do log do Raft nos modos síncrono e assíncrono (<a href="#d-03-adr-adr-056-group-commit-por-shard-e-nada-sai-antes-do-fsync">ADR-056</a>).</p>
 <h4 id="d-03-adr-adr-034-fsync-fatal-e-identidade-nova--onde-está-o-detalhe">Onde está o detalhe</h4>
 <ul>
 <li><a href="#d-01-arquitetura-04-wal-e-fsync">04_wal_e_fsync.md</a></li>
@@ -8677,12 +8675,12 @@ gate         = max(gate, candidato)            -- nunca recua
 <h4 id="d-03-adr-adr-056-group-commit-por-shard-e-nada-sai-antes-do-fsync--decisão">Decisão</h4>
 <ol>
 <li><strong>Nada sai antes do fsync (1a).</strong> O buffer em memória é <strong>só a área de montagem do lote</strong>. Nenhum ACK ao cliente, nenhum voto (<code>MsgVoteResp</code>) e nenhuma resposta de <code>AppendEntries</code> (<code>MsgAppResp</code>) sai antes do fsync que cobre a entrada, em nenhum dos 6 nós. A líder só se conta no quórum depois do próprio fsync. É uma <strong>invariante</strong> (vale no ADR, no TLA+ e nos testes), não uma configuração. A decisão de 12/10 (sem ACK em memória) continua.</li>
-<li><strong>Group commit por shard (2a).</strong> Um <code>wal</code> do etcd por shard, como no ADR-055. O escritor de cada shard (<code>raftstore.Writer</code>) <strong>junta tudo o que está pendente</strong> num único <code>Save</code> com um <code>fdatasync</code> e só então libera as respostas, em ordem. Nada de WAL compartilhado na v1.
+<li><strong>Group commit por shard (2a).</strong> Um <code>wal</code> do etcd por shard, como no ADR-055. O laço do <code>Ready</code> de cada shard grava <strong>tudo o que está pendente</strong> num único <code>Save</code> com um <code>fdatasync</code> e só então libera as respostas, em ordem. Nada de WAL compartilhado na v1.
    - <strong>IOPS provisionadas</strong> no volume do Raft (io2 ou gp3 com IOPS acima da base na AWS; Premium SSD v2 com IOPS acima da base na Azure) e <strong>teto de shards por nó</strong> (<code>MAX_SHARDS_PER_NODE</code>, valor do S1).
    - <strong>Gatilho do plano B</strong> (WAL compartilhado entre shards, o W2): o S1 mede, na carga de 2x (6.000 TPS), fsync P99 acima do orçamento da seção 7 <strong>ou</strong> IOPS de escrita acima de 70% do provisionado. Se o gatilho disparar, a volta do W2 é uma decisão nova, com a bateria completa de testes de armazenamento.</li>
 <li><strong>Modo síncrono com F3 na fase 1; <code>AsyncStorageWrites</code> decidido no spike S1b (3b).</strong>
    - Fase 1: <code>RawNode</code> síncrono. <strong>Só a líder</strong> pode enviar antes de gravar, e <strong>só <code>MsgApp</code></strong>. Qualquer outra mensagem do <code>Ready</code> (em especial <code>MsgAppResp</code> e <code>MsgVoteResp</code>) sai depois do <code>Save</code> com fsync. <code>Advance</code> só depois do fsync.
-   - O escritor já nasce com a forma do modo assíncrono (fila de lotes, coalescência, respostas presas ao lote): trocar de modo muda só a ligação no adaptador <code>etcdraft</code>.
+   - Trocar de modo fica restrito ao adaptador <code>etcdraft</code>.
    - <strong>Critério do S1b:</strong> o assíncrono entra se reduzir o <strong>P99 do commit em pelo menos 20%</strong> <strong>ou</strong> eliminar eleições causadas por fsync lento (injeção de atraso de disco de 50 ms a 500 ms na líder). Sem isso, fica o síncrono.
    - Não haverá variável para escolher o modo em produção (a matriz de testes dobraria).</li>
 <li><strong>Sem espera fixa para formar lote (4a).</strong> O lote é o que se acumulou enquanto o fsync anterior rodava, com <strong>teto de 1 MiB</strong> (<code>RAFT_BATCH_MAX_BYTES</code>); uma entrada maior que o teto vai sozinha. Espera adaptativa só volta à mesa se o S1 mostrar IOPS no limite.</li>
@@ -8691,7 +8689,7 @@ gate         = max(gate, candidato)            -- nunca recua
 </ol>
 <h4 id="d-03-adr-adr-056-group-commit-por-shard-e-nada-sai-antes-do-fsync--regras-de-implementação">Regras de implementação</h4>
 <ul>
-<li><strong>Ordem no escritor:</strong> <code>Save</code> (entradas e <code>HardState</code>) → <code>fdatasync</code> → <code>MemoryStorage.Append</code> → entregar respostas. Inverter quebra o envio de <code>MsgApp</code> a seguidores atrasados.</li>
+<li><strong>Ordem no laço do <code>Ready</code>:</strong> <code>Save</code> (entradas e <code>HardState</code>) → <code>fdatasync</code> → <code>MemoryStorage.Append</code> → entregar respostas. Inverter quebra o envio de <code>MsgApp</code> a seguidores atrasados.</li>
 <li><strong>Junção de lotes:</strong> uma escrita posterior pode reescrever entradas da anterior (troca de termo). A junção corta o lote anterior a partir do primeiro índice da nova, usa o último <code>HardState</code> e trata snapshot como fronteira de lote.</li>
 <li><strong>Falha de escrita ou de fsync é fatal</strong> (<a href="#d-03-adr-adr-034-fsync-fatal-e-identidade-nova">ADR-034</a>): o processo encerra <strong>sem entregar nenhuma resposta do lote</strong>.</li>
 <li><strong>Gate:</strong> o progresso dos learners continua vindo só do <code>MsgAppResp</code> no termo atual (<a href="#d-03-adr-adr-046-gate-so-conta-progresso-validado-pelo-raft">ADR-046</a>); como a resposta só sai depois do fsync do learner, o gate não conta durabilidade inexistente.</li>
@@ -8720,11 +8718,10 @@ gate         = max(gate, candidato)            -- nunca recua
 </ul>
 <h4 id="d-03-adr-adr-056-group-commit-por-shard-e-nada-sai-antes-do-fsync--código-de-exemplo">Código de exemplo</h4>
 <ul>
-<li><code>internal/adapter/out/raftstore</code>: escritor com coalescência sem espera fixa, teto de bytes por lote, junção com reescrita de índices, respostas liberadas só depois do <code>Sync</code> e erro fatal sem liberar respostas, com testes.</li>
 <li><code>internal/domain/sendrule.go</code>: <code>CanSendBeforeSync</code>, a regra do que pode sair antes do fsync no modo síncrono, com testes.</li>
 </ul>
 <h4 id="d-03-adr-adr-056-group-commit-por-shard-e-nada-sai-antes-do-fsync--atualização-de-14102026-inventário-dos-adrs-resposta-6b">Atualização de 14/10/2026 (inventário dos ADRs, resposta 6b)</h4>
-<p><strong>Na POC o lote do log do Raft vem só do <code>Ready</code>:</strong> cada <code>Ready</code> é gravado com um <code>wal.Save</code> e um <code>fdatasync</code>, o que já junta as propostas que chegaram durante o fsync anterior. O <code>raftstore.Writer</code> (coalescência entre <code>Ready</code>s, teto de 1 MiB, respostas só depois do fsync) fica pronto e testado e <strong>entra junto com o <code>AsyncStorageWrites</code></strong>, se o spike S1b o aprovar. Sem ele, a regra "nada sai antes do fsync" continua garantida pela ordem do laço síncrono: <code>MsgApp</code> da líder, <code>Save</code> com fsync, e só então o resto das mensagens (<code>domain.SplitBeforeSync</code>).</p>
+<p><strong>Na POC o lote do log do Raft vem só do <code>Ready</code>:</strong> cada <code>Ready</code> é gravado com um <code>wal.Save</code> e um <code>fdatasync</code>, o que já junta as propostas que chegaram durante o fsync anterior. O teto de 1 MiB por lote <strong>entra junto com o <code>AsyncStorageWrites</code></strong>, se o spike S1b o aprovar. A regra "nada sai antes do fsync" continua garantida pela ordem do laço síncrono: <code>MsgApp</code> da líder, <code>Save</code> com fsync, e só então o resto das mensagens (<code>domain.SplitBeforeSync</code>).</p>
 <h4 id="d-03-adr-adr-056-group-commit-por-shard-e-nada-sai-antes-do-fsync--onde-está-o-detalhe">Onde está o detalhe</h4>
 <ul>
 <li><a href="#d-01-arquitetura-04-wal-e-fsync">04_wal_e_fsync.md</a> (6.8 e 6.10)</li>
@@ -9222,13 +9219,13 @@ gate         = max(gate, candidato)            -- nunca recua
 <li>Desenho completo e diagramas de processo: <a href="#d-05-implementacao-02-desenho-e-diagramas">05_implementacao/02</a>.</li>
 <li>Decisão: <a href="#d-03-adr-adr-031-hexagonal-e-bibliotecas">ADR-031</a>.</li>
 </ul></article><article class="doc" id="d-04-diagramas-d04-dois-logs-e-commitpump"><h3>D04 — Os dois logs e o CommitPump</h3><p class="fonte">Fonte: <a href="04_diagramas/D04-dois-logs-e-commitpump.md">04_diagramas/D04-dois-logs-e-commitpump.md</a></p><p><a href="00_COMECE_AQUI.md">Início</a> · <a href="#d-datareplication-versao-1">Documento principal</a> · <a href="04_diagramas/INDEX.md">Índice de diagramas</a></p>
-<p>O <strong>log do Raft</strong> (<code>wal</code> do etcd, volume próprio) é curto e tem fsync antes do ACK. O <strong>log de replicação</strong> (log segmentado próprio, outro volume, <a href="#d-03-adr-adr-055-log-de-replicacao-segmentado-derivado-do-raft">ADR-055</a>) é nosso, longo, gravado depois do commit <strong>sem fsync</strong>, com checkpoint com sync periódico, e serve a Azure atrasada, o <code>drctl</code> e a reconstrução. O <code>CommitPump</code> liga o commit ao gate, ao applier (pela memória) e ao log de replicação. O <strong>gate é alimentado por evento</strong>: cada resposta de <code>AppendEntries</code> dos learners Azure (termo, índice, identidade) o atualiza na hora, sem esperar um novo commit. O applier só avança até o gate e persiste o progresso <strong>por item</strong> no volume do log. A escrita do log do Raft passa pelo <strong>escritor de group commit por shard</strong> (<a href="#d-03-adr-adr-056-group-commit-por-shard-e-nada-sai-antes-do-fsync">ADR-056</a>): junta o que chegou durante o fsync anterior num único <code>Save</code> com <code>fdatasync</code> e só depois libera as respostas; só o <code>MsgApp</code> da líder sai antes. Desde o <a href="#d-03-adr-adr-060-laco-do-raft-nunca-espera-o-apply-e-admissao-por-atraso">ADR-060</a>, <strong>o commit é um sinal e não uma fila</strong>: o laço do Raft publica o índice commitado e nunca espera ninguém; o <code>CommitPump</code> lê as entradas por faixa da memória do Raft quando o applier tem espaço, e o gate segue o commit numa goroutine própria. A líder recusa escrita (<code>atraso_apply</code>) quando <code>gate − aplicado</code> passa de <code>APPLY_LAG_MAX</code>.</p>
+<p>O <strong>log do Raft</strong> (<code>wal</code> do etcd, volume próprio) é curto e tem fsync antes do ACK. O <strong>log de replicação</strong> (log segmentado próprio, outro volume, <a href="#d-03-adr-adr-055-log-de-replicacao-segmentado-derivado-do-raft">ADR-055</a>) é nosso, longo, gravado depois do commit <strong>sem fsync</strong>, com checkpoint com sync periódico, e serve a Azure atrasada, o <code>drctl</code> e a reconstrução. O <code>CommitPump</code> liga o commit ao gate, ao applier (pela memória) e ao log de replicação. O <strong>gate é alimentado por evento</strong>: cada resposta de <code>AppendEntries</code> dos learners Azure (termo, índice, identidade) o atualiza na hora, sem esperar um novo commit. O applier só avança até o gate e persiste o progresso <strong>por item</strong> no volume do log. A escrita do log do Raft é o <strong>group commit por shard</strong> do laço do <code>Ready</code> (<a href="#d-03-adr-adr-056-group-commit-por-shard-e-nada-sai-antes-do-fsync">ADR-056</a>): grava o que chegou durante o fsync anterior num único <code>Save</code> com <code>fdatasync</code> e só depois libera as respostas; só o <code>MsgApp</code> da líder sai antes. Desde o <a href="#d-03-adr-adr-060-laco-do-raft-nunca-espera-o-apply-e-admissao-por-atraso">ADR-060</a>, <strong>o commit é um sinal e não uma fila</strong>: o laço do Raft publica o índice commitado e nunca espera ninguém; o <code>CommitPump</code> lê as entradas por faixa da memória do Raft quando o applier tem espaço, e o gate segue o commit numa goroutine própria. A líder recusa escrita (<code>atraso_apply</code>) quando <code>gate − aplicado</code> passa de <code>APPLY_LAG_MAX</code>.</p>
 <h4 id="d-04-diagramas-d04-dois-logs-e-commitpump--caminho-do-dado-em-um-nó">Caminho do dado em um nó</h4>
 <div class="diagrama"><pre class="mermaid">flowchart TD
     W[&quot;WriteService: admissão e Propose&quot;] --&gt; RAFT[&quot;RaftNode&quot;]
     W -.-&gt;|&quot;gate − aplicado &amp;gt; APPLY_LAG_MAX (ADR-060)&quot;| THR
     RAFT -.-&gt;|&quot;buffer cheio: 32 MiB por shard&quot;| THR[&quot;ThrottlingException, nada entra no log&quot;]
-    RAFT --&gt;|&quot;lote do Ready&quot;| WR[&quot;raftstore.Writer&lt;br/&gt;junta os pendentes, teto 1 MiB, sem espera fixa&quot;]
+    RAFT --&gt;|&quot;lote do Ready&quot;| WR[&quot;Laço do Ready do shard&lt;br/&gt;grava os pendentes, sem espera fixa&quot;]
     WR --&gt;|&quot;um Save, um fdatasync&quot;| RLOG[(&quot;log do Raft: wal do etcd&lt;br/&gt;vida curta, volume do Raft&quot;)]
     WR --&gt;|&quot;depois do fsync: MsgAppResp, votos, auto-ACK, Advance&quot;| RAFT
     RAFT --&gt;|&quot;MsgApp da líder antes do fsync, F3&quot;| PARES[&quot;Seguidores AWS e learners Azure&quot;]
@@ -9455,7 +9452,7 @@ gate         = max(gate, candidato)            -- nunca recua
 <td><strong>Log do Raft</strong></td>
 <td>pacote <code>wal</code> do etcd (<code>go.etcd.io/etcd/server/v3/storage/wal</code>), um por shard</td>
 <td>WAL próprio segmentado (W2, desenho anterior)</td>
-<td>Decidido em 13/10 (<a href="#d-03-adr-adr-055-log-de-replicacao-segmentado-derivado-do-raft">ADR-055</a>). Muito testado; custa um fsync por shard e traz o módulo do servidor etcd e o <code>zap</code> como dependência. Importado <strong>só</strong> em <code>adapter/out/etcdraft</code>. Group commit por shard pelo escritor <code>adapter/out/raftstore</code> (só biblioteca padrão), modo síncrono com F3 e nada sai antes do fsync (<a href="#d-03-adr-adr-056-group-commit-por-shard-e-nada-sai-antes-do-fsync">ADR-056</a>)</td>
+<td>Decidido em 13/10 (<a href="#d-03-adr-adr-055-log-de-replicacao-segmentado-derivado-do-raft">ADR-055</a>). Muito testado; custa um fsync por shard e traz o módulo do servidor etcd e o <code>zap</code> como dependência. Importado <strong>só</strong> em <code>adapter/out/etcdraft</code>. Group commit por shard no laço do <code>Ready</code>, modo síncrono com F3 e nada sai antes do fsync (<a href="#d-03-adr-adr-056-group-commit-por-shard-e-nada-sai-antes-do-fsync">ADR-056</a>)</td>
 </tr>
 <tr>
 <td><strong>Log de replicação</strong></td>
@@ -9508,7 +9505,6 @@ gate         = max(gate, candidato)            -- nunca recua
 │   │   │   └── adminhttp/             # /livez /readyz /metrics (net/http)
 │   │   └── out/
 │   │       ├── etcdraft/              # ÚNICO pacote que importa go.etcd.io/raft e o wal do etcd; LOG DO RAFT (volume do Raft)
-│   │       ├── raftstore/             # escritor do log do Raft: group commit por shard, respostas só depois do fsync (ADR-056)
 │   │       ├── replog/                # LOG DE REPLICAÇÃO (ReplicationLog) segmentado, sem fsync + checkpoint (volume próprio)
 │   │       ├── dynamodb/              # StateStore da AWS (aws-sdk-go-v2); também a tabela sombra do rebuild (ADR-047)
 │   │       ├── cosmos/                # StateStore da Azure via Cloud-Adapter
@@ -9665,7 +9661,7 @@ linters-settings:
     API --&gt; WS[&quot;WriteService&lt;br/&gt;usecase&quot;]
     WS --&gt;|&quot;Propose&quot;| RAFT[&quot;RaftNode&lt;br/&gt;adaptador etcdraft&quot;]
     subgraph RL[&quot;Log do Raft: interno, vida curta, volume do Raft&quot;]
-        WR[&quot;raftstore.Writer&lt;br/&gt;group commit por shard, sem espera fixa&quot;]
+        WR[&quot;Laço do Ready do shard&lt;br/&gt;group commit por shard, sem espera fixa&quot;]
         RLOG[(&quot;raftlog: wal do etcd&lt;br/&gt;fsync ANTES do ACK&quot;)]
     end
     RAFT --&gt;|&quot;lote do Ready&quot;| WR
@@ -9685,7 +9681,7 @@ linters-settings:
     REP --&gt;|&quot;ler: Azure atrasada, drctl, rebuild&quot;| PEERS</pre></div>
 <p><strong>Passo a passo de uma escrita:</strong>
 1. <code>WriteService</code> chama <code>Propose</code> no <code>RaftNode</code> (única porta que fala com o Raft).
-2. O Raft envia a entrada aos pares (só o <code>MsgApp</code> da líder sai antes do fsync, F3) e o <code>raftstore.Writer</code> grava o lote no <strong>log do Raft</strong> com um fsync; nenhuma resposta (<code>MsgAppResp</code>, voto, auto-ACK da líder) sai antes do fsync (<a href="#d-03-adr-adr-056-group-commit-por-shard-e-nada-sai-antes-do-fsync">ADR-056</a>). Na replicação por gRPC, 2 de 3 votantes AWS decidem o commit, e os 3 learners da Azure recebem a mesma entrada.
+2. O Raft envia a entrada aos pares (só o <code>MsgApp</code> da líder sai antes do fsync, F3) e o laço do <code>Ready</code> grava o lote no <strong>log do Raft</strong> com um fsync; nenhuma resposta (<code>MsgAppResp</code>, voto, auto-ACK da líder) sai antes do fsync (<a href="#d-03-adr-adr-056-group-commit-por-shard-e-nada-sai-antes-do-fsync">ADR-056</a>). Na replicação por gRPC, 2 de 3 votantes AWS decidem o commit, e os 3 learners da Azure recebem a mesma entrada.
 3. Cada learner informa o índice que já tornou durável <strong>na resposta do <code>AppendEntries</code></strong>, com o termo e a identidade dele (<a href="#d-03-adr-adr-046-gate-so-conta-progresso-validado-pelo-raft">ADR-046</a>). Cada resposta alimenta o <code>Gate</code> na hora, sem esperar um commit novo; o gate só adota o termo atual e guarda <code>min(commit do Raft, maioria Azure)</code>. <strong>Só aqui o ACK é liberado.</strong>
 4. Os lotes commitados chegam ao <code>CommitPump</code>, que os entrega ao <code>Applier</code> <strong>pela memória</strong> e ao <strong>log de replicação</strong> em lote, fora do caminho do ACK. O progresso dos learners corre em outra goroutine do <code>CommitPump</code>: um <code>Append</code> lento não atrasa o gate.
 5. O <code>Applier</code> escreve no banco da célula com escrita condicional por versão, <strong>sempre depois do gate</strong> (<a href="#d-03-adr-adr-057-um-unico-modo-strong-consistency">ADR-057</a>) e <strong>em paralelo por chave</strong>, com a mesma chave na ordem do log (<a href="#d-03-adr-adr-058-apply-paralelo-por-chave-com-marca-dagua">ADR-058</a>); o <code>applied</code> é a marca d'água contígua, e o progresso salvo é ela <code>(índice, ordem)</code> (<a href="#d-03-adr-adr-048-skip-por-item">ADR-048</a>).
@@ -11491,38 +11487,19 @@ func (c *Checkpointer) Tick(ctx context.Context) error {
     return c.Log.CompactPrefix(ctx, domain.ReplogTruncateLimit(c.Retention()))
 }
 </code></pre>
-<h5 id="d-05-implementacao-03-exemplos-de-codigo--710-escritor-do-log-do-raft-e-regra-de-envio-adr-056">7.10 Escritor do log do Raft e regra de envio (ADR-056)</h5>
+<h5 id="d-05-implementacao-03-exemplos-de-codigo--710-laço-do-ready-e-regra-de-envio-adr-056">7.10 Laço do Ready e regra de envio (ADR-056)</h5>
 <blockquote>
-<p>No <a href="05_implementacao/codigo_exemplo/README.md"><code>codigo_exemplo/</code></a>, compilado e testado: <code>internal/adapter/out/raftstore</code> (escritor com group commit por shard) e <code>internal/domain/sendrule.go</code> (o que pode sair antes do fsync). O adaptador <code>etcdraft</code>, que ainda não existe, liga os dois ao <code>wal</code> do etcd e ao <code>MemoryStorage</code>.</p>
+<p>No <a href="05_implementacao/codigo_exemplo/README.md"><code>codigo_exemplo/</code></a>, compilado e testado: <code>internal/domain/sendrule.go</code> (o que pode sair antes do fsync). O adaptador <code>etcdraft</code>, que ainda não existe, a usa no laço do <code>Ready</code> sobre o <code>wal</code> do etcd e o <code>MemoryStorage</code>.</p>
 </blockquote>
-<pre><code class="language-go">// raftstore.Writer.write: um grupo de lotes, um fsync, depois as respostas.
-func (w *Writer) write(group []Batch) error {
-    st, ents, err := Merge(group) // reescrita de índices corta o lote anterior; vale o último HardState
-    if err != nil {
-        return err
-    }
-    if err := w.st.Persist(st, ents); err != nil { // um wal.Save com fdatasync
-        return fmt.Errorf(&quot;raftstore: persist: %w&quot;, err) // fatal, sem liberar respostas (ADR-034)
-    }
-    if err := w.st.Publish(st, ents); err != nil { // MemoryStorage.Append e SetHardState
-        return fmt.Errorf(&quot;raftstore: publish: %w&quot;, err)
-    }
-    for _, b := range group { // só agora: MsgAppResp, votos, auto-ACK da líder, Advance
-        if b.Release != nil {
-            b.Release()
-        }
-    }
-    return nil
-}
-</code></pre>
-<p>No modo síncrono com F3, o laço do shard separa as mensagens do <code>Ready</code> antes de entregar o lote ao escritor:</p>
+<p>No modo síncrono com F3, o laço do shard separa as mensagens do <code>Ready</code>, grava o lote com um fsync e só então envia o resto:</p>
 <pre><code class="language-go">before, after := domain.SplitBeforeSync(isLeader, rd.Messages, kindOf) // só MsgApp da líder em before
 transport.Send(before)                                                // F3: corre em paralelo ao fsync
-done := make(chan struct{})
-_ = writer.Submit(ctx, raftstore.Batch{Entries: toRecords(rd.Entries), State: hardState(rd), Barrier: hasSnapshot(rd),
-    Release: func() { transport.Send(after); close(done) }})
-&lt;-done        // modo síncrono: o laço espera o próprio lote
-node.Advance() // só depois do fsync
+if err := wal.Save(rd.HardState, rd.Entries); err != nil {           // um Save, um fdatasync
+    return err // fatal, sem enviar nenhuma resposta (ADR-034)
+}
+_ = storage.Append(rd.Entries) // MemoryStorage, depois do fsync
+transport.Send(after)          // MsgAppResp, votos, auto-ACK da líder
+node.Advance()                 // só depois do fsync
 </code></pre>
 <p>Erros de proposta: <code>raft.ErrProposalDropped</code> (buffer acima de <code>MaxUncommittedEntriesSize</code>) vira <code>usecase.ErrBackpressure</code>, que o adaptador HTTP responde como <code>ThrottlingException</code> (HTTP 400).</p></article><article class="doc" id="d-05-implementacao-04-tabela-de-structs"><h3>Tabela de structs</h3><p class="fonte">Fonte: <a href="05_implementacao/04_tabela_de_structs.md">05_implementacao/04_tabela_de_structs.md</a></p><p><a href="00_COMECE_AQUI.md">Início</a> · <a href="#d-datareplication-versao-1">Documento principal</a> · <a href="05_implementacao/README.md">Índice da implementação</a></p>
 <p>Nomes, pacote e o que cada struct (ou interface) faz. Os nomes de pacote seguem a <a href="#d-05-implementacao-01-principios-bibliotecas-e-pastas--3-estrutura-de-pastas">árvore de pastas</a>.</p>
@@ -11690,11 +11667,6 @@ node.Advance() // só depois do fsync
 <td><code>RaftStorage</code></td>
 <td><code>adapter/out/etcdraft</code></td>
 <td>Log do Raft: <code>wal</code> do etcd por shard mais <code>raft.MemoryStorage</code>, fsync antes do ACK; compacta só até o <code>DurableIndex</code> do <code>replog.Log</code>, com folga <code>RAFT_RETAIN_MAX</code></td>
-</tr>
-<tr>
-<td><code>Writer</code></td>
-<td><code>adapter/out/raftstore</code></td>
-<td>Escritor do log do Raft de um shard (<a href="#d-03-adr-adr-056-group-commit-por-shard-e-nada-sai-antes-do-fsync">ADR-056</a>): junta os lotes pendentes num <code>Persist</code> (um <code>wal.Save</code> com <code>fdatasync</code>), teto de 1 MiB, sem espera fixa; <code>Publish</code> no <code>MemoryStorage</code> e só então <code>Release</code> das respostas, em ordem; erro de fsync fatal sem liberar nada</td>
 </tr>
 <tr>
 <td><code>CanSendBeforeSync</code> (função)</td>
@@ -11938,8 +11910,8 @@ node.Advance() // só depois do fsync
 </tr>
 <tr>
 <td>Nada sai antes do fsync (ADR-056)</td>
-<td>O escritor do log do Raft só libera respostas depois do <code>Sync</code>; erro de fsync não libera nenhuma; junção de lotes com índices reescritos; no modo síncrono, só <code>MsgApp</code> da líder sai antes do fsync</td>
-<td>Testes de <code>raftstore</code> e <code>domain.CanSendBeforeSync</code>; disco falso no harness de simulação com queda entre <code>write</code> e <code>fsync</code></td>
+<td>O laço do <code>Ready</code> só envia respostas depois do <code>Save</code> com fsync; erro de fsync não envia nenhuma; no modo síncrono, só <code>MsgApp</code> da líder sai antes do fsync</td>
+<td>Testes de <code>domain.CanSendBeforeSync</code>; disco falso no harness de simulação com queda entre <code>write</code> e <code>fsync</code></td>
 </tr>
 <tr>
 <td>Falhas no WAL</td>
@@ -12109,7 +12081,7 @@ node.Advance() // só depois do fsync
 <tbody>
 <tr>
 <td><strong>Entregas</strong></td>
-<td><code>Gate</code> com termo; <code>Lease</code> (contado desde <code>t_c</code>) e <code>DegradeService</code> com relógio injetável; <code>CommitPump</code> com gate por evento; <code>raftlog</code> sobre o <code>wal</code> do etcd com escritor de group commit por shard (<code>raftstore.Writer</code>, nada sai antes do fsync, <a href="#d-03-adr-adr-056-group-commit-por-shard-e-nada-sai-antes-do-fsync">ADR-056</a>) e <code>replicationlog</code> segmentado próprio (<a href="#d-03-adr-adr-055-log-de-replicacao-segmentado-derivado-do-raft">ADR-055</a>); adaptador <code>etcdraft</code> no modo síncrono com F3; <strong>um</strong> <code>StateStore</code> (um banco por vez) com apply depois do gate, paralelo por chave e com marca d'água (<a href="#d-03-adr-adr-058-apply-paralelo-por-chave-com-marca-dagua">ADR-058</a>), e checkpoint por item; <code>dynamohttp</code> com os contratos da fase 1</td>
+<td><code>Gate</code> com termo; <code>Lease</code> (contado desde <code>t_c</code>) e <code>DegradeService</code> com relógio injetável; <code>CommitPump</code> com gate por evento; <code>raftlog</code> sobre o <code>wal</code> do etcd com group commit por shard no laço do <code>Ready</code> (nada sai antes do fsync, <a href="#d-03-adr-adr-056-group-commit-por-shard-e-nada-sai-antes-do-fsync">ADR-056</a>) e <code>replicationlog</code> segmentado próprio (<a href="#d-03-adr-adr-055-log-de-replicacao-segmentado-derivado-do-raft">ADR-055</a>); adaptador <code>etcdraft</code> no modo síncrono com F3; <strong>um</strong> <code>StateStore</code> (um banco por vez) com apply depois do gate, paralelo por chave e com marca d'água (<a href="#d-03-adr-adr-058-apply-paralelo-por-chave-com-marca-dagua">ADR-058</a>), e checkpoint por item; <code>dynamohttp</code> com os contratos da fase 1</td>
 </tr>
 <tr>
 <td><strong>Testes</strong></td>
@@ -13769,7 +13741,7 @@ node.Advance() // só depois do fsync
 <li><strong>04_wal_e_fsync</strong> (6.8: F2 e F3 com o que o wal do etcd já faz e a regra de envio), <strong>03_consenso</strong> (5.5), <strong>06_modos</strong> (orçamento), <strong>07_go_memoria</strong> (buffer não persistido), <strong>10_pontos_adicionais</strong> (métricas).</li>
 <li><strong>Spikes:</strong> S1 ganha a medição de IOPS por número de shards; S1b novo. <strong>Riscos:</strong> IOPS de base e regra de envio no modo síncrono.</li>
 <li><strong>Diagramas:</strong> D04 (<em>thread</em> de escrita e coalescência), D05 (gate com auto-ACK da líder após fsync), D07 (prazos).</li>
-<li><strong>Código de exemplo:</strong> porta <code>LogStore</code>/escritor com coalescência e respostas presas ao lote, testes de "nenhuma resposta antes do fsync" e de junção de lotes com sobrescrita; comentário de <code>ConsensusEngine.Committed()</code>.</li>
+<li><strong>Código de exemplo:</strong> regra do que pode sair antes do fsync, com testes; comentário de <code>ConsensusEngine.Committed()</code>.</li>
 </ul></article><article class="doc" id="d-06-pendencias-e-riscos-analise-teste-de-carga-14-10"><h3>Teste de carga da POC (14/10/2026): o que aconteceu e por quê</h3><p class="fonte">Fonte: <a href="06_pendencias_e_riscos/analise_teste_de_carga_14_10.md">06_pendencias_e_riscos/analise_teste_de_carga_14_10.md</a></p><p><strong>Status:</strong> decisões tomadas pelo Bruno em 14/10/2026 (1a 2a 3a 4a 5a 6a), registradas no <a href="#d-03-adr-adr-060-laco-do-raft-nunca-espera-o-apply-e-admissao-por-atraso">ADR-060</a> e no cenário <a href="#d-02-cenarios-atualizados-c35-banco-lento-nao-derruba-a-lideranca">C35</a>. Este documento é a análise que levou a elas e fica como registro.</p>
 <blockquote>
 <p><strong>Correção depois da análise:</strong> o painel "Resultados de escrita por segundo" do dashboard v2 estava <strong>empilhado</strong> (stacking normal). A linha de cima era a soma de todos os resultados, não só o throttling. Por isso a proporção entre throttling e pending continua sem número: a próxima rodada mede isso com <code>dr_throttled_total{causa}</code>, o painel sem empilhamento e <code>task diag</code>.</p>

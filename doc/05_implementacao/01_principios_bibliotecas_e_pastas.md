@@ -29,7 +29,7 @@ A pedida foi a biblioteca mais performática. Antes da tabela, uma ressalva hone
 | **JSON do DynamoDB** | A decidir no H-DR6 | `encoding/json` (v2 se estável no Go 1.27), `bytedance/sonic`, `goccy/go-json` | É o único item de biblioteca com ganho mensurável. Fica atrás da interface `codec`. Decidir com benchmark sobre itens reais dos clientes, incluindo ARM se usarem Graviton (o `sonic` tem restrições de arquitetura) |
 | **Métricas** | `prometheus/client_golang` ou OpenTelemetry | — | Contadores atômicos no caminho quente; exportação fora dele |
 | **Raft** | `go.etcd.io/raft/v3` | `dragonboat` (plano B) | Já decidido; importado **só** em `adapter/out/etcdraft` |
-| **Log do Raft** | pacote `wal` do etcd (`go.etcd.io/etcd/server/v3/storage/wal`), um por shard | WAL próprio segmentado (W2, desenho anterior) | Decidido em 13/10 ([ADR-055](../03_adr/ADR-055-log-de-replicacao-segmentado-derivado-do-raft.md)). Muito testado; custa um fsync por shard e traz o módulo do servidor etcd e o `zap` como dependência. Importado **só** em `adapter/out/etcdraft`. Group commit por shard pelo escritor `adapter/out/raftstore` (só biblioteca padrão), modo síncrono com F3 e nada sai antes do fsync ([ADR-056](../03_adr/ADR-056-group-commit-por-shard-e-nada-sai-antes-do-fsync.md)) |
+| **Log do Raft** | pacote `wal` do etcd (`go.etcd.io/etcd/server/v3/storage/wal`), um por shard | WAL próprio segmentado (W2, desenho anterior) | Decidido em 13/10 ([ADR-055](../03_adr/ADR-055-log-de-replicacao-segmentado-derivado-do-raft.md)). Muito testado; custa um fsync por shard e traz o módulo do servidor etcd e o `zap` como dependência. Importado **só** em `adapter/out/etcdraft`. Group commit por shard no laço do `Ready`, modo síncrono com F3 e nada sai antes do fsync ([ADR-056](../03_adr/ADR-056-group-commit-por-shard-e-nada-sai-antes-do-fsync.md)) |
 | **Log de replicação** | Pacote próprio `adapter/out/replog` (só biblioteca padrão) | `cockroachdb/pebble` (descartado em 13/10) | Decidido em 13/10 ([ADR-055](../03_adr/ADR-055-log-de-replicacao-segmentado-derivado-do-raft.md)): log segmentado, sem fsync por entrada, checkpoint com fsync; volume próprio. Fora do caminho do ACK e refeito a partir do Raft, por isso código próprio é aceitável |
 | **Config YAML** | `spf13/viper` (decisão do Bruno) | `koanf` | Ver nota |
 
@@ -71,7 +71,6 @@ datareplication/
 │   │   │   └── adminhttp/             # /livez /readyz /metrics (net/http)
 │   │   └── out/
 │   │       ├── etcdraft/              # ÚNICO pacote que importa go.etcd.io/raft e o wal do etcd; LOG DO RAFT (volume do Raft)
-│   │       ├── raftstore/             # escritor do log do Raft: group commit por shard, respostas só depois do fsync (ADR-056)
 │   │       ├── replog/                # LOG DE REPLICAÇÃO (ReplicationLog) segmentado, sem fsync + checkpoint (volume próprio)
 │   │       ├── dynamodb/              # StateStore da AWS (aws-sdk-go-v2); também a tabela sombra do rebuild (ADR-047)
 │   │       ├── cosmos/                # StateStore da Azure via Cloud-Adapter

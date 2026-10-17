@@ -10,7 +10,7 @@
 <!--
 Fonte(s) usada(s) nesta página (rastreabilidade), relativas à raiz do pacote:
   03_adr/INVENTARIO.md
-Gerado em 14/10/2026 a partir do pacote DataReplication_Versao_1.
+Gerado em 17/10/2026 a partir do pacote DataReplication_Versao_1.
 -->
 <header class="topo">
 <button class="menu" type="button" aria-label="Abrir navegação" onclick="document.body.classList.toggle('nav-aberta')">☰</button>
@@ -554,7 +554,7 @@ Gerado em 14/10/2026 a partir do pacote DataReplication_Versao_1.
 <td>Vigente, complementado</td>
 <td>060 (risco 35)</td>
 <td>Parcial</td>
-<td>F3 sim (<code>SplitBeforeSync</code>). Pela resposta 6b, o lote da POC vem só do <code>Ready</code>; o <code>raftstore.Writer</code> entra com o <code>AsyncStorageWrites</code> (S1b)</td>
+<td>F3 sim (<code>SplitBeforeSync</code>). Pela resposta 6b, o lote da POC vem só do <code>Ready</code>; o teto de 1 MiB entra com o <code>AsyncStorageWrites</code> (S1b)</td>
 </tr>
 <tr>
 <td><a href="../03_adr/ADR-057-um-unico-modo-strong-consistency.md">057</a></td>
@@ -691,7 +691,7 @@ Gerado em 14/10/2026 a partir do pacote DataReplication_Versao_1.
 <li><strong>[Decidido: 3a] ADR-011 (witness):</strong> nenhum ADR posterior o usa, e o snapshot virou só marcador (<a href="../03_adr/ADR-063-snapshot-e-compactacao-do-log-do-raft.md">ADR-063</a>). (a) Marcar como sem uso, ou descartado; (b) manter, e dizer onde o witness entra no desenho.</li>
 <li><strong>[Decidido: 4a] ADR-043:</strong> a alternativa "mTLS por aplicação: custo de certificados sem ganho" foi revertida pelo 052; a atualização do 043 só cita o item 3. (a) Acrescentar a nota no 043.</li>
 <li><strong>[Decidido: 5a] ADR-028 x AP-07:</strong> o 028 limita o cliente do banco a "1 s por tentativa e no máximo 2"; o applier repete erro transitório <strong>sem limite</strong>, com espera de até 5 s (<a href="../03_adr/ADR-058-apply-paralelo-por-chave-com-marca-dagua.md">ADR-058</a>, AP-07 da spec). (a) O limite do 028 vale só no caminho da requisição (GetItem, Scan); o applier repete sem limite; (b) o applier também tem limite.</li>
-<li><strong>[Decidido: 6b] ADR-056 na POC:</strong> o <code>raftstore.Writer</code> (coalescência, teto de 1 MiB, respostas só depois do fsync) tem testes, mas o nó usa <code>wal.Save</code> direto no <code>Ready</code>. (a) Ligar o escritor na POC; (b) registrar que o lote da POC vem só do <code>Ready</code>, e o escritor entra com o <code>AsyncStorageWrites</code> (S1b).</li>
+<li><strong>[Decidido: 6b] ADR-056 na POC:</strong> o nó usa <code>wal.Save</code> direto no <code>Ready</code>, sem o teto de 1 MiB por lote. (a) Implementar o teto na POC; (b) registrar que o lote da POC vem só do <code>Ready</code>, e o teto entra com o <code>AsyncStorageWrites</code> (S1b).</li>
 <li><strong>[Decidido: 7a] ADR-049, item 4, na POC:</strong> com o applier estacionado, a leitura forte espera até o prazo (7,5 s) em vez de responder 503 na hora. (a) Implementar a falha rápida na POC; (b) deixar para a fase AWS.</li>
 <li><strong>[Decidido: 8a] ADR-030 x código do gate:</strong> o ADR pede o modelo TLA+ antes do código do gate, e o gate já tem código e testes. (a) A regra vale para o gate com learners reais (fase AWS); a POC usa gate = commit e não conta; (b) escrever o modelo antes de continuar o gate.</li>
 </ol>
@@ -702,7 +702,7 @@ Gerado em 14/10/2026 a partir do pacote DataReplication_Versao_1.
 <li><code>07_site_comite/_gerador/adr_resumo.py</code> não tinha os ADRs 061 a 063.</li>
 </ul>
 <footer class="rodape">
-Gerado em 14/10/2026 a partir de <code>DataReplication_Versao_1/</code>. O conteúdo vem dos arquivos .md citados no código-fonte desta página;
+Gerado em 17/10/2026 a partir de <code>DataReplication_Versao_1/</code>. O conteúdo vem dos arquivos .md citados no código-fonte desta página;
 textos marcados como <em>sugestão</em> são inferência do arquiteto e não decisões registradas.
 </footer>
 </main>

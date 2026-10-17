@@ -1614,42 +1614,21 @@ func (c *Checkpointer) Tick(ctx context.Context) error {
 }
 ```
 
-### 7.10 Escritor do log do Raft e regra de envio (ADR-056)
+### 7.10 Laço do Ready e regra de envio (ADR-056)
 
-> No [`codigo_exemplo/`](codigo_exemplo/README.md), compilado e testado: `internal/adapter/out/raftstore` (escritor com group commit por shard) e `internal/domain/sendrule.go` (o que pode sair antes do fsync). O adaptador `etcdraft`, que ainda não existe, liga os dois ao `wal` do etcd e ao `MemoryStorage`.
+> No [`codigo_exemplo/`](codigo_exemplo/README.md), compilado e testado: `internal/domain/sendrule.go` (o que pode sair antes do fsync). O adaptador `etcdraft`, que ainda não existe, a usa no laço do `Ready` sobre o `wal` do etcd e o `MemoryStorage`.
 
-```go
-// raftstore.Writer.write: um grupo de lotes, um fsync, depois as respostas.
-func (w *Writer) write(group []Batch) error {
-	st, ents, err := Merge(group) // reescrita de índices corta o lote anterior; vale o último HardState
-	if err != nil {
-		return err
-	}
-	if err := w.st.Persist(st, ents); err != nil { // um wal.Save com fdatasync
-		return fmt.Errorf("raftstore: persist: %w", err) // fatal, sem liberar respostas (ADR-034)
-	}
-	if err := w.st.Publish(st, ents); err != nil { // MemoryStorage.Append e SetHardState
-		return fmt.Errorf("raftstore: publish: %w", err)
-	}
-	for _, b := range group { // só agora: MsgAppResp, votos, auto-ACK da líder, Advance
-		if b.Release != nil {
-			b.Release()
-		}
-	}
-	return nil
-}
-```
-
-No modo síncrono com F3, o laço do shard separa as mensagens do `Ready` antes de entregar o lote ao escritor:
+No modo síncrono com F3, o laço do shard separa as mensagens do `Ready`, grava o lote com um fsync e só então envia o resto:
 
 ```go
 before, after := domain.SplitBeforeSync(isLeader, rd.Messages, kindOf) // só MsgApp da líder em before
 transport.Send(before)                                                // F3: corre em paralelo ao fsync
-done := make(chan struct{})
-_ = writer.Submit(ctx, raftstore.Batch{Entries: toRecords(rd.Entries), State: hardState(rd), Barrier: hasSnapshot(rd),
-	Release: func() { transport.Send(after); close(done) }})
-<-done        // modo síncrono: o laço espera o próprio lote
-node.Advance() // só depois do fsync
+if err := wal.Save(rd.HardState, rd.Entries); err != nil {           // um Save, um fdatasync
+	return err // fatal, sem enviar nenhuma resposta (ADR-034)
+}
+_ = storage.Append(rd.Entries) // MemoryStorage, depois do fsync
+transport.Send(after)          // MsgAppResp, votos, auto-ACK da líder
+node.Advance()                 // só depois do fsync
 ```
 
 Erros de proposta: `raft.ErrProposalDropped` (buffer acima de `MaxUncommittedEntriesSize`) vira `usecase.ErrBackpressure`, que o adaptador HTTP responde como `ThrottlingException` (HTTP 400).
