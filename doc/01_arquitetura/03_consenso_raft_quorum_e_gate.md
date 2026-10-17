@@ -1,4 +1,4 @@
-# Consenso: Raft, quórum Azure (learners + gate) e os dois logs
+# Consenso: Raft, quórum Azure (learners + gate) e o log do Raft
 
 > Detalhe de arquitetura do **DataReplication v1**. A numeração das seções (ex.: 5.3, 6.8) vem do documento de origem e é usada nas referências cruzadas; o mapa está em [00_COMECE_AQUI](../00_COMECE_AQUI.md). Visão geral e decisões: [documento principal](../DataReplication_Versao_1.md).
 
@@ -119,7 +119,7 @@ O modelo cobre, além do gate monotônico: promoção entre nuvens com lease, tr
 - **Segurança e estabilidade:** o `etcd-io/raft` é a base do etcd (o armazenamento do Kubernetes) e foi adotado por outros bancos distribuídos; é uma biblioteca pequena e muito exercitada, com a exatidão do algoritmo como foco.
 - **Comunidade:** mantido pela comunidade do etcd, ligada ao ecossistema do Kubernetes. O Dragonboat é muito bom em vazão, mas, pelo que sei, depende de poucos mantenedores e teve ritmo menor de evolução recentemente. **Verificar a atividade dos dois repositórios no spike S6 antes de fixar a versão.**
 - **Desempenho:** o Dragonboat se destaca em vazão com muitos grupos. Com poucos shards e ~3.000 TPS, o limite é o fsync e o RTT, não o motor Raft, então a vantagem dele não pesa aqui.
-- **Encaixe com as decisões já tomadas:** com dois logs (5.5.1, armazenamento revisto no ADR-055) e o gate (5.3), precisamos controlar armazenamento e transporte. O `etcd-io/raft` deixa isso conosco; o Dragonboat traz o log e o transporte dele.
+- **Encaixe com as decisões já tomadas:** com o log do Raft como único log do nó (5.5.1, armazenamento revisto em 13/10) e o gate (5.3), precisamos controlar armazenamento e transporte. O `etcd-io/raft` deixa isso conosco; o Dragonboat traz o log e o transporte dele.
 - **Preço:** escrever o laço de `Ready`, o transporte gRPC e a camada multi-grupo (pequena, por haver poucos grupos).
 
 
@@ -131,55 +131,55 @@ O modelo cobre, além do gate monotônico: promoção entre nuvens com lease, tr
 
 ---
 
-### 5.5 Isolar o Raft do log de replicação (requisito do Bruno, 12/10)
+### 5.5 Isolar o Raft do resto do sistema (requisito do Bruno, 12/10)
 
-> **Decisão do Bruno (12/10): dois logs separados** — o **log do Raft** e o **log de replicação** (nosso). Esta é a opção L2 da tabela abaixo. O desenho que a implementa sem custo no caminho do ACK está em **5.5.1**.
+> **Decisão (12/10, armazenamento revisto em 13/10):** um **único log por nó, o log do Raft**, com separação **lógica** (opção L1 da tabela abaixo): o formato do registro e as interfaces são nossos e só o adaptador conhece a biblioteca. O log do Raft é a única fonte das entradas commitadas. O desenho está em **5.5.1**.
 
-**Requisito:** o log de replicação não pode depender da biblioteca Raft escolhida, para permitir trocar ou evoluir o consenso sem reescrever o resto.
+**Requisito:** o applier, o gate, o `drctl` e a reconstrução não podem depender da biblioteca Raft escolhida, para permitir trocar ou evoluir o consenso sem reescrever o resto.
 
 **Dois níveis possíveis de separação:**
 
 | Nível | O que é | Custo | Recomendação |
 |---|---|---|---|
-| **L1. Lógico** | Um só armazenamento físico, mas o formato do registro e a interface são **nossos**. O Raft vê o log por um adaptador. | Baixo | Era a proposta; **substituída pela decisão L2** |
-| **L2. Físico** | Dois logs: o **log de dados** (post-images, nosso formato) e o log do Raft, que só carrega referências de ordenação (shard, índice, hash, posição no log de dados). | Alto: 2 gravações duráveis no caminho do ACK, e a réplica dos dados precisa de um canal próprio, o que é reescrever parte da replicação | **Decidido pelo Bruno (12/10)**, com o desenho de 5.5.1, que evita o segundo fsync no caminho do ACK |
+| **L1. Lógico** | Um só armazenamento físico (o log do Raft), mas o formato do registro e as interfaces são **nossos**. O resto do sistema vê o Raft por um adaptador. | Baixo | **Decidido**, com o desenho de 5.5.1 |
+| **L2. Físico** | Um **log de dados** próprio (post-images, nosso formato) separado do log do Raft, que só carregaria referências de ordenação (shard, índice, hash, posição no log de dados). | Alto: 2 gravações duráveis no caminho do ACK, e a réplica dos dados precisaria de um canal próprio, o que é reescrever parte da replicação | Descartado |
 
-**Interfaces e regras que continuam valendo (vindas do L1):**
-1. **Registro próprio.** Cada entrada do log é um registro DataReplication (6.3) com `term` e `index` no cabeçalho, mais o payload opaco. Nenhum tipo da biblioteca (`raftpb` etc.) vai para o disco nem para fora do adaptador.
-2. **Interface `ReplicationLog`** (do `core`): anexar em lote, ler por intervalo, truncar sufixo, compactar prefixo, índice durável. É o que o applier, a ressincronização da Azure e o `drctl` usam. **Nenhum deles passa pelo Raft para ler dado.**
+**Interfaces e regras:**
+1. **Registro próprio.** O payload de cada entrada do Raft é um registro DataReplication (6.3: post-image, versão, nome lógico da tabela, itens com ordem), opaco para a biblioteca. Nenhum tipo da biblioteca (`raftpb` etc.) sai do adaptador.
+2. **Entrega das entradas commitadas.** O adaptador publica o índice commitado como sinal, e o `CommitPump` lê as entradas commitadas por faixa da memória do Raft e as entrega ao Applier ([ADR-060](../03_adr/ADR-060-laco-do-raft-nunca-espera-o-apply-e-admissao-por-atraso.md)). O applier, a reconstrução e o `drctl` recebem entradas no nosso formato; nenhum deles importa a biblioteca.
 3. **Interface `ConsensusEngine`** (do `core`): propor, índice commitado (eventos; entradas já estáveis no disco da própria líder, ADR-056), liderança e transferência, `ReadIndex`, membros e progresso dos learners (`LearnerDurable()` devolve termo, índice e identidade, ADR-046). O gate (5.3) usa só essa interface.
-4. **Adaptador `consensus/etcdraft`.** É o **único pacote** que importa `go.etcd.io/raft`. Traduz o `ReplicationLog` para o que a biblioteca espera de armazenamento e guarda separadamente o estado próprio dela (term, voto, configuração) num `ConsensusStateStore`. Uma regra de lint (ex.: `depguard`) impede importar a biblioteca fora do adaptador.
+4. **Adaptador `consensus/etcdraft`.** É o **único pacote** que importa `go.etcd.io/raft`. Guarda as entradas e o estado próprio da biblioteca (term, voto, configuração) no `wal` do etcd, um por shard, no volume do Raft, e compacta o log pela regra `domain.RaftCompactLimit` ([04_wal_e_fsync](04_wal_e_fsync.md), 6.9). Uma regra de lint (ex.: `depguard`) impede importar a biblioteca fora do adaptador.
 5. **Suíte de conformidade.** Os mesmos testes (simulação de falhas, linearizabilidade, queda no WAL) rodam contra a interface, não contra a biblioteca. Trocar o Raft = escrever outro adaptador e passar na mesma suíte.
 
-**O que ainda acopla (e é aceito):** `term` e `index` por entrada e a noção de líder, que qualquer Raft ou Multi-Paxos tem. Um protocolo sem esses conceitos exigiria o L2.
+**O que ainda acopla (e é aceito):** `term` e `index` por entrada e a noção de líder, que qualquer Raft ou Multi-Paxos tem, e o formato em disco do log, que é o da biblioteca. Trocar de biblioteca troca também esse formato; o nó migra por reconstrução (identidade nova, ADR-034), não por conversão do arquivo. Um protocolo sem `term` e `index` exigiria o L2.
 
-**Tradeoff do L2 (registrado quando a decisão foi tomada):** separar fisicamente pareceria mais limpo, mas obriga a gravar os dados e a referência de ordem com durabilidade (dados primeiro, referência depois, para nunca haver referência sem dado) e a replicar o dado por um canal que também precisa de quórum. Em troca de uma flexibilidade que o L1 já dá quase toda, pagaríamos latência no orçamento de 50ms.
+**Por que não o L2:** separar fisicamente pareceria mais limpo, mas obriga a gravar os dados e a referência de ordem com durabilidade (dados primeiro, referência depois, para nunca haver referência sem dado) e a replicar o dado por um canal que também precisa de quórum. Em troca de uma flexibilidade que o L1 já dá quase toda, pagaríamos latência no orçamento de 50ms.
 
-### 5.5.1 Desenho dos dois logs (decisão do Bruno, 12/10; armazenamento revisto em 13/10)
+### 5.5.1 Desenho do log do Raft como único log do nó (decisão do Bruno, 12/10; armazenamento revisto em 13/10)
 
-> **Revisão de 13/10 ([ADR-055](../03_adr/ADR-055-log-de-replicacao-segmentado-derivado-do-raft.md)).** Log do Raft no pacote `wal` do etcd, um por shard; log de replicação **segmentado próprio**, derivado do Raft, **sem fsync por entrada**, com fsync de checkpoint periódico, em **volume separado**. A regra 1 abaixo passa a ler: o Raft só é compactado até o **`DurableIndex` do log de replicação, que é o índice coberto pelo último fsync de checkpoint**. A retenção longa para a Azure fica no log de replicação; o Raft guarda só a folga `RAFT_RETAIN_MAX` ([04_wal_e_fsync](04_wal_e_fsync.md), 6.9).
+> **Armazenamento (13/10).** Log do Raft no pacote `wal` do etcd, um por shard, com fsync antes do ACK e group commit por shard ([ADR-056](../03_adr/ADR-056-group-commit-por-shard-e-nada-sai-antes-do-fsync.md)), num **volume de bloco dedicado por nó** ([ADR-019](../03_adr/ADR-019-wal-proprio-volume-dedicado.md)). A retenção para a Azure atrasada fica no próprio log do Raft, e a compactação segue a regra `RaftCompactLimit` ([04_wal_e_fsync](04_wal_e_fsync.md), 6.9).
 
-**Ideia:** o **log do Raft** é interno ao consenso e de vida curta; o **log de replicação** é nosso, de formato próprio, de vida longa, independente da biblioteca Raft.
+**Ideia:** o **log do Raft** é o único log do nó. Ele carrega o payload no nosso formato, é replicado pelo próprio Raft para seguidores e learners e é a única fonte das entradas que o applier grava no banco.
 
-| | Log do Raft | Log de replicação |
-|---|---|---|
-| **Dono** | A biblioteca Raft (pelo adaptador) | O `DataReplication` |
-| **Conteúdo** | Entradas e estado do consenso (term, voto, configuração), com o payload para poder replicar | Registros de escrita já **commitados**, no nosso formato (post-image, versão, nome lógico da tabela) |
-| **Quando é gravado** | Antes de responder ao líder (caminho do ACK, fsync obrigatório) | **Depois do commit**, na ordem do log, sem fsync; checkpoint com sync periódico (ADR-055) |
-| **Quem lê** | Só o Raft | Applier, ressincronização da Azure, `drctl`, reconstrução de réplica |
-| **Retenção** | Curta: até o `DurableIndex` do log de replicação, mais a folga `RAFT_RETAIN_MAX` | Longa: pela janela de tolerância da Azure e da manutenção (6.5), teto de 70% |
-| **Armazenamento (13/10)** | Pacote `wal` do etcd, um por shard, volume pequeno e rápido | Log segmentado próprio, volume próprio |
-| **Se trocarmos o Raft** | Muda | **Não muda** |
+| | Log do Raft |
+|---|---|
+| **Dono** | A biblioteca Raft (pelo adaptador) |
+| **Conteúdo** | Entradas e estado do consenso (term, voto, configuração); o payload de cada entrada é um registro nosso (post-image, versão, nome lógico da tabela) |
+| **Quando é gravado** | Antes de responder ao líder (caminho do ACK, fsync obrigatório, group commit por shard) |
+| **Quem lê** | O Raft (inclusive o `MsgApp` para seguidores e learners atrasados) e o `CommitPump`, que entrega as entradas commitadas ao Applier; a reconstrução em tabela sombra reaplica as entradas a partir de F |
+| **Retenção** | Compactado só até `RaftCompactLimit` = `min(aplicado local, índice durável da maioria Azure enquanto a Azure estiver na janela, F − 1 de uma reconstrução em curso)`, com folga até o menor `match` dos votantes AWS limitada por `RAFT_RETAIN_MAX`; teto de 70% do volume do Raft (6.5, 6.9). Na POC a compactação está desligada (RT-11) |
+| **Armazenamento** | Pacote `wal` do etcd, um por shard, num volume de bloco dedicado por nó |
+| **Se trocarmos o Raft** | Muda o adaptador e o formato em disco; o applier, o gate e o resto **não mudam** |
 
-**Por que não adiciona latência ao ACK:** o payload já foi gravado com fsync no log do Raft antes do commit. O applier consome as entradas commitadas **da memória**, e a gravação no log de replicação segue em paralelo, em lote. Duas regras mantêm a segurança:
-1. **Só se trunca o log do Raft até o que já está durável no log de replicação.**
-2. **Na partida**, se o log de replicação estiver atrás do índice commitado, ele é completado a partir do log do Raft antes de aceitar tráfego.
+**Por que não adiciona latência ao ACK:** o payload é gravado com fsync no log do Raft antes do commit, e esse é o único fsync no caminho do ACK. O applier consome as entradas commitadas **da memória** do Raft, e o progresso dele (índice e ordem da marca d'água) é um registro pequeno com CRC, sem fsync, no volume do Raft. Duas regras mantêm a segurança:
+1. **Só se compacta o log do Raft até `RaftCompactLimit`.** O aplicado local já está no banco da célula, então compactar até ele é seguro; o índice durável da maioria Azure e o F − 1 de uma reconstrução seguram o que eles ainda precisam.
+2. **Na partida**, a retomada é o índice do progresso do applier (sem progresso, 1); o Raft reinicia com `Applied = retomada − 1`, limitado entre o snapshot e o commit gravado, e o replay vem do WAL do Raft antes de aceitar tráfego ([ADR-060](../03_adr/ADR-060-laco-do-raft-nunca-espera-o-apply-e-admissao-por-atraso.md), item 5).
 
 **Custos e riscos:**
-- **Escrita em dobro** em cada réplica. A ~6 MB/s é pouco volume. Desde o ADR-055 o segundo log não faz fsync por entrada e fica em **volume separado**, então não disputa a cauda do fsync do log do Raft (6.8); o checkpoint e as leituras de catch-up ficam no volume dele.
-- **Duas coisas para manter consistentes**: o índice do log de replicação é o próprio índice Raft (sem sequência paralela), e a suíte de conformidade (5.5) passa a testar também a recuperação nos casos de queda entre os dois logs.
+- **Um volume por nó e nenhuma escrita em dobro.** O único fsync no caminho do ACK é o do Raft (6.8).
+- **Retenção na memória.** O `MemoryStorage` do etcd-raft guarda em RAM tudo o que não foi compactado; num modo degradado longo a memória do nó cresce com o atraso da Azure até o teto. Mitigações em aberto: teto da janela também por bytes retidos em memória, ou um `raft.Storage` que lê as entradas antigas do WAL em disco. Medir no spike S1.
+- **Perder o progresso do applier** só alonga o replay, que é idempotente pela versão.
 - **O gate (5.3) não muda**: a durabilidade que conta para o ACK é a do log do Raft.
-- **Interface `ReplicationLog` (5.5)**: passa a ser a interface do log de replicação, e o adaptador do Raft recebe os registros commitados por um callback.
 
 ### 5.5.2 Escrita do log do Raft: group commit por shard e nada sai antes do fsync (ADR-056, 13/10)
 

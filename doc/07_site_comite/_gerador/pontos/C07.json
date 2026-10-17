@@ -40,7 +40,7 @@
    "titulo": "Memória da janela de dedupe",
    "origem": "Pontos em aberto",
    "contexto": "A janela de 5 min a 3.000 TPS exige cerca de 900 mil identificadores e ~58 MiB por shard, fora do orçamento original. Além disso, a nova líder precisa ter a tabela pronta ao assumir, senão reconstrói lendo 5 min de log e infla o RTO.",
-   "na_fonte": "Tratado em parte no R22: tabela como projeção do log mantida por todos os votantes, reconstrução pelo log de replicação (ADR-055) e janela configurável. Falta medir.",
+   "na_fonte": "Tratado em parte no R22: tabela como projeção do log mantida por todos os votantes, reconstrução a partir do log do Raft retido e janela configurável. Falta medir.",
    "sugestao": "Medir no spike a memória real com o tamanho de id de cada SDK e o tempo de reconstrução no reinício, e incluir esse tempo na distribuição de RTO do C18. Testar a eleição com tabela de dedupe vazia para ver o efeito no retry em voo."
   },
   {

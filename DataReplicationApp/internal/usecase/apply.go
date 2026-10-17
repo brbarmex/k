@@ -19,8 +19,8 @@ const workerQueue = 256
 
 // Applier materializa o log no banco da célula (fluxo do apply, D04).
 //
-//   - Recebe as entradas commitadas PELA MEMÓRIA, do CommitPump. No fluxo normal não lê
-//     o log de replicação; só o replay da partida e o catch-up leem do disco.
+//   - Recebe as entradas commitadas PELA MEMÓRIA, do CommitPump. Só o replay da partida
+//     relê o WAL do Raft.
 //   - Nunca aplica além do gate (ADR-057): o despacho de uma entrada espera
 //     gate >= índice, então applied <= gate sempre.
 //   - Grava em PARALELO POR CHAVE (ADR-058): Workers goroutines, e cada item vai para o
@@ -31,8 +31,8 @@ const workerQueue = 256
 //     forte só olham a marca d'água.
 //   - Cada item é uma escrita condicional pela versão (= índice), então o replay é
 //     idempotente (ADR-015, ADR-035).
-//   - Cada avanço da marca d'água grava o progresso (índice, ordem) sem fsync (ADR-048,
-//     ADR-055). Perder o progresso numa queda de host só alonga o replay.
+//   - Cada avanço da marca d'água grava o progresso (índice, ordem) sem fsync (ADR-048).
+//     Perder o progresso numa queda de host só alonga o replay.
 //   - Erro transitório do banco é repetido com backoff, sem limite (AP-07).
 //   - Erro permanente num item ESTACIONA o applier do shard nesta célula: o despacho para,
 //     itens anteriores ao venenoso terminam, posteriores não são gravados (salvo os que já

@@ -67,7 +67,7 @@ Gerado em 17/10/2026 a partir do pacote DataReplication_Versao_1.
 <li><a href="../complex-path/X01-gate-e-troca-de-lider.html"><b>X01</b> Gate: definição, monotonicidade e troca de líder</a></li>
 <li><a href="../complex-path/X02-modo-degradado.html"><b>X02</b> Modo degradado: entrada, permanência, lease e saída</a></li>
 <li><a href="../complex-path/X03-desastre-e-promocao-da-azure.html"><b>X03</b> Desastre: promoção da Azure, fencing e reconciliação</a></li>
-<li><a href="../complex-path/X04-partida-recuperacao-e-dois-logs.html"><b>X04</b> Partida, recuperação e coerência entre os dois logs</a></li>
+<li><a href="../complex-path/X04-partida-e-recuperacao-do-no.html"><b>X04</b> Partida e recuperação do nó</a></li>
 <li><a href="../complex-path/X05-timeouts-e-idempotencia.html"><b>X05</b> Timeouts em cascata e idempotência do retry</a></li>
 <li><a href="../complex-path/X06-delete-ttl-gsi.html"><b>X06</b> DELETE, TTL, Scan e GSI</a></li>
 <li><a href="../complex-path/X07-gate-explicado-com-exemplos.html"><b>X07</b> O gate explicado com exemplos</a></li>
@@ -101,7 +101,7 @@ Gerado em 17/10/2026 a partir do pacote DataReplication_Versao_1.
 <li>O lote vira <strong>uma entrada</strong> (um índice, um ACK). A versão de todos os itens é o mesmo índice.</li>
 <li>O applier grava com <strong><code>PutItem</code>/<code>DeleteItem</code> condicionais por item</strong>, em paralelo limitado a 25 por entrada. Item já aplicado devolve <code>ConditionalCheckFailed</code> e conta como "já aplicado".</li>
 <li>O ACK só sai com <strong>todos</strong> os itens aplicados na célula da líder.</li>
-<li>O applier persiste o <strong>progresso por item</strong>, <code>(índice, ordem)</code>, no volume do log, e a consulta por identificador da requisição devolve o resultado <strong>por item</strong>: <code>APPLIED</code>, <code>REJECTED</code> ou <code>PENDING</code> (<a href="../../03_adr/ADR-048-skip-por-item.md">ADR-048</a>).</li>
+<li>O applier persiste o <strong>progresso por item</strong>, <code>(índice, ordem)</code>, no volume do Raft, e a consulta por identificador da requisição devolve o resultado <strong>por item</strong>: <code>APPLIED</code>, <code>REJECTED</code> ou <code>PENDING</code> (<a href="../../03_adr/ADR-048-skip-por-item.md">ADR-048</a>).</li>
 </ol></div>
 </section>
 <section id="diagrama"><h2>2. Diagrama</h2>
@@ -215,7 +215,7 @@ Gerado em 17/10/2026 a partir do pacote DataReplication_Versao_1.
 <li><strong>Latência do apply.</strong> Até 25 gravações condicionais por entrada, em vez de uma chamada de lote: mais chamadas e P99 maior no Strong (<a href="../fail-path/C24-orcamento-de-50ms-e-escrita-no-dynamodb.html">C24</a>).</li>
 <li><strong>Custo.</strong> As unidades de gravação são as mesmas do lote; muda o número de chamadas (<a href="../parking-lot/R20-custo-6x.html">R20</a>).</li>
 <li><strong>Falha permanente de um item.</strong> Trava o shard como em <a href="../fail-path/C26-entrada-venenosa.html">C26</a>; a validação pré-commit cobre todos os itens. O <code>SKIP</code> identifica <code>(índice, ordem)</code> e <strong>pula só o item ruim</strong>: os demais itens do lote, aplicados antes ou depois, são mantidos.</li>
-<li><strong>Falha da líder no meio do apply.</strong> A nova líder reaplica a entrada; os itens já aplicados devolvem <code>ConditionalCheckFailed</code> e são tratados como feitos. O progresso por item no volume do log evita reaplicar o que já consta como <code>APPLIED</code>, mas a condição de versão continua sendo a garantia.</li>
+<li><strong>Falha da líder no meio do apply.</strong> A nova líder reaplica a entrada; os itens já aplicados devolvem <code>ConditionalCheckFailed</code> e são tratados como feitos. O progresso por item no volume do Raft evita reaplicar o que já consta como <code>APPLIED</code>, mas a condição de versão continua sendo a garantia.</li>
 </ul></details>
 <details class="anexo"><summary>Pontos em aberto</summary><ul>
 <li>Confirmar no spike S5, com o DynamoDB real, que <code>BatchWriteItem</code> recusa condição e medir o P99 do apply de 25 itens.</li>

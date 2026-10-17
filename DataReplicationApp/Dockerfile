@@ -28,7 +28,7 @@ RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache
 # ---- execução: alpine (permite ls nos volumes), usuário não root ----
 FROM alpine:3.22
 RUN adduser -D -u 10001 dr \
-    && mkdir -p /var/lib/dr/raft /var/lib/dr/replog \
+    && mkdir -p /var/lib/dr/raft \
     && chown -R 10001:10001 /var/lib/dr
 COPY --from=build /out/datareplication /usr/local/bin/datareplication
 # benchstore: mede o teto do banco sozinho (task bench-localstack, ADR-060)

@@ -24,7 +24,6 @@ type CellStatus struct {
 	CommitNaoEntregue uint64            `json:"commitNaoEntregue"`
 	ElectionTicks     int               `json:"electionTicks"`
 	Azure             string            `json:"azure"`
-	Replog            ReplogStatus      `json:"replog"`
 	ErroApply         string            `json:"erroApply,omitempty"`
 	Match             map[string]uint64 `json:"match,omitempty"`
 	Quorum            *QuorumStatus     `json:"quorum,omitempty"` // só na líder
@@ -50,20 +49,13 @@ type ApplyStatus struct {
 	Fila int `json:"fila"`
 }
 
-// ReplogStatus é o estado do log de replicação.
-type ReplogStatus struct {
-	Ultimo  domain.Index `json:"ultimo"`
-	Duravel domain.Index `json:"duravel"`
-}
-
-// StatusReporter agrega Raft, gate, applier, log de replicação e catálogo.
+// StatusReporter agrega Raft, gate, applier e catálogo.
 type StatusReporter struct {
 	CellID   string
 	NodeID   uint64
 	Raft     port.RaftStatus
 	Gate     *domain.Gate
 	Applier  *Applier
-	Log      port.ReplicationLog
 	Catalog  port.Catalog
 	AzureOff bool
 
@@ -81,8 +73,7 @@ func (r *StatusReporter) Status() CellStatus {
 	st := CellStatus{
 		Celula: r.CellID, No: r.NodeID, Papel: "follower", Lider: ri.Lead, Termo: ri.Term, Commit: ri.Commit,
 		Gate: g.Index, GatePronto: g.Ready, Aplicado: r.Applier.Applied(), Azure: "on",
-		Apply:  ApplyStatus{Workers: r.Applier.WorkerCount(), EmVoo: r.Applier.InFlight()},
-		Replog: ReplogStatus{Ultimo: r.Log.LastIndex(), Duravel: r.Log.DurableIndex()},
+		Apply: ApplyStatus{Workers: r.Applier.WorkerCount(), EmVoo: r.Applier.InFlight()},
 	}
 	if r.AzureOff {
 		st.Azure = "off"

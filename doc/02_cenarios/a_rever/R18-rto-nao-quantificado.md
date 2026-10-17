@@ -1,6 +1,6 @@
 # R18 — RTO (Delta-T) ainda sem número
 
-**Status:** ❓ A rever · método decidido em 13/10 (distribuição medida em exercícios de falha, SLO ponta a ponta); falta medir e definir a meta por tipo de falha · **ADRs:** [ADR-020](../../03_adr/ADR-020-raft-etcd-io-camada-multigrupo.md), [ADR-029](../../03_adr/ADR-029-gate-monotonico-na-troca-de-lider.md), [ADR-034](../../03_adr/ADR-034-fsync-fatal-e-identidade-nova.md), [ADR-044](../../03_adr/ADR-044-lease-do-modo-degradado-e-promocao-da-azure.md) · **Relacionados:** [C18](../atualizados/C18-partida-e-recuperacao-do-no.md), [C08](../atualizados/C08-queda-de-celula-lider-ou-az-aws.md), [X03](../complexos/X03-desastre-e-promocao-da-azure.md), [X04](../complexos/X04-partida-recuperacao-e-dois-logs.md)
+**Status:** ❓ A rever · método decidido em 13/10 (distribuição medida em exercícios de falha, SLO ponta a ponta); falta medir e definir a meta por tipo de falha · **ADRs:** [ADR-020](../../03_adr/ADR-020-raft-etcd-io-camada-multigrupo.md), [ADR-029](../../03_adr/ADR-029-gate-monotonico-na-troca-de-lider.md), [ADR-034](../../03_adr/ADR-034-fsync-fatal-e-identidade-nova.md), [ADR-044](../../03_adr/ADR-044-lease-do-modo-degradado-e-promocao-da-azure.md) · **Relacionados:** [C18](../atualizados/C18-partida-e-recuperacao-do-no.md), [C08](../atualizados/C08-queda-de-celula-lider-ou-az-aws.md), [X03](../complexos/X03-desastre-e-promocao-da-azure.md), [X04](../complexos/X04-partida-e-recuperacao-do-no.md)
 
 ## Cenário
 

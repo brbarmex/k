@@ -44,11 +44,11 @@
    "sugestao": "Montar a lista a partir da documentação dos dois bancos e de fuzzing contra o DynamoDB real e o Cosmos, com cada regra coberta por caso na suíte de conformidade."
   },
   {
-   "titulo": "Formato da consulta por item e checkpoint por item",
+   "titulo": "Formato da consulta por item e progresso por item",
    "origem": "Pontos em aberto",
-   "contexto": "A consulta por identificador e o checkpoint por item no volume do log ainda não têm formato definido. Sem isso, o cliente não tem como saber o destino de cada item depois de um SKIP ou de um `PENDING`.",
+   "contexto": "A consulta por identificador e o progresso por item no volume do Raft ainda não têm formato definido. Sem isso, o cliente não tem como saber o destino de cada item depois de um SKIP ou de um `PENDING`.",
    "na_fonte": "Não decidido na fonte. Fica a detalhar na implementação.",
-   "sugestao": "Especificar os campos e códigos da consulta antes da implementação e incluí-los na suíte de compatibilidade, e testar a durabilidade do checkpoint por item com queda entre o apply e o fsync do progresso."
+   "sugestao": "Especificar os campos e códigos da consulta antes da implementação e incluí-los na suíte de compatibilidade, e testar a durabilidade do progresso por item com queda entre o apply e o fsync do progresso."
   },
   {
    "titulo": "SKIP automático (H-DR2) fora da v1",

@@ -212,38 +212,3 @@ func releaseGate(g *domain.Gate, term domain.Term, idx domain.Index) {
 	g.SetAzureDurable(term, idx, "az1")
 	g.SetAzureDurable(term, idx, "az2")
 }
-
-type fakeLog struct {
-	mu      sync.Mutex
-	block   chan struct{} // se não nulo, Append espera até fechar
-	entered chan struct{} // sinaliza que o Append começou
-	n       int
-}
-
-func (l *fakeLog) Append(ctx context.Context, b []domain.Entry) error {
-	if l.entered != nil {
-		select {
-		case l.entered <- struct{}{}:
-		default:
-		}
-	}
-	if l.block != nil {
-		select {
-		case <-l.block:
-		case <-ctx.Done():
-			return ctx.Err()
-		}
-	}
-	l.mu.Lock()
-	l.n += len(b)
-	l.mu.Unlock()
-	return nil
-}
-func (*fakeLog) Read(context.Context, domain.Index, domain.Index) ([]domain.Entry, error) {
-	return nil, nil
-}
-func (*fakeLog) TruncateSuffix(context.Context, domain.Index) error { return nil }
-func (*fakeLog) CompactPrefix(context.Context, domain.Index) error  { return nil }
-func (*fakeLog) DurableIndex() domain.Index                         { return 0 }
-func (*fakeLog) LastIndex() domain.Index                            { return 0 }
-func (*fakeLog) Sync(context.Context) (domain.Index, error)         { return 0, nil }

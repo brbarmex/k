@@ -16,10 +16,10 @@
    "sugestao": "Produzir uma planilha com custo fixo mínimo da instalação e custo variável por escrita, avaliada para o menor e o maior cliente previstos. Mostrar a partir de que volume o custo fixo domina, para orientar se clientes pequenos devem ser aceitos nesse modelo."
   },
   {
-   "titulo": "Dois volumes por nó",
+   "titulo": "Um volume dedicado por nó",
    "origem": "Falhas e tratativas",
-   "contexto": "Desde o ADR-055, cada um dos seis nós da instalação tem dois volumes: um pequeno e rápido para o log do Raft e outro maior para o log de replicação. Isso soma seis volumes por instalação, por cliente. O volume do log de replicação é dimensionado para D a 70% de ocupação, então o valor de D afeta diretamente o custo fixo.",
-   "na_fonte": "A fonte decide o desenho de dois volumes (ADR-055), com o volume do Raft pequeno e com IOPS provisionado e o de replicação em classe mais barata (gp3 na AWS, Premium SSD v2 com desempenho base na Azure), por não estar no caminho do ACK.",
+   "contexto": "Cada um dos seis nós da instalação tem um volume dedicado para o log do Raft, que também guarda a retenção para a Azure atrasada. Isso soma seis volumes por instalação, por cliente. O volume é dimensionado para D a 70% de ocupação, com IOPS provisionadas para o fsync, então o valor de D afeta diretamente o custo fixo.",
+   "na_fonte": "A fonte decide um volume dedicado por nó (ADR-019), com IOPS provisionadas (ADR-056), e o teto de 70% sobre ele (ADR-041).",
    "sugestao": "Calcular o tamanho do volume de replicação para cada valor candidato de D e levar esse custo à aprovação da PEND-02. Verificar em teste que a classe mais barata aguenta a leitura de catch-up (R09) e a reconstrução do dedupe no reinício (R22), que leem desse volume."
   },
   {

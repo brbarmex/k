@@ -1,6 +1,6 @@
 # C35 — Banco lento numa célula não derruba a liderança
 
-**Status:** ✅ Atualizado (decidido pelo Bruno em 14/10/2026, depois do teste de carga da POC) · **ADRs:** [ADR-060](../../03_adr/ADR-060-laco-do-raft-nunca-espera-o-apply-e-admissao-por-atraso.md), [ADR-058](../../03_adr/ADR-058-apply-paralelo-por-chave-com-marca-dagua.md), [ADR-059](../../03_adr/ADR-059-checkpoint-do-log-de-replicacao-sem-trava-no-append.md), [ADR-056](../../03_adr/ADR-056-group-commit-por-shard-e-nada-sai-antes-do-fsync.md), [ADR-055](../../03_adr/ADR-055-log-de-replicacao-segmentado-derivado-do-raft.md) · **Relacionados:** [C26](C26-entrada-venenosa.md), [C21](C21-disco-fsync-e-reconstrucao.md), [C18](C18-partida-e-recuperacao-do-no.md), [C08](C08-queda-de-celula-lider-ou-az-aws.md), [R18](../a_rever/R18-rto-nao-quantificado.md) · **Análise:** [teste de carga de 14/10](../../06_pendencias_e_riscos/analise_teste_de_carga_14_10.md)
+**Status:** ✅ Atualizado (decidido pelo Bruno em 14/10/2026, depois do teste de carga da POC) · **ADRs:** [ADR-060](../../03_adr/ADR-060-laco-do-raft-nunca-espera-o-apply-e-admissao-por-atraso.md), [ADR-058](../../03_adr/ADR-058-apply-paralelo-por-chave-com-marca-dagua.md), [ADR-056](../../03_adr/ADR-056-group-commit-por-shard-e-nada-sai-antes-do-fsync.md) · **Relacionados:** [C26](C26-entrada-venenosa.md), [C21](C21-disco-fsync-e-reconstrucao.md), [C18](C18-partida-e-recuperacao-do-no.md), [C08](C08-queda-de-celula-lider-ou-az-aws.md), [R18](../a_rever/R18-rto-nao-quantificado.md) · **Análise:** [teste de carga de 14/10](../../06_pendencias_e_riscos/analise_teste_de_carga_14_10.md)
 
 ## Cenário
 
@@ -65,7 +65,7 @@ sequenceDiagram
 4. **Se a célula lenta é uma follower:** nada muda para o cliente. A líder continua dando ACK, porque o ACK espera a marca d'água do apply da **líder** ([ADR-058](../../03_adr/ADR-058-apply-paralelo-por-chave-com-marca-dagua.md)). A follower acumula atraso e alcança depois. O alerta é `dr_apply_lag` da follower.
 5. **Se a célula lenta é a líder:** quando `gate − aplicado` passa de `APPLY_LAG_MAX` (padrão `APPLY_WORKERS × 256`), a líder recusa a escrita com ThrottlingException antes do `Propose`. Nada entra no log e o RPO continua 0. A métrica é `dr_throttled_total{causa="atraso_apply"}`.
 6. **O SDK repete com backoff.** Quando o apply alcança, a admissão volta a aceitar.
-7. **Partida depois de queda:** o nó retoma em `min(último do log de replicação + 1, progresso do applier)` e não reaplica o log inteiro ([C18](C18-partida-e-recuperacao-do-no.md)).
+7. **Partida depois de queda:** o nó retoma no índice do progresso do applier, com o replay a partir do WAL do Raft, e não reaplica o log inteiro ([C18](C18-partida-e-recuperacao-do-no.md)).
 
 ## Falhas e tratativas
 
@@ -75,7 +75,7 @@ sequenceDiagram
 | Banco lento só numa follower | Sem impacto no cliente; atraso cresce na follower | Alerta em `dr_apply_lag` da follower: ela não deve virar líder com atraso grande |
 | Follower atrasada vira líder (queda da líder) | Recusa escritas até o atraso cair abaixo de `APPLY_LAG_MAX` | Esse tempo entra no RTO ([R18](../a_rever/R18-rto-nao-quantificado.md)); risco registrado |
 | Applier estacionado por entrada venenosa | Atraso cresce sem limite naquela célula; Raft segue | [C26](C26-entrada-venenosa.md): SKIP humano por item |
-| Memória do Raft cresce com o apply parado | As entradas ficam no `MemoryStorage` até o `CommitPump` consumi-las | Produção: compactação limitada ao `DurableIndex` e teto de disco ([ADR-041](../../03_adr/ADR-041-disco-do-log-teto-de-70-por-cento-sem-s3-na-v1.md)); risco registrado |
+| Memória do Raft cresce com o apply parado | As entradas ficam no `MemoryStorage` até o `CommitPump` consumi-las | Produção: a compactação não passa do aplicado local, então a memória só para de crescer quando o apply volta; na líder a admissão por atraso limita; riscos 44 e 46 |
 | Fsync lento (picos de 1 a 2 s) | Ainda pode atrasar o heartbeat, porque o fsync roda no laço | `ELECTION_TICKS` acima do P99.9 do fsync (S1) e spike S1b (`AsyncStorageWrites`) |
 
 ## Como observar

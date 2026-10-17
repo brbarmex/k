@@ -26,7 +26,7 @@ sequenceDiagram
     Z2-->>L: fsync ok, resposta do AppendEntries
     Note over L: commit Raft e maioria Azure com Z1 e Z2, o gate é alimentado a cada resposta
     Z3->>L: volta e pede a partir do último índice
-    L-->>Z3: catch-up pelo log de replicação
+    L-->>Z3: catch-up pelo AppendEntries, enquanto o log do Raft retém
     Z3-->>L: resposta do AppendEntries no termo atual, volta a contar para o gate
 ```
 
@@ -35,7 +35,7 @@ sequenceDiagram
 1. A AZ 3 da Azure cai; Z3 fica fora.
 2. A líder replica N para os votantes AWS e para Z1, Z2 e Z3 (sem resposta de Z3).
 3. 2 de 3 votantes AWS e 2 de 3 learners (Z1 e Z2) confirmam o fsync; o gate libera.
-4. Z3 volta e recebe as entradas que faltam pelo log de replicação.
+4. Z3 volta e recebe as entradas que faltam pelo próprio Raft (`MsgApp`), enquanto o log do Raft da líder ainda retém o que Z3 precisa. Se a compactação já passou do índice de Z3, Z3 volta por reconstrução em tabela sombra ([C33](C33-reconstrucao-em-tabela-sombra.md)).
 
 ## Falhas e tratativas
 

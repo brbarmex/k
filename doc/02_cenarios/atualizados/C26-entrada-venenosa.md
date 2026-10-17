@@ -51,5 +51,5 @@ flowchart TD
 ## Pontos em aberto
 
 - Lista final de regras de validação do Cosmos e do DynamoDB no caminho de commit (junto com [R17](../a_rever/R17-atributo-de-versao-e-limite-400kb.md)).
-- Formato da consulta por item (campos e códigos de erro) e o checkpoint por item no volume do log: a detalhar na implementação.
+- Formato da consulta por item (campos e códigos de erro) e o progresso por item no volume do Raft: a detalhar na implementação.
 - H-DR2 (SKIP automático) fica fora da v1 e só volta se o plantão se mostrar um gargalo.

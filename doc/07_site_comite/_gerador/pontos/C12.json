@@ -19,7 +19,7 @@
    "titulo": "Disco do log esgota durante degradação longa",
    "origem": "Falhas e tratativas",
    "contexto": "No degradado a AWS retém todas as entradas desde `fromIndex` para a Azure, cerca de 0,5 TB por dia por shard a 3.000 TPS. Se o disco dos votantes enche, o fsync falha e não há mais commit, e o modo criado para manter o sistema de pé o derrubaria.",
-   "na_fonte": "Teto de 70% do volume; passado o teto a Azure fica fora da janela e precisa de reconstrução completa, sem descarga para S3 na v1 (ADR-041, C29). D dimensiona o volume (PEND-22).",
+   "na_fonte": "Teto de 70% do volume; passado o teto a Azure fica fora da janela e precisa de reconstrução completa, sem descarga para S3 na v1 (ADR-041, C29). D dimensiona o volume (PEND-24).",
    "sugestao": "Dimensionar o volume a partir de D aprovado, como a fonte indica, e testar o atingimento do teto com carga sintética. Avaliar o efeito sobre as órfãs: ao passar do teto, a AWS descarta a retenção que serviria ao relatório do R13."
   },
   {

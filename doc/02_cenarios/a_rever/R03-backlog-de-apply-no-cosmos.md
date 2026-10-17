@@ -1,12 +1,12 @@
 # R03 — Backlog de apply no Cosmos (429 e RU insuficiente)
 
-**Status:** 🟡 A rever · parcialmente tratado; o limite de lag de apply para a elegibilidade ao failover é a PEND-18 (valor a definir) · **ADRs:** [ADR-017](../../03_adr/ADR-017-azure-learners-e-gate.md), [ADR-018](../../03_adr/ADR-018-dois-logs-raft-e-replicacao.md), [ADR-057](../../03_adr/ADR-057-um-unico-modo-strong-consistency.md) · **Relacionados:** [C13](../atualizados/C13-ressincronizacao-da-azure.md), [C05](../atualizados/C05-leitura-strong.md), [X04](../complexos/X04-partida-recuperacao-e-dois-logs.md)
+**Status:** 🟡 A rever · parcialmente tratado; o limite de lag de apply para a elegibilidade ao failover é a PEND-18 (valor a definir) · **ADRs:** [ADR-017](../../03_adr/ADR-017-azure-learners-e-gate.md), [ADR-041](../../03_adr/ADR-041-disco-do-log-teto-de-70-por-cento-sem-s3-na-v1.md), [ADR-057](../../03_adr/ADR-057-um-unico-modo-strong-consistency.md) · **Relacionados:** [C13](../atualizados/C13-ressincronizacao-da-azure.md), [C05](../atualizados/C05-leitura-strong.md), [X04](../complexos/X04-partida-e-recuperacao-do-no.md)
 
 ## Cenário
 
 O gate conta o índice **durável (fsync)** nos learners da Azure, não o apply. Por isso, se o Cosmos não tiver RU para o pico e devolver 429, o **RPO segue 0**, mas o atraso entre `commitIndex` e `appliedIndex` na Azure cresce sem limite. Consequências: leituras eventuais na Azure ficam velhas ([C05](../atualizados/C05-leitura-strong.md)) e, no failover, a Azure precisa drenar o backlog antes de abrir leituras fortes, então **o RTO real depende do tamanho da fila**.
 
-**Efeito escondido (novo).** O log de replicação da Azure só pode ser truncado até o que foi aplicado. Backlog longo **enche o disco dos learners**; learner sem disco falha o fsync, sai do gate e a AWS acaba em modo degradado. **Um Cosmos lento pode, por esse caminho, causar RPO > 0.**
+**Efeito escondido (novo).** O log do Raft de cada learner só pode ser compactado até o que foi aplicado no Cosmos daquela célula. Backlog longo **enche o volume do Raft dos learners** (e a memória do `MemoryStorage`, risco 46); learner sem disco falha o fsync, sai do gate e a AWS acaba em modo degradado. **Um Cosmos lento pode, por esse caminho, causar RPO > 0.**
 
 ## Diagrama: Do 429 ao RPO
 
@@ -18,7 +18,7 @@ flowchart TD
     C -->|"não, 429"| E["Applier desacelera, atraso cresce"]
     E --> F["Leitura nas células Azure espera a barreira e falha com 503"]
     E --> G["No failover, drenar backlog antes das leituras fortes: RTO cresce"]
-    E --> H["Log da Azure não pode ser truncado: disco enche"]
+    E --> H["Log do Raft da Azure não pode ser compactado: disco enche"]
     H --> I["Learner falha o fsync e sai do gate"]
     I --> J["AWS pode entrar em modo degradado: RPO maior que 0"]
     E --> K{"Lag de apply acima do limite de elegibilidade? PEND-18"}

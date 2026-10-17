@@ -13,7 +13,6 @@ import (
 type pumpRig struct {
 	p       *CommitPump
 	cons    *fakeConsensus
-	log     *fakeLog
 	g       *domain.Gate
 	lease   *domain.Lease
 	toApply chan []domain.Entry
@@ -21,13 +20,13 @@ type pumpRig struct {
 	cancel  context.CancelFunc
 }
 
-func startPump(t *testing.T, log *fakeLog, applyBuf int) *pumpRig {
+func startPump(t *testing.T, applyBuf int) *pumpRig {
 	t.Helper()
 	cons := newFakeConsensus()
 	g := &domain.Gate{}
 	toApply := make(chan []domain.Entry, applyBuf)
 	lease := &domain.Lease{}
-	p := &CommitPump{Consensus: cons, Log: log, Gate: g, Lease: lease, ToApplier: toApply}
+	p := &CommitPump{Consensus: cons, Gate: g, Lease: lease, ToApplier: toApply}
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
 	go func() { done <- p.Run(ctx) }()
@@ -38,7 +37,7 @@ func startPump(t *testing.T, log *fakeLog, applyBuf int) *pumpRig {
 		case <-time.After(time.Second):
 		}
 	})
-	return &pumpRig{p: p, cons: cons, log: log, g: g, lease: lease, toApply: toApply, done: done, cancel: cancel}
+	return &pumpRig{p: p, cons: cons, g: g, lease: lease, toApply: toApply, done: done, cancel: cancel}
 }
 
 // commit publica o commit até cada índice (o fake preenche os anteriores com Noop). Não
@@ -86,7 +85,7 @@ func waitGate(t *testing.T, g *domain.Gate, idx domain.Index) {
 // vem depois. Com o gate alimentado só por lote, a escrita ficava esperando até o
 // timeout. Com evento, cada resposta de learner libera o gate na hora.
 func TestGateIsFedByLearnerEventsWithoutNewCommit(t *testing.T) {
-	r := startPump(t, &fakeLog{}, 10)
+	r := startPump(t, 10)
 	r.commit(t, 5)
 	r.nextApplied(t)
 	if r.g.Index() != 0 {
@@ -97,20 +96,8 @@ func TestGateIsFedByLearnerEventsWithoutNewCommit(t *testing.T) {
 	waitGate(t, r.g, 5) // nenhum commit novo foi enviado
 }
 
-// Um Append lento (fsync do segundo log) ou um applier parado não atrasa o gate.
-func TestGateAdvancesWhileLogAppendIsBlocked(t *testing.T) {
-	log := &fakeLog{block: make(chan struct{}), entered: make(chan struct{}, 1)}
-	r := startPump(t, log, 10)
-	r.commit(t, 7)
-	<-log.entered // a goroutine de commits está presa no Append síncrono
-	r.learner(t, "az1", 1, 7)
-	r.learner(t, "az2", 1, 7)
-	waitGate(t, r.g, 7)
-	close(log.block)
-}
-
 func TestGateAdvancesWhileApplierIsStuck(t *testing.T) {
-	r := startPump(t, &fakeLog{}, 0) // canal sem buffer, ninguém lê: applier parado
+	r := startPump(t, 0) // canal sem buffer, ninguém lê: applier parado
 	r.commit(t, 9)
 	time.Sleep(20 * time.Millisecond)
 	r.learner(t, "az1", 1, 9)
@@ -122,7 +109,7 @@ func TestGateAdvancesWhileApplierIsStuck(t *testing.T) {
 // Applier parado. Antes, o gate só andava quando o lote entrava na fila do Applier, e o
 // teste de carga de 14/10 mostrou 73 mil entradas de "commit sem gate".
 func TestPOCGateFollowsCommitWhileApplierIsStuck(t *testing.T) {
-	r := startPump(t, &fakeLog{}, 0) // ninguém lê o Applier
+	r := startPump(t, 0) // ninguém lê o Applier
 	r.g.SetAzureOff(true)
 	for i := domain.Index(1); i <= 50; i++ {
 		r.commit(t, i)
@@ -135,7 +122,7 @@ func TestPumpStartsAtFrom(t *testing.T) {
 	cons := newFakeConsensus()
 	cons.commitEntries(domain.Entry{Index: 10, Term: 1})
 	toApply := make(chan []domain.Entry, 10)
-	p := &CommitPump{Consensus: cons, Log: &fakeLog{}, Gate: &domain.Gate{}, ToApplier: toApply, From: 7}
+	p := &CommitPump{Consensus: cons, Gate: &domain.Gate{}, ToApplier: toApply, From: 7}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	go func() { _ = p.Run(ctx) }()
@@ -151,15 +138,13 @@ func TestPumpStartsAtFrom(t *testing.T) {
 }
 
 func TestResumeFrom(t *testing.T) {
-	for _, tc := range []struct{ last, progress, want domain.Index }{
-		{0, 0, 1},       // partida do zero
-		{100, 0, 101},   // sem progresso salvo: depois do log de replicação
-		{100, 40, 40},   // applier atrás: reentrega a entrada do progresso
-		{30, 40, 31},    // log de replicação perdeu a cauda: nunca pular para depois dele
-		{100, 100, 100}, // entrada do progresso reentregue (itens já gravados são pulados)
+	for _, tc := range []struct{ progress, want domain.Index }{
+		{0, 1},     // partida do zero ou sem progresso salvo
+		{40, 40},   // reentrega a entrada do progresso
+		{100, 100}, // itens já gravados da entrada do progresso são pulados pelo applier
 	} {
-		if got := ResumeFrom(tc.last, tc.progress); got != tc.want {
-			t.Fatalf("ResumeFrom(%d, %d) = %d, quer %d", tc.last, tc.progress, got, tc.want)
+		if got := ResumeFrom(tc.progress); got != tc.want {
+			t.Fatalf("ResumeFrom(%d) = %d, quer %d", tc.progress, got, tc.want)
 		}
 	}
 }
@@ -167,7 +152,7 @@ func TestResumeFrom(t *testing.T) {
 // Só conta o termo atual: um evento de termo antigo (sufixo de líder antiga) é ignorado,
 // e líder nova só adota o confirmado no termo novo.
 func TestPumpIgnoresStaleTermAndRebuildsOnNewTerm(t *testing.T) {
-	r := startPump(t, &fakeLog{}, 10)
+	r := startPump(t, 10)
 	r.commit(t, 10)
 	r.learner(t, "az1", 1, 10)
 	r.learner(t, "az2", 1, 10)
@@ -191,7 +176,7 @@ func TestPumpIgnoresStaleTermAndRebuildsOnNewTerm(t *testing.T) {
 
 // Sinal sem commit novo não derruba nem faz o pump entregar lote vazio.
 func TestSignalWithoutNewCommitIsHarmless(t *testing.T) {
-	r := startPump(t, &fakeLog{}, 10)
+	r := startPump(t, 10)
 	r.commit(t) // nada novo
 	r.commit(t, 3)
 	if b := r.nextApplied(t); len(b) == 0 {
@@ -207,7 +192,7 @@ func TestSignalWithoutNewCommitIsHarmless(t *testing.T) {
 // Canal de eventos fechado devolve erro (o motor parou) em vez de girar em falso.
 func TestClosedEventsChannelReturnsError(t *testing.T) {
 	cons := newFakeConsensus()
-	p := &CommitPump{Consensus: cons, Log: &fakeLog{}, Gate: &domain.Gate{}, ToApplier: make(chan []domain.Entry, 1)}
+	p := &CommitPump{Consensus: cons, Gate: &domain.Gate{}, ToApplier: make(chan []domain.Entry, 1)}
 	done := make(chan error, 1)
 	go func() { done <- p.Run(context.Background()) }()
 	close(cons.events)
@@ -221,40 +206,20 @@ func TestClosedEventsChannelReturnsError(t *testing.T) {
 	}
 }
 
-func TestPumpStopsOnContextAndOnLogFailure(t *testing.T) {
-	r := startPump(t, &fakeLog{}, 1)
+func TestPumpStopsOnContext(t *testing.T) {
+	r := startPump(t, 1)
 	r.cancel()
 	select {
 	case <-r.done:
 	case <-time.After(2 * time.Second):
 		t.Fatal("não parou com o contexto")
 	}
-
-	cons := newFakeConsensus()
-	p := &CommitPump{Consensus: cons, Log: &failingLog{}, Gate: &domain.Gate{}, ToApplier: make(chan []domain.Entry, 1)}
-	done := make(chan error, 1)
-	go func() { done <- p.Run(context.Background()) }()
-	cons.commitEntries(domain.Entry{Index: 1})
-	select {
-	case err := <-done:
-		if !errors.Is(err, errDisk) {
-			t.Fatalf("falha de disco é fatal: %v", err)
-		}
-	case <-time.After(2 * time.Second):
-		t.Fatal("falha de disco não parou o pump")
-	}
 }
-
-var errDisk = errors.New("disco")
-
-type failingLog struct{ fakeLog }
-
-func (*failingLog) Append(context.Context, []domain.Entry) error { return errDisk }
 
 // O pump alimenta t_c: duas confirmações da Azure (heartbeat incluído) formam a maioria, e
 // o termo novo descarta os contatos do antigo.
 func TestPumpFeedsLastContactToLease(t *testing.T) {
-	r := startPump(t, &fakeLog{}, 10)
+	r := startPump(t, 10)
 	t0 := time.Unix(5_000_000, 0)
 	r.lease.Mark(1, time.Minute)
 	send := func(id string, term domain.Term, at time.Time) {
@@ -279,32 +244,4 @@ func TestPumpFeedsLastContactToLease(t *testing.T) {
 	if r.lease.Check(t0.Add(2*time.Second)) == nil {
 		t.Fatal("líder nova não herda t_c do termo antigo")
 	}
-}
-
-// ADR-059: com o Append preso (disco lento ou checkpoint), os lotes seguintes continuam
-// chegando ao gate e ao Applier; o log de replicação recebe tudo, em ordem, depois.
-func TestCommitsKeepFlowingWhileLogAppendIsBlocked(t *testing.T) {
-	log := &fakeLog{block: make(chan struct{}), entered: make(chan struct{}, 1)}
-	r := startPump(t, log, 10)
-	r.g.SetAzureOff(true) // POC: gate = commit do Raft (G-08)
-	r.commit(t, 1)
-	<-log.entered // o Append do lote 1 está preso
-	r.commit(t, 2)
-	r.commit(t, 3)
-	waitGate(t, r.g, 3)
-	want := domain.Index(1) // os lotes podem vir juntos (leitura por faixa); a ordem não muda
-	for want <= 3 {
-		for _, e := range r.nextApplied(t) {
-			if e.Index != want {
-				t.Fatalf("Applier recebeu %d, quer %d", e.Index, want)
-			}
-			want++
-		}
-	}
-	close(log.block)
-	waitUntil(t, func() bool {
-		log.mu.Lock()
-		defer log.mu.Unlock()
-		return log.n == 3
-	}, "o log de replicação não recebeu as três entradas")
 }

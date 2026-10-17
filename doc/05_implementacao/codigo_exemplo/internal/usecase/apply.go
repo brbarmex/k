@@ -11,12 +11,12 @@ import (
 
 // Applier materializa o log no banco da célula (fluxo do apply, D04).
 //
-//   - Recebe as entradas commitadas PELA MEMÓRIA, do CommitPump. No fluxo normal não lê
-//     o log de replicação; só o replay da partida e o catch-up leem do disco.
+//   - Recebe as entradas commitadas PELA MEMÓRIA, do CommitPump. Só o replay da partida
+//     relê o WAL do Raft.
 //   - Aplica em série e nunca além do gate (ADR-057): applied <= gate sempre.
 //   - Cada item é uma escrita condicional pela versão (= índice), então o replay é
 //     idempotente (ADR-015, ADR-035).
-//   - Depois de cada item grava o progresso (índice, ordem) sem fsync (ADR-048, ADR-055).
+//   - Depois de cada item grava o progresso (índice, ordem) sem fsync (ADR-048).
 //     Perder o progresso numa queda de host só alonga o replay.
 //   - Erro do banco num item para o shard: o SKIP é sempre humano (ADR-038).
 //

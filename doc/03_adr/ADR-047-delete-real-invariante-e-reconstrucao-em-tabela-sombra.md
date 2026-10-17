@@ -4,7 +4,7 @@
 
 ## Contexto
 
-O DELETE real sem tombstone ([ADR-024](ADR-024-delete-real-ttl-local-gsi.md)) é correto na reaplicação em ordem por chave a partir do checkpoint: `Put(10)` recria a chave e `Delete(11)` a remove de novo. O estado errado existe só durante o replay, e a regra "leituras só abrem depois do high-water mark" o esconde. Faltavam a prova e um protocolo para os caminhos que **não passam pelo checkpoint** (reconstrução, restauração PITR, cópia de outra célula).
+O DELETE real sem tombstone ([ADR-024](ADR-024-delete-real-ttl-local-gsi.md)) é correto na reaplicação em ordem por chave a partir do progresso do applier: `Put(10)` recria a chave e `Delete(11)` a remove de novo. O estado errado existe só durante o replay, e a regra "leituras só abrem depois do high-water mark" o esconde. Faltavam a prova e um protocolo para os caminhos que **não passam pelo applier em ordem** (reconstrução, restauração PITR, cópia de outra célula).
 
 ## Decisão
 

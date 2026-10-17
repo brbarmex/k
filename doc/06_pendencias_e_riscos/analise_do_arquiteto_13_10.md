@@ -13,7 +13,7 @@ Conferi no código local os oito defeitos apontados no Go: **todos existem**. Co
 |---|---|---|
 | P0-1 e 3.1 Fencing e split-brain | **Concordo** e acrescento uma saída | O problema vem do próprio modo degradado. Proponho lease de degradação (decisão 1) |
 | P0-2 e 3.2 Prefixo do gate | **Concordo em parte** | Se os learners forem learners Raft de verdade, o Raft já prova o prefixo; o risco está no canal paralelo e na reconstrução do gate (decisão 3) |
-| P0-3 e 3.3 DELETE e replay | **Concordo em parte** | Na reaplicação em ordem o resultado final é correto; o buraco está nos caminhos que fogem do checkpoint (rebuild, restauração) e na falta de prova (decisão 4) |
+| P0-3 e 3.3 DELETE e replay | **Concordo em parte** | Na reaplicação em ordem o resultado final é correto; o buraco está nos caminhos que fogem do replay do log (rebuild, restauração) e na falta de prova (decisão 4) |
 | P0-4 Rebuild sem protocolo | **Concordo** | Falta mesmo. Esbocei um protocolo (seção 3) |
 | P0-5 SKIP de lote parcial | **Concordo** | O SKIP deve ser por item, não por entrada (decisão 5) |
 | P0-6 RPO 0 condicional e header | **Concordo** | O header não é aceite de risco. Proponho política por instalação (decisão 2) |
@@ -65,11 +65,11 @@ Concordo em ampliar o TLA+ para P9 em diante: promoção entre nuvens, troca de 
 
 ### 2.3 DELETE, TTL e replay (P0-3, 3.3)
 
-Em parte. Na reaplicação normal o applier reprocessa **em ordem por chave** a partir do checkpoint: `Put(10)` recria a chave e `Delete(11)` a remove de novo. O estado errado existe só durante o replay, e a regra "leituras só abrem depois do high-water mark" o esconde. Então não achei janela insegura **se essa regra for imposta por código e provada**.
+Em parte. Na reaplicação normal o applier reprocessa **em ordem por chave** a partir do progresso salvo: `Put(10)` recria a chave e `Delete(11)` a remove de novo. O estado errado existe só durante o replay, e a regra "leituras só abrem depois do high-water mark" o esconde. Então não achei janela insegura **se essa regra for imposta por código e provada**.
 
 Onde o relatório tem razão:
 - Nada disso está provado. É uma invariante ("com leituras abertas, o estado materializado é a dobra do log") que deveria estar no TLA+ e em teste de propriedade.
-- Os caminhos que **não passam pelo checkpoint** (rebuild, restauração PITR, cópia de outra célula) não têm a mesma proteção.
+- Os caminhos que **não passam pelo replay do log** (rebuild, restauração PITR, cópia de outra célula) não têm a mesma proteção.
 - O TTL local do cliente expira itens em cada célula de forma independente; um replay pode recriar um item já expirado até o próprio TTL apagá-lo de novo.
 
 Sobre tombstones: o custo escondido é a **leitura**. Tombstone dentro do item exige filtrar em `Query`, `Scan` e GSI, o que muda o conteúdo das páginas com `Limit` e quebra a transparência. Uma alternativa mais barata é uma **tabela separada de tombstones consultada só em modo de replay ou rebuild** (índice abaixo do high-water mark anterior). Na escrita nova o índice é maior que tudo e a condição `v < índice` basta. O custo é uma escrita extra por DELETE.

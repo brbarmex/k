@@ -26,8 +26,8 @@
    "titulo": "Janela de dedupe e memória",
    "origem": "Pontos em aberto",
    "contexto": "A janela de dedupe precisa lembrar na líder o identificador de cada requisição recente, e o R22 estima esse custo em memória por shard como não previsto no orçamento do pod. Além disso, a tabela precisa existir na líder nova; se só a líder a mantém, a nova líder reconstrói lendo minutos de log durante a eleição, o que infla o RTO. Uma janela curta demais, por outro lado, deixa retries tardios virarem escrita duplicada.",
-   "na_fonte": "Não decidido na fonte. Proposta na fonte: no R22, a tabela é uma projeção do log mantida por todos os votantes, com janela configurável `DEDUPE_WINDOW`, reconstrução no reinício a partir do log de replicação e inclusão da memória no orçamento e no `GOMEMLIMIT`.",
-   "sugestao": "Medir no spike de carga a ocupação real da tabela por shard e o tempo de reconstrução no reinício, e garantir que a retenção mínima do log de replicação cobre a janela mais uma margem. Incluir no TLA+ ou em teste de propriedade a propriedade de que um retry dentro da janela nunca gera entrada nova mesmo após troca de líder, e alertar quando a janela efetiva ficar menor que o prazo máximo de retry do SDK."
+   "na_fonte": "Não decidido na fonte. Proposta na fonte: no R22, a tabela é uma projeção do log mantida por todos os votantes, com janela configurável `DEDUPE_WINDOW`, reconstrução no reinício a partir do log do Raft retido e inclusão da memória no orçamento e no `GOMEMLIMIT`.",
+   "sugestao": "Medir no spike de carga a ocupação real da tabela por shard e o tempo de reconstrução no reinício, e garantir que a retenção mínima do log do Raft cobre a janela mais uma margem. Incluir no TLA+ ou em teste de propriedade a propriedade de que um retry dentro da janela nunca gera entrada nova mesmo após troca de líder, e alertar quando a janela efetiva ficar menor que o prazo máximo de retry do SDK."
   }
  ]
 }

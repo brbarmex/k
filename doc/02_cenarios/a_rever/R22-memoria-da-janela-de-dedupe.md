@@ -18,14 +18,14 @@ flowchart TD
     E["Líder nova assume"] --> F["Já tem a tabela: sem leitura de 5 min de log"]
     G["Reinício de um nó"] --> H["Reconstrói pelo trecho recente do log do Raft"]
     H --> I{"Retenção do log do Raft cobre a janela?"}
-    I -->|"não"| J["Lê também o log de replicação"]
+    I -->|"não"| J["Parte compactada vem do snapshot (ADR-063, pendente)"]
     I -->|"sim"| K["Pronto"]
 ```
 
 ## Fluxo proposto
 
 1. A tabela é uma **projeção do log**: todo votante a atualiza ao aplicar o commit, então qualquer um pode virar líder sem reconstruir.
-2. Desde o [ADR-055](../../03_adr/ADR-055-log-de-replicacao-segmentado-derivado-do-raft.md) o log do Raft guarda só segundos; a reconstrução no reinício lê o **log de replicação**, cuja retenção mínima cobre a janela de dedupe mais uma margem.
+2. A reconstrução no reinício lê o trecho recente do **log do Raft**, cuja retenção mínima cobre a janela de dedupe mais uma margem ([04_wal_e_fsync](../../01_arquitetura/04_wal_e_fsync.md), 6.9). Na POC a compactação está desligada e o log inteiro está disponível; em produção, o que tiver sido compactado vem do snapshot ([ADR-063](../../03_adr/ADR-063-snapshot-e-compactacao-do-log-do-raft.md), pendente).
 3. Incluir ~58 MiB (e a variação com o tamanho do id) no orçamento de memória e em `GOMEMLIMIT`; estrutura compacta (tabela hash com id de 16 a 36 bytes) e expiração em lotes.
 4. Janela configurável (`DEDUPE_WINDOW`), com métrica de ocupação e de acertos.
 

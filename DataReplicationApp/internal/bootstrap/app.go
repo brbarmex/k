@@ -19,8 +19,8 @@ import (
 	"example.com/datareplication/internal/adapter/out/dynamodb"
 	"example.com/datareplication/internal/adapter/out/etcdraft"
 	"example.com/datareplication/internal/adapter/out/peerclient"
+	"example.com/datareplication/internal/adapter/out/progress"
 	"example.com/datareplication/internal/adapter/out/prommetrics"
-	"example.com/datareplication/internal/adapter/out/replog"
 	"example.com/datareplication/internal/domain"
 	"example.com/datareplication/internal/platform/config"
 	"example.com/datareplication/internal/platform/logx"
@@ -31,15 +31,9 @@ import (
 // maxWaitingLeader é o teto de requisições esperando uma eleição (ADR-039, consequências).
 const maxWaitingLeader = 1000
 
-// replogSegment é o tamanho de cada segmento do log de replicação.
-const replogSegment = 64 << 20
-
 // applierQueue é a fila em memória entre o CommitPump e o Applier, em lotes lidos por faixa
 // (até 1 MiB cada). Cheia, quem espera é o CommitPump, nunca o laço do Raft (ADR-060).
 const applierQueue = 64
-
-// replogQueue é a fila de lotes entre o CommitPump e o Append do log de replicação (ADR-059).
-const replogQueue = 1024
 
 // New monta o núcleo (configuração, gate, escrita, borda HTTP). Os adaptadores de Raft,
 // banco e transporte entram por `extra` (Runtime em produção, substitutos nos testes).
@@ -141,7 +135,7 @@ func runHTTP(lc fx.Lifecycle, s *dynamohttp.Server, cfg config.Config, log zerol
 	})
 }
 
-// Runtime liga os adaptadores reais: log de replicação, DynamoDB, gRPC entre células,
+// Runtime liga os adaptadores reais: progresso do applier, DynamoDB, gRPC entre células,
 // Raft, laços de fundo e administração.
 func Runtime() fx.Option {
 	return fx.Options(
@@ -149,9 +143,8 @@ func Runtime() fx.Option {
 			func(cfg config.Config) *prommetrics.Recorder { return prommetrics.NewRecorder(cfg.CellID, nil) },
 			func(r *prommetrics.Recorder) port.Metrics { return r },
 			func(cfg config.Config) (domain.TableMap, error) { return domain.NewTableMap(cfg.CellID, cfg.Tables) },
-			newReplog,
-			func(l *replog.Log) port.ReplicationLog { return l },
-			func(l *replog.Log) port.ApplyProgress { return l },
+			newProgress,
+			func(p *progress.File) port.ApplyProgress { return p },
 			newStore,
 			func(s CellStore) port.StateStore { return s },
 			func(s CellStore) port.Scanner { return s },
@@ -163,7 +156,6 @@ func Runtime() fx.Option {
 			func(c *peerclient.Client) port.GatePublisher { return c },
 			newRaft,
 			func(n *etcdraft.Node) port.ConsensusEngine { return n },
-			func(n *etcdraft.Node) port.RaftCompactor { return n },
 			func(n *etcdraft.Node) port.RaftInbound { return n },
 			func(n *etcdraft.Node) port.RaftStatus { return n },
 			func() chan []domain.Entry { return make(chan []domain.Entry, applierQueue) },
@@ -182,13 +174,15 @@ func Runtime() fx.Option {
 	)
 }
 
-func newReplog(lc fx.Lifecycle, cfg config.Config) (*replog.Log, error) {
-	l, err := replog.Open(cfg.ReplogDir, replogSegment)
+// newProgress abre o progresso do applier no volume do Raft, ao lado do diretório do WAL
+// (o wal.Create renomeia RAFT_DIR, então o arquivo fica no diretório pai).
+func newProgress(lc fx.Lifecycle, cfg config.Config) (*progress.File, error) {
+	p, err := progress.Open(filepath.Join(filepath.Dir(cfg.RaftDir), "progress"))
 	if err != nil {
 		return nil, err
 	}
-	lc.Append(fx.StopHook(l.Close))
-	return l, nil
+	lc.Append(fx.StopHook(p.Close))
+	return p, nil
 }
 
 // CellStore é o banco da célula com o catálogo conferido na partida (DynamoDB).
@@ -208,14 +202,14 @@ type Resume struct {
 	From domain.Index // primeiro índice que o CommitPump entrega
 }
 
-// newResume calcula o ponto de retomada a partir do log de replicação e do progresso do
-// applier, para o Raft não reentregar o log inteiro a cada partida.
-func newResume(l port.ReplicationLog, p port.ApplyProgress) (Resume, error) {
+// newResume calcula o ponto de retomada a partir do progresso do applier, para o Raft não
+// reentregar o log inteiro a cada partida.
+func newResume(p port.ApplyProgress) (Resume, error) {
 	idx, _, err := p.LoadProgress()
 	if err != nil {
 		return Resume{}, err
 	}
-	return Resume{From: usecase.ResumeFrom(l.LastIndex(), idx)}, nil
+	return Resume{From: usecase.ResumeFrom(idx)}, nil
 }
 
 func newPeerClient(lc fx.Lifecycle, cfg config.Config, log zerolog.Logger, m port.Metrics) (*peerclient.Client, error) {
@@ -264,13 +258,13 @@ func newGateSync(cfg config.Config, c port.ConsensusEngine, g *domain.Gate, p po
 	return &usecase.GateSync{Consensus: c, Gate: g, Publisher: p, Interval: cfg.GatePublishInterval, Log: log}
 }
 
-func newCommitPump(n *etcdraft.Node, l port.ReplicationLog, g *domain.Gate, lease *domain.Lease, to chan []domain.Entry, r Resume) *usecase.CommitPump {
-	return &usecase.CommitPump{Consensus: n, Log: l, Gate: g, Lease: lease, ToApplier: to, LogQueue: replogQueue, From: r.From}
+func newCommitPump(n *etcdraft.Node, g *domain.Gate, lease *domain.Lease, to chan []domain.Entry, r Resume) *usecase.CommitPump {
+	return &usecase.CommitPump{Consensus: n, Gate: g, Lease: lease, ToApplier: to, From: r.From}
 }
 
-func newStatus(cfg config.Config, r port.RaftStatus, g *domain.Gate, a *usecase.Applier, l port.ReplicationLog, cat port.Catalog,
+func newStatus(cfg config.Config, r port.RaftStatus, g *domain.Gate, a *usecase.Applier, cat port.Catalog,
 	p *usecase.CommitPump, inbox chan []domain.Entry) *usecase.StatusReporter {
-	return &usecase.StatusReporter{CellID: cfg.CellID, NodeID: cfg.NodeID, Raft: r, Gate: g, Applier: a, Log: l, Catalog: cat,
+	return &usecase.StatusReporter{CellID: cfg.CellID, NodeID: cfg.NodeID, Raft: r, Gate: g, Applier: a, Catalog: cat,
 		AzureOff: len(cfg.Learners) == 0, Pump: p, ApplyInbox: func() int { return len(inbox) },
 		ApplyLagMax: cfg.ApplyLagMax, ElectionTicks: cfg.ElectionTicks}
 }
@@ -303,7 +297,6 @@ type runtimeDeps struct {
 	Node     *etcdraft.Node
 	Gate     *domain.Gate
 	Lease    *domain.Lease
-	Replog   port.ReplicationLog
 	Applier  *usecase.Applier
 	ToApply  chan []domain.Entry
 	GateSync *usecase.GateSync
@@ -313,7 +306,7 @@ type runtimeDeps struct {
 }
 
 // runRuntime confere as tabelas, abre o gRPC entre células e roda os laços de fundo.
-// Erro de qualquer laço (fsync, log de replicação, canal fechado) derruba o processo e o
+// Erro de qualquer laço (fsync, canal fechado) derruba o processo e o
 // Docker reinicia (RT-05). O Applier estacionado não é erro: o processo fica de pé.
 func runRuntime(d runtimeDeps) {
 	ctx, cancel := context.WithCancel(context.Background())
@@ -343,11 +336,9 @@ func runRuntime(d runtimeDeps) {
 				}
 			}()
 			pump := d.Pump
-			ckpt := &usecase.Checkpointer{Log: d.Replog, Raft: d.Node, Interval: d.Cfg.ReplogSyncInterval, Metrics: d.Metrics}
 			fatal("raft", d.Node.Run)
 			fatal("commitpump", pump.Run)
 			fatal("applier", d.Applier.Run)
-			fatal("checkpoint", ckpt.Run)
 			fatal("gatesync", d.GateSync.Run)
 			d.Log.Info().Str("peer", d.Cfg.PeerAddr).Int("applyWorkers", d.Applier.WorkerCount()).
 				Uint64("applyLagMax", d.Cfg.ApplyLagMax).Int("electionTicks", d.Cfg.ElectionTicks).
@@ -359,7 +350,7 @@ func runRuntime(d runtimeDeps) {
 			cancel()
 			done := make(chan struct{})
 			go func() { wg.Wait(); close(done) }()
-			select { // os laços param antes de fechar o WAL e o log de replicação
+			select { // os laços param antes de fechar o WAL e o progresso
 			case <-done:
 				return nil
 			case <-stopCtx.Done():

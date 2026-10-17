@@ -1,13 +1,12 @@
 # ---- Volumes e dados locais do DR (só existem na máquina de quem roda) ----
 # Os volumes do compose são volumes nomeados do Docker e não ficam na pasta, mas uma
-# execução local fora do Docker (ou um bind mount) grava o WAL e o log de replicação aqui.
+# execução local fora do Docker (ou um bind mount) grava o WAL e o progresso do applier aqui.
 /data/
 /volumes/
 /var/
 /c[0-9]*/
 *.wal
-*.seg
-**/replog/progress
+**/raft/progress
 **/raft/wal/
 .localstack/
 volume/

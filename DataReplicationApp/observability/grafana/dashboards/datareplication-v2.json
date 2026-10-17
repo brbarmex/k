@@ -784,28 +784,6 @@
             "type": "prometheus",
             "uid": "prometheus-dr"
           },
-          "expr": "dr_replog_last_index{celula=~\"$celula\"}",
-          "instant": false,
-          "legendFormat": "log {{celula}}",
-          "range": true,
-          "refId": "A"
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus-dr"
-          },
-          "expr": "dr_replog_durable_index{celula=~\"$celula\"}",
-          "instant": false,
-          "legendFormat": "durável {{celula}}",
-          "range": true,
-          "refId": "B"
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus-dr"
-          },
           "expr": "dr_commit_index{celula=~\"$celula\"}",
           "instant": false,
           "legendFormat": "commit {{celula}}",
@@ -835,110 +813,7 @@
           "refId": "E"
         }
       ],
-      "title": "Índices locais | log → fsync → commit → gate → apply",
-      "type": "timeseries"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus-dr"
-      },
-      "description": "Entradas presentes no log local mas ainda não reportadas duráveis. Valores negativos requerem investigação.",
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
-          "custom": {
-            "axisBorderShow": false,
-            "axisCenteredZero": false,
-            "axisColorMode": "text",
-            "axisLabel": "",
-            "axisPlacement": "auto",
-            "barAlignment": 0,
-            "barWidthFactor": 0.6,
-            "drawStyle": "line",
-            "fillOpacity": 10,
-            "gradientMode": "none",
-            "hideFrom": {
-              "legend": false,
-              "tooltip": false,
-              "viz": false
-            },
-            "insertNulls": false,
-            "lineInterpolation": "stepAfter",
-            "lineWidth": 2,
-            "pointSize": 5,
-            "scaleDistribution": {
-              "type": "linear"
-            },
-            "showPoints": "never",
-            "spanNulls": false,
-            "stacking": {
-              "group": "A",
-              "mode": "none"
-            },
-            "thresholdsStyle": {
-              "mode": "off"
-            }
-          },
-          "decimals": 0,
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": 0
-              },
-              {
-                "color": "red",
-                "value": 80
-              }
-            ]
-          },
-          "unit": "short"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 7,
-        "w": 12,
-        "x": 0,
-        "y": 22
-      },
-      "id": 12,
-      "options": {
-        "legend": {
-          "calcs": [
-            "lastNotNull",
-            "max"
-          ],
-          "displayMode": "table",
-          "placement": "bottom",
-          "showLegend": true
-        },
-        "tooltip": {
-          "hideZeros": false,
-          "mode": "multi",
-          "sort": "desc"
-        }
-      },
-      "pluginVersion": "12.1.0",
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus-dr"
-          },
-          "expr": "dr_replog_last_index{celula=~\"$celula\"} - on(celula) dr_replog_durable_index{celula=~\"$celula\"}",
-          "instant": false,
-          "legendFormat": "{{celula}}",
-          "range": true,
-          "refId": "A"
-        }
-      ],
-      "title": "Log pendente de fsync",
+      "title": "Índices locais | commit → gate → apply",
       "type": "timeseries"
     },
     {
@@ -1338,17 +1213,6 @@
       },
       "pluginVersion": "12.1.0",
       "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus-dr"
-          },
-          "expr": "(dr_replog_durable_index{celula=~\"$celula\"} > bool on(celula) dr_replog_last_index{celula=~\"$celula\"})",
-          "instant": false,
-          "legendFormat": "durável > log {{celula}}",
-          "range": true,
-          "refId": "A"
-        },
         {
           "datasource": {
             "type": "prometheus",

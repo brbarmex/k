@@ -67,7 +67,7 @@ Gerado em 17/10/2026 a partir do pacote DataReplication_Versao_1.
 <li><a href="../complex-path/X01-gate-e-troca-de-lider.html"><b>X01</b> Gate: definição, monotonicidade e troca de líder</a></li>
 <li><a href="../complex-path/X02-modo-degradado.html"><b>X02</b> Modo degradado: entrada, permanência, lease e saída</a></li>
 <li><a href="../complex-path/X03-desastre-e-promocao-da-azure.html"><b>X03</b> Desastre: promoção da Azure, fencing e reconciliação</a></li>
-<li><a href="../complex-path/X04-partida-recuperacao-e-dois-logs.html"><b>X04</b> Partida, recuperação e coerência entre os dois logs</a></li>
+<li><a href="../complex-path/X04-partida-e-recuperacao-do-no.html"><b>X04</b> Partida e recuperação do nó</a></li>
 <li><a href="../complex-path/X05-timeouts-e-idempotencia.html"><b>X05</b> Timeouts em cascata e idempotência do retry</a></li>
 <li><a href="../complex-path/X06-delete-ttl-gsi.html"><b>X06</b> DELETE, TTL, Scan e GSI</a></li>
 <li><a href="../complex-path/X07-gate-explicado-com-exemplos.html"><b>X07</b> O gate explicado com exemplos</a></li>
@@ -124,7 +124,7 @@ Gerado em 17/10/2026 a partir do pacote DataReplication_Versao_1.
 <dl>
 <dt>Contexto</dt><dd>Com a opção B (<a href="../../03_adr/ADR-014-modo-degradado-opcao-b.md">ADR-014</a>), a perda possível cresce com a duração da degradação, e o header <code>x-dr-mode: degraded</code> informa o cliente sem limitar a perda. Desde 13/10 o teto existe no desenho, o lease D (<a href="../../03_adr/ADR-044-lease-do-modo-degradado-e-promocao-da-azure.md">ADR-044</a>), mas o valor de D e de M não foi aprovado. Sem D definido o modo degradado não pode ser ligado, e se a AWS morrer em modo degradado o RTO é pelo menos D + M.</dd>
 <dt>O que a fonte define</dt><dd class="">A fonte decide o mecanismo (lease D, <a href="../../03_adr/ADR-044-lease-do-modo-degradado-e-promocao-da-azure.md">ADR-044</a>) e a política por instalação <code>accept</code> ou <code>reject</code> (<a href="../../03_adr/ADR-045-politica-de-degradacao-por-instalacao.md">ADR-045</a>); a aprovação de D, M e da política por cliente é bloqueante e está pendente (PEND-02). Caminhos adicionais propostos: segundo circuito privado por outra operadora e exportação periódica do log degradado.</dd>
-<dt class="sug">Sugestão de encaminhamento <small>(inferência, não decidida)</small></dt><dd class="sug">Levar ao Bruno e ao negócio um pacote de decisão que mostre, para cada D candidato, o volume máximo de órfãs, o RTO mínimo do desastre e o tamanho do volume do log de replicação. Avaliar o segundo circuito como alternativa que reduz a frequência de degradação, já que reduzir a causa vale mais que limitar o efeito.</dd>
+<dt class="sug">Sugestão de encaminhamento <small>(inferência, não decidida)</small></dt><dd class="sug">Levar ao Bruno e ao negócio um pacote de decisão que mostre, para cada D candidato, o volume máximo de órfãs, o RTO mínimo do desastre e o tamanho do volume do log do Raft. Avaliar o segundo circuito como alternativa que reduz a frequência de degradação, já que reduzir a causa vale mais que limitar o efeito.</dd>
 </dl>
 </article>
 <article class="ponto">
@@ -140,7 +140,7 @@ Gerado em 17/10/2026 a partir do pacote DataReplication_Versao_1.
 <dl>
 <dt>Contexto</dt><dd>RPO 0 replica tudo, inclusive erros: um deploy com bug que grava dado errado é replicado imediatamente para as duas clouds. Nesse caso o failover não ajuda, e a recuperação exige voltar o estado a um ponto anterior ao erro. É um risco de integridade que a arquitetura de replicação não cobre por desenho.</dd>
 <dt>O que a fonte define</dt><dd class="nd-fonte">Não decidido na fonte. Proposta na fonte: backup contínuo dos dois bancos (PITR no DynamoDB, backup contínuo no Cosmos), retenção do log suficiente para reconstruir até um índice anterior ao erro e validação de esquema e capacidades antes do commit (<a href="../fail-path/C26-entrada-venenosa.html">C26</a>).</dd>
-<dt class="sug">Sugestão de encaminhamento <small>(inferência, não decidida)</small></dt><dd class="sug">Definir e ensaiar um runbook de restauração a um ponto no tempo que mantenha as seis réplicas coerentes entre si, já que restaurar só um banco quebra a convergência. Verificar a compatibilidade entre a retenção do log de replicação e o tempo típico para detectar um bug de dado.</dd>
+<dt class="sug">Sugestão de encaminhamento <small>(inferência, não decidida)</small></dt><dd class="sug">Definir e ensaiar um runbook de restauração a um ponto no tempo que mantenha as seis réplicas coerentes entre si, já que restaurar só um banco quebra a convergência. Verificar a compatibilidade entre a retenção do log do Raft e o tempo típico para detectar um bug de dado.</dd>
 </dl>
 </article>
 <article class="ponto">

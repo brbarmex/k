@@ -66,7 +66,7 @@ Gerado em 17/10/2026 a partir do pacote DataReplication_Versao_1.
 <li><a href="complex-path/X01-gate-e-troca-de-lider.html"><b>X01</b> Gate: definição, monotonicidade e troca de líder</a></li>
 <li><a href="complex-path/X02-modo-degradado.html"><b>X02</b> Modo degradado: entrada, permanência, lease e saída</a></li>
 <li><a href="complex-path/X03-desastre-e-promocao-da-azure.html"><b>X03</b> Desastre: promoção da Azure, fencing e reconciliação</a></li>
-<li><a href="complex-path/X04-partida-recuperacao-e-dois-logs.html"><b>X04</b> Partida, recuperação e coerência entre os dois logs</a></li>
+<li><a href="complex-path/X04-partida-e-recuperacao-do-no.html"><b>X04</b> Partida e recuperação do nó</a></li>
 <li><a href="complex-path/X05-timeouts-e-idempotencia.html"><b>X05</b> Timeouts em cascata e idempotência do retry</a></li>
 <li><a href="complex-path/X06-delete-ttl-gsi.html"><b>X06</b> DELETE, TTL, Scan e GSI</a></li>
 <li><a href="complex-path/X07-gate-explicado-com-exemplos.html"><b>X07</b> O gate explicado com exemplos</a></li>
@@ -204,15 +204,15 @@ Gerado em 17/10/2026 a partir do pacote DataReplication_Versao_1.
 </tr>
 <tr>
 <td>I-08</td>
-<td>O log do Raft só é compactado até o <code>DurableIndex</code> do log de replicação, nunca até o índice apenas copiado</td>
-<td><a href="../03_adr/ADR-018-dois-logs-raft-e-replicacao.md">018</a> <a href="../03_adr/ADR-055-log-de-replicacao-segmentado-derivado-do-raft.md">055</a></td>
+<td>O log do Raft só é compactado até <code>RaftCompactLimit</code> = <code>min(aplicado local, índice durável da maioria Azure enquanto a Azure estiver na janela, F − 1 de uma reconstrução em curso)</code></td>
+<td><a href="../03_adr/ADR-041-disco-do-log-teto-de-70-por-cento-sem-s3-na-v1.md">041</a> <a href="../03_adr/ADR-063-snapshot-e-compactacao-do-log-do-raft.md">063</a></td>
 <td>—</td>
 <td>Sim na regra (<code>RaftCompactLimit</code>); a compactação está desligada</td>
 </tr>
 <tr>
 <td>I-09</td>
-<td>Erro de escrita ou de fsync, no log do Raft ou no de replicação, é fatal e não libera nenhuma resposta do lote</td>
-<td><a href="../03_adr/ADR-034-fsync-fatal-e-identidade-nova.md">034</a> <a href="../03_adr/ADR-055-log-de-replicacao-segmentado-derivado-do-raft.md">055</a> <a href="../03_adr/ADR-056-group-commit-por-shard-e-nada-sai-antes-do-fsync.md">056</a></td>
+<td>Erro de escrita ou de fsync no log do Raft é fatal e não libera nenhuma resposta do lote</td>
+<td><a href="../03_adr/ADR-034-fsync-fatal-e-identidade-nova.md">034</a> <a href="../03_adr/ADR-056-group-commit-por-shard-e-nada-sai-antes-do-fsync.md">056</a></td>
 <td>P1</td>
 <td>Sim</td>
 </tr>
@@ -265,9 +265,9 @@ Gerado em 17/10/2026 a partir do pacote DataReplication_Versao_1.
 <h3 id="31-topologia-e-implantacao">3.1 Topologia e implantação</h3>
 <ul>
 <li>Uma instalação por cliente, com células, bancos e contas próprios na AWS e na Azure. O cliente é conhecido pela configuração do deploy, não por credencial <a href="../03_adr/ADR-043-uma-instalacao-por-cliente-identidade-por-configuracao.md">043</a>.</li>
-<li>Por célula: um único <code>DataReplication</code> (API, Raft, logs, applier), sem sidecar e sem HPA. O número de réplicas é o quórum <a href="../03_adr/ADR-016-app-unico-por-celula-monolito-modular.md">016</a>. <strong>POC: Sim</strong> (três células).</li>
-<li>Um banco por célula, seis por shard: o ganho é isolamento lógico, não durabilidade; a durabilidade vem dos logs do Raft <a href="../03_adr/ADR-022-banco-por-celula-nome-logico.md">022</a> <a href="../03_adr/ADR-054-banco-por-celula-mantido.md">054</a>. O nome lógico da tabela troca o id da célula por <code>{cell}</code> <a href="../03_adr/ADR-022-banco-por-celula-nome-logico.md">022</a>. <strong>POC: Sim</strong> (um LocalStack por célula).</li>
-<li>Cada nó tem dois volumes: um pequeno e rápido para o log do Raft e um maior para o log de replicação <a href="../03_adr/ADR-019-wal-proprio-volume-dedicado.md">019</a> <a href="../03_adr/ADR-055-log-de-replicacao-segmentado-derivado-do-raft.md">055</a>. <strong>POC: Sim</strong>.</li>
+<li>Por célula: um único <code>DataReplication</code> (API, Raft e o seu log, applier), sem sidecar e sem HPA. O número de réplicas é o quórum <a href="../03_adr/ADR-016-app-unico-por-celula-monolito-modular.md">016</a>. <strong>POC: Sim</strong> (três células).</li>
+<li>Um banco por célula, seis por shard: o ganho é isolamento lógico, não durabilidade; a durabilidade vem do log do Raft, replicado nos seis nós <a href="../03_adr/ADR-022-banco-por-celula-nome-logico.md">022</a> <a href="../03_adr/ADR-054-banco-por-celula-mantido.md">054</a>. O nome lógico da tabela troca o id da célula por <code>{cell}</code> <a href="../03_adr/ADR-022-banco-por-celula-nome-logico.md">022</a>. <strong>POC: Sim</strong> (um LocalStack por célula).</li>
+<li>Cada nó tem um volume de bloco dedicado para o log do Raft, nas duas nuvens; o progresso do applier fica no mesmo volume <a href="../03_adr/ADR-019-wal-proprio-volume-dedicado.md">019</a>. <strong>POC: Sim</strong>.</li>
 <li>Raft por shard com <code>etcd-io/raft</code> e uma camada multi-grupo nossa <a href="../03_adr/ADR-006-consenso-por-shard-eleicao-na-aws.md">006</a> <a href="../03_adr/ADR-020-raft-etcd-io-camada-multigrupo.md">020</a>. <strong>POC: Parcial</strong> (um shard).</li>
 <li>Entre células, gRPC com streams e mTLS <a href="../03_adr/ADR-021-grpc-entre-celulas.md">021</a>. <strong>POC: Parcial</strong> (sem mTLS).</li>
 <li>Código em Go, hexagonal, com Fx, fasthttp, grpc-go, zerolog e viper; <code>depguard</code> impõe as fronteiras <a href="../03_adr/ADR-031-hexagonal-e-bibliotecas.md">031</a>. Parse completo do JSON <a href="../03_adr/ADR-032-parse-json-completo-e-rust.md">032</a>. <strong>POC: Parcial</strong> (sem <code>depguard</code>).</li>
@@ -318,16 +318,16 @@ Gerado em 17/10/2026 a partir do pacote DataReplication_Versao_1.
 <li>Só depois do gate. Paralelo por chave: <code>APPLY_WORKERS</code> workers por shard (padrão 16); a mesma chave sempre no mesmo worker, na ordem do log <a href="../03_adr/ADR-058-apply-paralelo-por-chave-com-marca-dagua.md">058</a>. <strong>POC: Sim</strong>.</li>
 <li>Cada item é um <code>PutItem</code> ou <code>DeleteItem</code> <strong>condicional pela versão</strong> (<code>_dr_v &lt; índice</code>); <code>ConditionalCheckFailed</code> conta como "já aplicado" <a href="../03_adr/ADR-015-wal-post-image-e-versao.md">015</a> <a href="../03_adr/ADR-035-lote-batchwriteitem-uma-entrada-e-apply-condicional.md">035</a>. <strong>POC: Sim</strong> (só <code>PutItem</code>). ⏳ <a href="../03_adr/ADR-062-banco-com-versao-de-outra-historia-do-log.md">062</a>.</li>
 <li><code>applied</code> é a <strong>marca d'água contígua</strong>: o maior índice que, com todos os anteriores, está no banco. O ACK, a leitura forte e o <code>/status</code> usam só ela <a href="../03_adr/ADR-058-apply-paralelo-por-chave-com-marca-dagua.md">058</a>. <strong>POC: Sim</strong>.</li>
-<li>O progresso (índice, ordem) é gravado sem fsync a cada avanço; perdê-lo só alonga o replay <a href="../03_adr/ADR-048-skip-por-item.md">048</a> <a href="../03_adr/ADR-055-log-de-replicacao-segmentado-derivado-do-raft.md">055</a>. <strong>POC: Sim</strong>.</li>
+<li>O progresso (índice, ordem) é gravado sem fsync a cada avanço; fica num registro pequeno com CRC no volume do Raft (arquivo <code>progress</code> ao lado do diretório do WAL); perdê-lo só alonga o replay, que é idempotente pela versão <a href="../03_adr/ADR-048-skip-por-item.md">048</a> <a href="../03_adr/ADR-060-laco-do-raft-nunca-espera-o-apply-e-admissao-por-atraso.md">060</a>. <strong>POC: Sim</strong>.</li>
 <li>Erro transitório do banco: repete com espera exponencial de 100 ms a 5 s, sem limite; o limite de 1 s por tentativa e 2 tentativas vale só no caminho da requisição <a href="../03_adr/ADR-028-timeouts-em-cascata.md">028</a> <a href="../03_adr/ADR-058-apply-paralelo-por-chave-com-marca-dagua.md">058</a>. Erro permanente: estaciona o applier do shard naquela célula, com métrica e alerta; <code>SKIP(índice, ordem)</code> é humano e replicado <a href="../03_adr/ADR-038-skip-de-entrada-venenosa-sempre-humano.md">038</a> <a href="../03_adr/ADR-048-skip-por-item.md">048</a>. Quem espera o apply de um índice no item venenoso ou depois dele recebe a resposta na hora (seção 3.9) <a href="../03_adr/ADR-049-barreira-da-leitura-forte-e-o-gate.md">049</a>. <strong>POC: Parcial</strong> (sem <code>SKIP</code>).</li>
 <li>O laço do Raft nunca espera o apply: o commit é um sinal, e o <code>CommitPump</code> lê as entradas por faixa <a href="../03_adr/ADR-060-laco-do-raft-nunca-espera-o-apply-e-admissao-por-atraso.md">060</a>. <strong>POC: Sim</strong>.</li>
 </ul>
-<h3 id="35-os-dois-logs-o-fsync-e-a-retencao">3.5 Os dois logs, o fsync e a retenção</h3>
+<h3 id="35-o-log-do-raft-o-fsync-e-a-retencao">3.5 O log do Raft, o fsync e a retenção</h3>
 <ul>
-<li><strong>Log do Raft:</strong> pacote <code>wal</code> do etcd, um por shard, fsync antes de responder; é o <strong>único fsync no caminho do ACK</strong> <a href="../03_adr/ADR-019-wal-proprio-volume-dedicado.md">019</a> <a href="../03_adr/ADR-055-log-de-replicacao-segmentado-derivado-do-raft.md">055</a>. Group commit por shard sem espera fixa (teto de 1 MiB por lote); modo síncrono com F3; <code>AsyncStorageWrites</code> só se o spike S1b mostrar ganho <a href="../03_adr/ADR-056-group-commit-por-shard-e-nada-sai-antes-do-fsync.md">056</a>. <strong>POC: Parcial</strong> (o lote vem só do <code>Ready</code>; o teto de 1 MiB entra junto com o <code>AsyncStorageWrites</code>, se o S1b aprovar).</li>
-<li><strong>Log de replicação:</strong> segmentado, nosso, derivado do Raft, gravado depois do commit <strong>sem fsync por entrada</strong>, em goroutine própria com fila limitada. Um checkpoint periódico faz o fsync fora da trava do <code>Append</code> e publica o <code>DurableIndex</code> <a href="../03_adr/ADR-055-log-de-replicacao-segmentado-derivado-do-raft.md">055</a> <a href="../03_adr/ADR-059-checkpoint-do-log-de-replicacao-sem-trava-no-append.md">059</a>. <strong>POC: Sim</strong>.</li>
-<li><strong>Retenção:</strong> o Raft guarda só uma folga (<code>RAFT_RETAIN_MAX</code>) e é compactado até o <code>DurableIndex</code> (I-08). A retenção longa para a Azure fica no log de replicação, com teto de 70% do volume; passado o teto, a Azure só volta por reconstrução completa. Sem S3 na v1 <a href="../03_adr/ADR-041-disco-do-log-teto-de-70-por-cento-sem-s3-na-v1.md">041</a> <a href="../03_adr/ADR-055-log-de-replicacao-segmentado-derivado-do-raft.md">055</a>. <strong>POC: Fora</strong> (compactação e truncamento desligados). ⏳ <a href="../03_adr/ADR-063-snapshot-e-compactacao-do-log-do-raft.md">063</a>.</li>
-<li><strong>Partida:</strong> retoma em <code>min(último do log de replicação + 1, progresso do applier)</code>, sem reaplicar o log inteiro <a href="../03_adr/ADR-060-laco-do-raft-nunca-espera-o-apply-e-admissao-por-atraso.md">060</a>. <strong>POC: Sim</strong>.</li>
+<li><strong>Log do Raft:</strong> pacote <code>wal</code> do etcd, um por shard, fsync antes de responder; é o <strong>único log do nó</strong>, a única fonte das entradas commitadas e o <strong>único fsync no caminho do ACK</strong> <a href="../03_adr/ADR-019-wal-proprio-volume-dedicado.md">019</a>. Group commit por shard sem espera fixa (teto de 1 MiB por lote); modo síncrono com F3; <code>AsyncStorageWrites</code> só se o spike S1b mostrar ganho <a href="../03_adr/ADR-056-group-commit-por-shard-e-nada-sai-antes-do-fsync.md">056</a>. <strong>POC: Parcial</strong> (o lote vem só do <code>Ready</code>; o teto de 1 MiB entra junto com o <code>AsyncStorageWrites</code>, se o S1b aprovar).</li>
+<li><strong>Entrega ao applier:</strong> o <code>CommitPump</code> lê as entradas commitadas por faixa da memória do Raft e as entrega ao Applier; não há outro log nem escrita em dobro <a href="../03_adr/ADR-060-laco-do-raft-nunca-espera-o-apply-e-admissao-por-atraso.md">060</a>. <strong>POC: Sim</strong>.</li>
+<li><strong>Retenção:</strong> o log do Raft é compactado só até <code>RaftCompactLimit</code> (I-08), com uma folga até o menor <code>match</code> dos votantes AWS limitada por <code>RAFT_RETAIN_MAX</code>. A retenção para a Azure atrasada fica no próprio log do Raft (disco do WAL e memória do <code>MemoryStorage</code>), com teto de 70% do volume do Raft; passado o teto, a Azure sai da janela, deixa de segurar a compactação e volta por reconstrução em tabela sombra. A Azure e os pares atrasados se alcançam pelo próprio Raft (<code>MsgApp</code>). Sem S3 na v1 <a href="../03_adr/ADR-041-disco-do-log-teto-de-70-por-cento-sem-s3-na-v1.md">041</a> <a href="../03_adr/ADR-047-delete-real-invariante-e-reconstrucao-em-tabela-sombra.md">047</a>. <strong>POC: Fora</strong> (compactação desligada, RT-11). ⏳ <a href="../03_adr/ADR-063-snapshot-e-compactacao-do-log-do-raft.md">063</a>.</li>
+<li><strong>Partida:</strong> retoma no índice do progresso do applier (sem progresso, em 1); o Raft reinicia com <code>Applied = retomada − 1</code>, limitado entre o snapshot e o commit gravado, e o replay vem do WAL do Raft, sem reaplicar o log inteiro <a href="../03_adr/ADR-060-laco-do-raft-nunca-espera-o-apply-e-admissao-por-atraso.md">060</a>. <strong>POC: Sim</strong>.</li>
 </ul>
 <h3 id="36-consenso-e-lideranca">3.6 Consenso e liderança</h3>
 <ul>
@@ -422,8 +422,9 @@ Gerado em 17/10/2026 a partir do pacote DataReplication_Versao_1.
 </ul>
 <h3 id="311-falhas-e-recuperacao">3.11 Falhas e recuperação</h3>
 <ul>
-<li>Corrupção no meio de um log faz o nó recusar subir; cauda rasgada é truncada <a href="../03_adr/ADR-034-fsync-fatal-e-identidade-nova.md">034</a> <a href="../03_adr/ADR-055-log-de-replicacao-segmentado-derivado-do-raft.md">055</a>. <strong>POC: Sim</strong>.</li>
-<li>Perda só do volume do log de replicação é tratada como disco perdido <a href="../03_adr/ADR-055-log-de-replicacao-segmentado-derivado-do-raft.md">055</a>.</li>
+<li>Corrupção no meio do log do Raft faz o nó recusar subir; cauda rasgada é truncada <a href="../03_adr/ADR-034-fsync-fatal-e-identidade-nova.md">034</a>. <strong>POC: Sim</strong>.</li>
+<li>Perda do volume do Raft é tratada como disco perdido: o nó volta com identidade nova <a href="../03_adr/ADR-034-fsync-fatal-e-identidade-nova.md">034</a>.</li>
+<li>Num modo degradado longo, a memória do nó cresce com o atraso da Azure até o teto, porque o <code>MemoryStorage</code> guarda em RAM tudo o que não foi compactado; mitigações em aberto e medição no spike S1.</li>
 <li>Reconstrução manual na v1 (<code>drctl rebuild</code>) <a href="../03_adr/ADR-034-fsync-fatal-e-identidade-nova.md">034</a> <a href="../03_adr/ADR-047-delete-real-invariante-e-reconstrucao-em-tabela-sombra.md">047</a>.</li>
 </ul>
 <h3 id="312-verificacao">3.12 Verificação</h3>
@@ -458,14 +459,9 @@ Gerado em 17/10/2026 a partir do pacote DataReplication_Versao_1.
 <td><a href="../03_adr/ADR-057-um-unico-modo-strong-consistency.md">057</a></td>
 </tr>
 <tr>
-<td>WAL próprio com fsync para os dois logs (W2)</td>
-<td>WAL do etcd para o Raft; log de replicação segmentado sem fsync por entrada</td>
-<td><a href="../03_adr/ADR-019-wal-proprio-volume-dedicado.md">019</a> → <a href="../03_adr/ADR-055-log-de-replicacao-segmentado-derivado-do-raft.md">055</a></td>
-</tr>
-<tr>
-<td>"Truncar o Raft até o durável no log de replicação" (ambíguo)</td>
-<td>Até o <code>DurableIndex</code> do checkpoint</td>
-<td><a href="../03_adr/ADR-018-dois-logs-raft-e-replicacao.md">018</a> → <a href="../03_adr/ADR-055-log-de-replicacao-segmentado-derivado-do-raft.md">055</a></td>
+<td>WAL próprio com fsync, compartilhado entre shards (W2)</td>
+<td>WAL do etcd para o Raft, um por shard, num volume dedicado por nó</td>
+<td><a href="../03_adr/ADR-019-wal-proprio-volume-dedicado.md">019</a> <a href="../03_adr/ADR-056-group-commit-por-shard-e-nada-sai-antes-do-fsync.md">056</a></td>
 </tr>
 <tr>
 <td>Leitura forte em GSI até a propagação do índice</td>
@@ -500,7 +496,7 @@ Gerado em 17/10/2026 a partir do pacote DataReplication_Versao_1.
 <tr>
 <td>Laço do Raft esperando o applier</td>
 <td>Commit como sinal; admissão por atraso do apply</td>
-<td><a href="../03_adr/ADR-056-group-commit-por-shard-e-nada-sai-antes-do-fsync.md">056</a> <a href="../03_adr/ADR-059-checkpoint-do-log-de-replicacao-sem-trava-no-append.md">059</a> → <a href="../03_adr/ADR-060-laco-do-raft-nunca-espera-o-apply-e-admissao-por-atraso.md">060</a></td>
+<td><a href="../03_adr/ADR-056-group-commit-por-shard-e-nada-sai-antes-do-fsync.md">056</a> → <a href="../03_adr/ADR-060-laco-do-raft-nunca-espera-o-apply-e-admissao-por-atraso.md">060</a></td>
 </tr>
 <tr>
 <td>ACK e GetItem esperando o slot da chave</td>
@@ -514,7 +510,7 @@ Gerado em 17/10/2026 a partir do pacote DataReplication_Versao_1.
 </tr>
 <tr>
 <td>Witness com manifesto, snapshots e WAL</td>
-<td>Sem uso; a recuperação vem dos logs e da tabela sombra</td>
+<td>Sem uso; a recuperação vem do log do Raft e da tabela sombra</td>
 <td><a href="../03_adr/ADR-011-witness-manifesto-snapshots.md">011</a></td>
 </tr>
 <tr>

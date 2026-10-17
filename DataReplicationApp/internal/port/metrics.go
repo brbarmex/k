@@ -33,8 +33,6 @@ type Metrics interface {
 	// ApplyItem: duração da gravação de UM item no banco da célula pelo applier, com as
 	// repetições de erro transitório (ADR-058).
 	ApplyItem(d time.Duration)
-	// ReplogSync: duração do fsync do checkpoint do log de replicação (ADR-059).
-	ReplogSync(d time.Duration)
 
 	// RaftLoop: duração de um Ready inteiro no laço do Raft (fsync, envio, publicação do
 	// commit). Laço lento = heartbeat atrasado (ADR-060, O-27).
@@ -69,7 +67,6 @@ func (NopMetrics) WriteDone(string, time.Duration)        {}
 func (NopMetrics) ReadDone(string, string)                {}
 func (NopMetrics) ReadBarrier(time.Duration)              {}
 func (NopMetrics) ApplyItem(time.Duration)                {}
-func (NopMetrics) ReplogSync(time.Duration)               {}
 func (NopMetrics) RaftLoop(time.Duration)                 {}
 func (NopMetrics) RaftTickGap(time.Duration)              {}
 func (NopMetrics) Throttled(string)                       {}

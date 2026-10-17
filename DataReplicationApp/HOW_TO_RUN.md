@@ -56,7 +56,7 @@ task write CELL=2           # writes through cell 2 (forwarded if it is a follow
 task scan                   # scans each cell through the DR API, without _dr_v
 task read PK=cli-...        # gets an item through each cell, without _dr_v
 task inspect                # scans LocalStack directly, including _dr_v
-task wal CELL=1             # lists the Raft WAL and replication log files
+task wal CELL=1             # lists the Raft WAL and the applier progress file
 task logs                   # follows all container logs
 task load                   # continuous load for dashboard activity
 task load COUNT=20          # runs 20 writes, then exits
@@ -86,7 +86,7 @@ To exercise these signals, run `task test-leader-failover` or `task test-no-quor
 
 ## 4.1 Teste de carga
 
-Num notebook, o teste de carga mede o notebook tanto quanto o DR: os três WALs, os três logs de replicação, o LocalStack, o Prometheus e o gerador de carga dividem o mesmo disco e as mesmas CPUs. Antes de tirar conclusão:
+Num notebook, o teste de carga mede o notebook tanto quanto o DR: os três WALs, o LocalStack, o Prometheus e o gerador de carga dividem o mesmo disco e as mesmas CPUs. Antes de tirar conclusão:
 
 O teste k6 envia `PutItem` diretamente à líder descoberta em `/status`. Instale o k6 com `go install go.k6.io/k6@latest` e garanta que `$(go env GOPATH)/bin` esteja no `PATH`. Depois de `task start`, execute:
 

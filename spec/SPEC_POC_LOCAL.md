@@ -2,7 +2,7 @@
 
 [Início](../doc/00_COMECE_AQUI.md) · [Documento principal](../doc/DataReplication_Versao_1.md) · [Implementação](../doc/05_implementacao/README.md)
 
-**Para:** execução no SPDD pelo Bruno · **Data:** 13/10/2026, revisada em 14/10/2026 · **Status:** revisada com as decisões do Bruno (só AWS com 3 células, busca pelo DR, Delete e Batch na fase 2; em 14/10, apply paralelo por chave, [ADR-058](../doc/03_adr/ADR-058-apply-paralelo-por-chave-com-marca-dagua.md), e checkpoint do log de replicação sem trava, [ADR-059](../doc/03_adr/ADR-059-checkpoint-do-log-de-replicacao-sem-trava-no-append.md); ainda em 14/10, depois do teste de carga, o laço do Raft que nunca espera o apply e a admissão por atraso, [ADR-060](../doc/03_adr/ADR-060-laco-do-raft-nunca-espera-o-apply-e-admissao-por-atraso.md))
+**Para:** execução no SPDD pelo Bruno · **Data:** 13/10/2026, revisada em 14/10/2026 · **Status:** revisada com as decisões do Bruno (só AWS com 3 células, busca pelo DR, Delete e Batch na fase 2; em 14/10, apply paralelo por chave, [ADR-058](../doc/03_adr/ADR-058-apply-paralelo-por-chave-com-marca-dagua.md); ainda em 14/10, depois do teste de carga, o laço do Raft que nunca espera o apply e a admissão por atraso, [ADR-060](../doc/03_adr/ADR-060-laco-do-raft-nunca-espera-o-apply-e-admissao-por-atraso.md))
 **Formato:** REASONS Canvas (Requirements, Entities, Approach, Structure, Operations, Norms, Safeguards), confirmado pelo Bruno em 13/10/2026.
 
 Esta especificação **não traz código**. Ela diz o que a POC precisa fazer, como verificar e quais regras não podem ser quebradas. Cada requisito tem um identificador e cada critério de aceite pode ser verificado por comando.
@@ -25,7 +25,7 @@ Provar, numa máquina local com Docker, o conceito central do DataReplication en
 |---|---|
 | RF-01 | O projeto DEVE gerar uma imagem Docker do DR a partir de um `Dockerfile` na raiz da POC. |
 | RF-02 | Um `docker-compose.yml` DEVE subir **um LocalStack por célula** (`localstack-1` a `localstack-3`, só DynamoDB; decisão do Bruno de 14/10, 1a 2a 3a) e **três serviços DR** (`cell-1`, `cell-2`, `cell-3`), todos com a mesma imagem e numa só rede, simulando três clusters. |
-| RF-03 | Cada célula DEVE ter **dois volumes locais** do Docker (driver `local`): um para o log do Raft (o "WAL") e outro para o log de replicação, como no [ADR-055](../doc/03_adr/ADR-055-log-de-replicacao-segmentado-derivado-do-raft.md). Os dados DEVEM sobreviver a `docker compose restart` e `down` (sem `-v`). |
+| RF-03 | Cada célula DEVE ter **um volume local** do Docker (driver `local`) para o log do Raft (o "WAL") e o progresso do applier, como o volume dedicado do [ADR-019](../doc/03_adr/ADR-019-wal-proprio-volume-dedicado.md). Os dados DEVEM sobreviver a `docker compose restart` e `down` (sem `-v`). |
 | RF-04 | Um `taskfile.yaml` (Task v3) DEVE oferecer: subir o compose, criar as tabelas, escrever um cliente via `awscli` no endpoint do DR, buscar os registros nas três tabelas via DR, ler via DR, inspecionar as tabelas direto no LocalStack, ver o estado das células, ver os logs, parar e limpar (lista na seção S.5). |
 | RF-05 | Existem três tabelas, cada uma no LocalStack da sua célula (como em produção, um DynamoDB por célula, ADR-022 e ADR-054): `cadastro_cliente_cell_1` em `localstack-1`, `cadastro_cliente_cell_2` em `localstack-2` e `cadastro_cliente_cell_3` em `localstack-3`, com chave de partição `pk` (String), sem chave de ordenação, sem índices, cobrança sob demanda. |
 | RF-06 | O cadastro do cliente DEVE ter `pk` e os campos fixos `nome`, `sobrenome`, `email` e `contato`. Só a `pk` muda a cada escrita: uma string com prefixo e o timestamp em nanossegundos (ex.: `cli-1791934579927602214`). |
@@ -33,7 +33,7 @@ Provar, numa máquina local com Docker, o conceito central do DataReplication en
 | RF-08 | A busca DEVE passar pelo DR: para cada uma das três células, um `aws dynamodb scan` no endpoint do DR daquela célula, na tabela daquela célula, com leitura forte. O stdout mostra o nome da tabela e os itens contidos nela, sem `_dr_v`. |
 | RF-09 | A leitura via DR (`GetItem` com a `pk`) DEVE funcionar em qualquer célula, líder ou follower, com leitura forte (seção A.6), e NÃO devolve `_dr_v`. |
 | RF-10 | A escrita feita numa célula follower DEVE ser encaminhada à líder (um salto, [ADR-010](../doc/03_adr/ADR-010-follower-encaminha-para-lider.md)) e ter o mesmo resultado de uma escrita feita na líder. |
-| RF-11 | Cada célula DEVE expor um endpoint de administração com o seu estado (papel, líder, termo, commit, gate, aplicado, log de replicação, Azure ligada ou não). |
+| RF-11 | Cada célula DEVE expor um endpoint de administração com o seu estado (papel, líder, termo, commit, gate, aplicado, Azure ligada ou não). |
 | RF-12 | Uma task de inspeção DEVE ler as três tabelas **direto no LocalStack**, mostrando `_dr_v`. É a prova física de que o mesmo item tem a mesma versão nos três bancos; a busca via DR não mostra a versão ([ADR-051](../doc/03_adr/ADR-051-compatibilidade-dynamodb-inventario-conformidade-e-idempotencia.md)). |
 
 ### R.3 Operações da API do DynamoDB na POC
@@ -48,7 +48,7 @@ Provar, numa máquina local com Docker, o conceito central do DataReplication en
 
 ### R.4 Fora do escopo da POC
 
-Azure inteira (learners, Cosmos, Cloud-Adapter, promoção, link AWS↔Azure), vários shards (um shard só), dedupe de retry ([ADR-026](../doc/03_adr/ADR-026-dedupe-de-retry-id-estavel.md)), mTLS ([ADR-052](../doc/03_adr/ADR-052-autorizacao-por-aplicacao-com-mtls.md)), modo degradado (política fixa `reject`), compactação do Raft e snapshots, truncamento do log de replicação, reconstrução em tabela sombra, TTL, GSI, lista de SDKs por User-Agent, métricas Prometheus (PODE), transferência de liderança (PODE). Fase 2: `DeleteItem` e `BatchWriteItem`.
+Azure inteira (learners, Cosmos, Cloud-Adapter, promoção, link AWS↔Azure), vários shards (um shard só), dedupe de retry ([ADR-026](../doc/03_adr/ADR-026-dedupe-de-retry-id-estavel.md)), mTLS ([ADR-052](../doc/03_adr/ADR-052-autorizacao-por-aplicacao-com-mtls.md)), modo degradado (política fixa `reject`), compactação do Raft e snapshots, reconstrução em tabela sombra, TTL, GSI, lista de SDKs por User-Agent, métricas Prometheus (PODE), transferência de liderança (PODE). Fase 2: `DeleteItem` e `BatchWriteItem`.
 
 ### R.5 Definição de pronto
 
@@ -69,7 +69,7 @@ A POC está pronta quando, numa máquina com Docker, Task v3 e AWS CLI v2, parti
 | **KeySchema** | A chave primária da tabela, lida com `DescribeTable` na partida | `domain` (tipo) e `adapter/out/dynamodb` |
 | **Gate** | O índice até onde o ACK e o apply podem ir (seção A.3) | `domain/gate.go` |
 | **Progresso do learner** | (termo, índice durável, identidade) de um learner. Na POC só existe nos testes de unidade | `port.LearnerProgress` |
-| **Progresso do applier** | (índice, ordem) do último item aplicado, sem fsync | `adapter/out/replog` |
+| **Progresso do applier** | (índice, ordem) do último item aplicado, com CRC, sem fsync, no arquivo `progress` do volume do Raft | `adapter/out/progress` |
 | **Versão** | O atributo reservado `_dr_v`, igual ao índice da entrada | Banco da célula |
 | **Cadastro do cliente** | `pk` (S), `nome` (S), `sobrenome` (S), `email` (S), `contato` (S) | Payload do taskfile |
 
@@ -81,7 +81,7 @@ Valores fixos do cadastro: `nome` = `Maria`, `sobrenome` = `Silva`, `email` = `m
 
 ### A.1 Base de código
 
-A POC DEVE partir do esboço em [`05_implementacao/codigo_exemplo`](../doc/05_implementacao/codigo_exemplo/README.md), reaproveitando `domain`, `port`, `usecase` (`WriteService`, `CommitPump`, `Applier`, `Checkpointer`, `DegradeService`), `adapter/out/replog`, `adapter/in/dynamohttp`, `platform` e `bootstrap`, e completando o que o esboço declara como ausente: adaptador `etcdraft`, transporte gRPC, `StateStore` do DynamoDB, parser do JSON do DynamoDB, leitura forte, propagação do gate e ligação de tudo no `bootstrap`. Os testes existentes do esboço DEVEM continuar passando, ajustados só onde a interface mudar.
+A POC DEVE partir do esboço em [`05_implementacao/codigo_exemplo`](../doc/05_implementacao/codigo_exemplo/README.md), reaproveitando `domain`, `port`, `usecase` (`WriteService`, `CommitPump`, `Applier`, `DegradeService`), `adapter/in/dynamohttp`, `platform` e `bootstrap`, e completando o que o esboço declara como ausente: adaptador `etcdraft`, progresso do applier em disco (`adapter/out/progress`), transporte gRPC, `StateStore` do DynamoDB, parser do JSON do DynamoDB, leitura forte, propagação do gate e ligação de tudo no `bootstrap`. Os testes existentes do esboço DEVEM continuar passando, ajustados só onde a interface mudar.
 
 O código DEVE aceitar learners pela configuração (`LEARNERS`), mesmo que a POC rode com a lista vazia. Assim, ligar a Azure depois é configuração, não reescrita.
 
@@ -150,10 +150,10 @@ O gate é o índice máximo que pode ser confirmado ao cliente e aplicado em qua
 | RT-05 | Erro de `wal.Save` (fsync) é **fatal**: o processo sai com código diferente de zero e o Docker reinicia ([ADR-034](../doc/03_adr/ADR-034-fsync-fatal-e-identidade-nova.md)). Nunca se repete o fsync. |
 | RT-06 | Parâmetros: tick 100 ms, `ElectionTick` = `ELECTION_TICKS` (padrão 10, de 3 a 100; o compose usa **30**, porque o fsync do notebook tem picos de 1 a 2 s, [ADR-060](../doc/03_adr/ADR-060-laco-do-raft-nunca-espera-o-apply-e-admissao-por-atraso.md)), `HeartbeatTick` 1, `CheckQuorum` e `PreVote` ligados, `MaxSizePerMsg` 1 MiB, `MaxInflightMsgs` 256, `MaxUncommittedEntriesSize` 32 MiB, `DisableProposalForwarding` ligado (o encaminhamento é do DR, não do Raft). |
 | RT-07 | `Propose` devolve o índice **quando a entrada é commitada**, casando a entrada pelo identificador da proposta guardado no payload. `ErrProposalDropped` vira 400 `ThrottlingException` (nada entrou no log), com a causa lida do `Status()` do nó na hora do descarte: `nao_lider` (não é mais a líder), `transferencia` (transferência em curso) ou `buffer_cheio` (`MaxUncommittedEntriesSize`). Prazo estourado vira `PENDING`. |
-| RT-08 | Entradas vazias da eleição e de `ConfChange` são entregues ao `CommitPump` como `Noop`, para que os índices cheguem **contíguos** ao log de replicação, que recusa buraco. |
-| RT-09 | **Reinício:** a célula reabre o WAL, recarrega snapshot, HardState e entradas. O ponto de retomada é `min(último do log de replicação + 1, índice do progresso do applier)`, nunca 0; o Raft reinicia com `Applied = retomada − 1`, limitado entre o índice do snapshot e o commit gravado, e o `CommitPump` começa na retomada ([ADR-060](../doc/03_adr/ADR-060-laco-do-raft-nunca-espera-o-apply-e-admissao-por-atraso.md)). Não se reaplica o log inteiro. Precisa ser o mínimo: o log de replicação não tem fsync por entrada e, numa queda de host, pode estar atrás do progresso; começar depois dele abriria um buraco (`ErrGap`, fatal). A entrada do progresso é reentregue inteira e o applier pula os itens já gravados pela ordem salva (replay idempotente). |
+| RT-08 | Entradas vazias da eleição e de `ConfChange` são entregues ao `CommitPump` como `Noop`, para que os índices cheguem **contíguos** ao `CommitPump` e ao applier, que conferem a contiguidade (AP-01). |
+| RT-09 | **Reinício:** a célula reabre o WAL, recarrega snapshot, HardState e entradas. O ponto de retomada é o índice do progresso do applier (`ResumeFrom`) ou, sem progresso, 1; nunca 0. O Raft reinicia com `Applied = retomada − 1`, limitado entre o índice do snapshot e o commit gravado, e o `CommitPump` começa na retomada ([ADR-060](../doc/03_adr/ADR-060-laco-do-raft-nunca-espera-o-apply-e-admissao-por-atraso.md)). Não se reaplica o log inteiro: o replay vem do WAL do Raft, a partir da retomada. A entrada do progresso é reentregue inteira e o applier pula os itens já gravados pela ordem salva (replay idempotente). O progresso não tem fsync: se ficar para trás numa queda de host, o replay só fica mais longo. |
 | RT-10 | Se a lista de votantes ou de learners da configuração diferir da `ConfState` gravada no WAL, a célula NÃO sobe e diz para apagar os volumes (`task limpar`). A POC não troca membros. |
-| RT-11 | A POC não gera snapshot nem compacta o log do Raft (a memória cresce com o uso). Receber um snapshot de um par é erro. |
+| RT-11 | A POC não gera snapshot nem compacta o log do Raft: não há laço de compactação, e a memória cresce com o uso. Receber um snapshot de um par é erro. |
 | RT-12 | **Transporte:** gRPC entre células ([ADR-021](../doc/03_adr/ADR-021-grpc-entre-celulas.md)) com quatro métodos: `Step` (lote de mensagens do Raft já serializadas), `Forward` (escrita encaminhada), `ReadBarrier` (ReadIndex e gate na mesma resposta) e `GateUpdate` (gate da líder). Uma fila por par, sem bloquear o laço do Ready; fila cheia descarta a mensagem e avisa o Raft (`ReportUnreachable`). Sem TLS na POC. |
 | RT-13 | **O laço do Ready nunca espera o apply** ([ADR-060](../doc/03_adr/ADR-060-laco-do-raft-nunca-espera-o-apply-e-admissao-por-atraso.md)): ele só publica o commit e chama `Advance`. O motor expõe `CommitIndex()`, `CommitChanged()` (canal fechado a cada avanço), `CommittedEntries(lo, hi, maxBytes)` (leitura por faixa do `MemoryStorage`) e `FirstIndex()`. A decodificação das entradas sai do laço: só se decodifica quando há proposta local esperando. O laço mede a duração de cada `Ready` (`dr_raft_loop_duration_seconds`) e o intervalo real entre ticks (`dr_raft_tick_gap_seconds`). |
 
@@ -161,18 +161,18 @@ O gate é o índice máximo que pode ser confirmado ao cliente e aplicado em qua
 
 | ID | Regra |
 |---|---|
-| AP-01 | O `CommitPump` lê as entradas commitadas **por faixa** da memória do Raft (RT-13), a partir do próprio cursor, em leituras de até 1 MiB, confere que os índices são contíguos e, nesta ordem: entrega o lote ao applier **pela memória** (fila de 64 lotes);  põe o lote na **fila do log de replicação** (limitada, 1024 lotes). Uma goroutine própria do `CommitPump` lê a fila em ordem e grava cada lote no log de replicação **sem fsync**, com **uma escrita por lote**. O `Append` nunca roda na goroutine que avança o gate; com a fila cheia, a goroutine de commits espera (contrapressão). Um erro de escrita no log de replicação é fatal ([ADR-059](../doc/03_adr/ADR-059-checkpoint-do-log-de-replicacao-sem-trava-no-append.md)). |
+| AP-01 | O `CommitPump` tem três goroutines: progresso dos learners (AP-02), gate (AP-12) e commits. A de commits lê as entradas commitadas **por faixa** da memória do Raft (RT-13), a partir do próprio cursor, em leituras de até 1 MiB, confere que os índices são contíguos e entrega o lote ao applier **pela memória** (fila de 64 lotes). Com a fila cheia, a goroutine de commits espera (contrapressão); o gate não espera, porque tem goroutine própria. A única cópia durável das entradas é o WAL do Raft. |
 | AP-02 | O progresso dos learners corre numa goroutine própria do `CommitPump`, por evento, sem depender de haver commit novo ([`usecase/replicate.go`](../doc/05_implementacao/codigo_exemplo/internal/usecase/replicate.go)). Na POC, sem learners, ela fica parada. |
 | AP-03 | O applier lê as entradas **na ordem do índice** e, antes de despachar cada entrada, espera `gate >= índice`. Os itens são gravados **em paralelo por chave** ([ADR-058](../doc/03_adr/ADR-058-apply-paralelo-por-chave-com-marca-dagua.md)): `APPLY_WORKERS` workers, e cada item vai para o worker `hash(tabela lógica, chave canônica) mod APPLY_WORKERS`; cada worker grava um item por vez, na ordem em que recebeu. A **mesma chave** é gravada sempre na ordem do log. O **aplicado** é a **marca d'água**: o maior índice que, com todos os anteriores, está no banco; o ACK da líder (AP-09) e a leitura forte (A.6) esperam a marca d'água. **Invariante: aplicado <= gate**, sempre, nas três células: nenhum item é despachado antes do gate da sua entrada. |
 | AP-04 | Cada item vira um `PutItem` **condicional** na tabela da célula, com `_dr_v` = índice e a condição `attribute_not_exists(_dr_v) OR _dr_v < :v`. `ConditionalCheckFailedException` significa "já aplicado" e não é erro ([ADR-015](../doc/03_adr/ADR-015-wal-post-image-e-versao.md), [ADR-035](../doc/03_adr/ADR-035-lote-batchwriteitem-uma-entrada-e-apply-condicional.md)). |
 | AP-05 | A tabela física é a lógica com `{cell}` trocado pelo `CELL_ID` **da célula que aplica**: a mesma entrada vai para `cadastro_cliente_cell_1`, `_2` e `_3`. |
-| AP-06 | A cada avanço da marca d'água, o applier grava o progresso (índice, ordem = número de itens da entrada) no volume do log de replicação, **sem fsync**. Na partida, tudo depois do progresso é reaplicado; o que já estava no banco recebe `ConditionalCheckFailedException` e conta como "já aplicado". Perder o progresso só alonga o replay. |
+| AP-06 | A cada avanço da marca d'água, o applier grava o progresso (índice, ordem = número de itens da entrada) no volume do Raft, **sem fsync**: um registro com CRC no arquivo `progress`, ao lado do diretório do WAL (`/var/lib/dr/raft/progress`). Um registro que não confere conta como ausente. Na partida, tudo depois do progresso é reaplicado; o que já estava no banco recebe `ConditionalCheckFailedException` e conta como "já aplicado". Perder o progresso só alonga o replay. |
 | AP-07 | Erro transitório do banco (throttling, 5xx, rede) é repetido com backoff exponencial de 100 ms a 5 s, sem limite, com log a cada tentativa. Erro permanente (4xx que não seja a condição de versão) **para o applier do shard naquela célula**: o processo continua de pé, o `/readyz` fica falso, o `/status` mostra o erro e a entrada, e a saída é humana ([ADR-038](../doc/03_adr/ADR-038-skip-de-entrada-venenosa-sempre-humano.md)). Com workers em paralelo: o despacho para, os itens **anteriores** ao venenoso terminam, os **posteriores** não são gravados (salvo os que já estavam a caminho do banco) e a marca d'água para logo antes do item venenoso; com dois itens venenosos, vale o primeiro na ordem do log. Com o applier parado, quem espera um índice no item venenoso ou depois dele recebe a resposta na hora, sem esperar o prazo: a leitura forte responde 503 `APPLIER_STOPPED` e a escrita, 503 `PENDING` ([ADR-049](../doc/03_adr/ADR-049-barreira-da-leitura-forte-e-o-gate.md), item 4; resposta 7a de 14/10). |
 | AP-08 | Entradas `Noop` só avançam a marca d'água. |
 | AP-09 | Na líder, o ACK espera a marca d'água **da própria célula** alcançar o índice. Nas follower o apply é assíncrono ao ACK. Por isso, logo depois do ACK, uma leitura **direta** no LocalStack (task `inspecionar`) pode ainda não mostrar o item nas três tabelas; a busca e a leitura via DR (A.6) sempre mostram. |
-| AP-10 | O `Checkpointer` faz o fsync do log de replicação a cada `REPLOG_SYNC_INTERVAL` (1 s) e publica o índice durável. O fsync roda **fora da trava do `Append`** ([ADR-059](../doc/03_adr/ADR-059-checkpoint-do-log-de-replicacao-sem-trava-no-append.md)): sob a trava, o checkpoint só lê qual segmento sincronizar e até que índice ele vai; publica o índice durável depois do fsync, e nunca acima do que estava gravado quando o fsync começou. Na rotação de segmento, o segmento que sai recebe fsync e é fechado pelo checkpoint seguinte. A duração de cada fsync vai para `dr_replog_sync_duration_seconds`. A compactação do Raft fica desligada na POC (o `RaftCompactor` não faz nada e registra em log). |
+| AP-10 | A compactação do log do Raft fica desligada na POC (RT-11): não há laço de compactação, e o WAL e o `MemoryStorage` guardam tudo desde a partida. |
 | AP-11 | `APPLY_WORKERS` (padrão 16, de 1 a 256) define os workers do applier; `1` volta a um item por vez, para comparação. O cliente do SDK do DynamoDB guarda `max(2 × APPLY_WORKERS, 32)` conexões ociosas por host (o padrão do SDK é 10). O `/status` mostra `apply.workers` e `apply.emVoo` (itens a caminho do banco); as métricas `dr_apply_workers`, `dr_apply_inflight` e `dr_apply_item_duration_seconds` mostram o mesmo no dashboard. |
-| AP-12 | **Gate pelo commit:** uma goroutine própria do `CommitPump` espera `CommitChanged()` e chama `SetTerm` e `SetRaftCommit(CommitIndex())`. O gate não depende do applier nem do log de replicação: na POC, gate = commit o tempo todo, mesmo com o applier parado. |
+| AP-12 | **Gate pelo commit:** uma goroutine própria do `CommitPump` espera `CommitChanged()` e chama `SetTerm` e `SetRaftCommit(CommitIndex())`. O gate não depende do applier: na POC, gate = commit o tempo todo, mesmo com o applier parado. |
 | AP-13 | **Admissão por atraso do apply:** na líder, depois da checagem do lease e antes do `Propose`, se `gate − aplicado > APPLY_LAG_MAX` a escrita é recusada com 400 `ThrottlingException` (causa `atraso_apply`) e nada entra no log. `APPLY_LAG_MAX` tem padrão `APPLY_WORKERS × 256` (4.096 com 16 workers), de 1 a 10.000.000. A conta é contra o gate, nunca contra o commit. |
 | AP-14 | **Sem banco em memória** (Bruno, 14/10): a POC usa só o LocalStack. O teste de carga local é com TPS baixo (por exemplo 10 TPS) e o de vazão é na AWS. Com TPS baixo o applier acompanha a carga, então para exercitar a admissão (AP-13) localmente basta baixar `APPLY_LAG_MAX` (`task start APPLY_LAG_MAX=50`). |
 | AP-15 | **Teto do LocalStack:** o binário `benchstore` (na mesma imagem) mede o PutItem condicional do applier direto em cada LocalStack (as três instâncias ao mesmo tempo, uma tabela em cada), com N workers por um tempo, e imprime vazão e p50, p95 e p99. É a referência de quanto o apply consegue andar na máquina. |
@@ -204,9 +204,9 @@ poc/
 ├── cmd/datareplication/main.go    # só chama o bootstrap
 ├── api/peerv1/                    # contrato gRPC entre células
 └── internal/
-    ├── domain/                    # entry, gate, lease, tablemap, retention, sendrule
+    ├── domain/                    # entry, gate, lease, tablemap, sendrule
     ├── port/                      # portas de entrada e saída
-    ├── usecase/                   # write, read, apply, replicate, checkpoint, degrade, gatesync
+    ├── usecase/                   # write, read, apply, replicate, degrade, gatesync
     ├── adapter/
     │   ├── in/dynamohttp/         # API compatível com DynamoDB (fasthttp) + parser
     │   ├── in/peergrpc/           # servidor gRPC entre células
@@ -214,7 +214,7 @@ poc/
     │   └── out/
     │       ├── etcdraft/          # ÚNICO que importa o Raft e o wal do etcd
     │       ├── peerclient/        # cliente gRPC: transporte, forward, barreira, gate
-    │       ├── replog/            # log de replicação segmentado (já existe no esboço)
+    │       ├── progress/          # progresso do applier: arquivo progress com CRC, sem fsync, no volume do Raft
     │       └── dynamodb/          # StateStore com aws-sdk-go-v2
     ├── platform/config, logx
     └── bootstrap/                 # ÚNICO que importa o fx
@@ -237,7 +237,7 @@ poc/
 | ID | Requisito |
 |---|---|
 | D-01 | Multi-estágio. Build com `golang:1.27-alpine` (existe a 1.27.2), `CGO_ENABLED=0`, `-trimpath`, cache de módulos e de build com `--mount=type=cache`. |
-| D-02 | Execução com `alpine` (para permitir `ls` nos volumes durante a POC), usuário não root fixo (uid 10001), diretórios `/var/lib/dr/raft` e `/var/lib/dr/replog` criados no build e pertencentes a esse usuário (assim o volume novo herda o dono). |
+| D-02 | Execução com `alpine` (para permitir `ls` nos volumes durante a POC), usuário não root fixo (uid 10001), diretório `/var/lib/dr/raft` criado no build e pertencente a esse usuário (assim o volume novo herda o dono). |
 | D-03 | Expõe 8000 (API), 7000 (gRPC entre células) e 9090 (administração). `HEALTHCHECK` no `/livez`. |
 | D-04 | O build não depende de nada fora do contexto da pasta `poc/`. A imagem é construída uma vez e usada pelas três células. |
 
@@ -248,7 +248,7 @@ poc/
 | C-01 | Três serviços `localstack-1`, `localstack-2` e `localstack-3` (um por célula, decisão do Bruno de 14/10, 1a 2a 3a), todos com a imagem **fixada** `localstack/localstack:4.14.0` (versões novas da imagem da comunidade podem exigir token, SG-14), `SERVICES=dynamodb`, `DYNAMODB_HEAP_SIZE=512m`, portas 4566, 4567 e 4568 no host, healthcheck em `/_localstack/health`. |
 | C-02 | Serviços `cell-1`, `cell-2`, `cell-3` com a mesma imagem (`build: .` num deles e `image:` com o mesmo nome nos outros, para não construir três vezes), `depends_on` do **próprio** LocalStack saudável (`cell-N` → `localstack-N`), `DYNAMODB_ENDPOINT=http://localstack-N:4566`, `restart: on-failure` e as variáveis da tabela S.6. |
 | C-03 | Portas no host: API da célula N em `800N` (8001, 8002, 8003) e administração em `909N` (9091, 9092, 9093). A porta gRPC não é publicada. |
-| C-04 | Volumes nomeados por célula: `cell-N-raft` em `/var/lib/dr/raft` e `cell-N-replog` em `/var/lib/dr/replog`, seis no total. O WAL do etcd fica num **subdiretório** (`/var/lib/dr/raft/wal`), porque o `wal.Create` renomeia o diretório e não pode renomear o ponto de montagem. |
+| C-04 | Um volume nomeado por célula: `cell-N-raft` em `/var/lib/dr/raft`, três no total. O WAL do etcd fica num **subdiretório** (`/var/lib/dr/raft/wal`), porque o `wal.Create` renomeia o diretório e não pode renomear o ponto de montagem. O progresso do applier fica no arquivo `progress` ao lado dele (`/var/lib/dr/raft/progress`, o diretório pai de `RAFT_DIR`). |
 | C-05 | `PEERS` e `LEARNERS` são iguais nas três células (a `ConfState` de partida tem de ser a mesma em todas, RT-03). Ficam declarados uma vez no compose (bloco de extensão `x-`) e reaproveitados. `LEARNERS` fica vazia. |
 
 ### S.5 Taskfile
@@ -262,7 +262,7 @@ poc/
 | `ler` | `get-item` da `PK` informada no endpoint do DR de cada célula, imprimindo célula e item | CA-05 |
 | `inspecionar` | Para cada tabela: imprime o nome e faz `scan` **direto no LocalStack da célula**, mostrando os itens com `_dr_v` | CA-03 |
 | `status` | Imprime o `/status` das três células | CA-01 |
-| `wal` | Lista os arquivos dos dois volumes de uma célula (`CELL`) | CA-11 |
+| `wal` | Lista os arquivos do volume do Raft de uma célula (`CELL`): o WAL e o `progress` | CA-11 |
 | `logs` | `docker compose logs -f` | |
 | `parar` | `docker compose down` (mantém os volumes) | |
 | `limpar` | `docker compose down -v` (apaga os volumes) | |
@@ -294,10 +294,10 @@ Requisitos do taskfile:
 | `DYNAMODB_ENDPOINT` | `http://localstack-1:4566` | Um por célula (o da célula N é `localstack-N`); vazio = AWS real |
 | `AWS_REGION`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` | `sa-east-1`, `test`, `test` | Só teste |
 | `API_ADDR`, `PEER_ADDR`, `ADMIN_ADDR` | `:8000`, `:7000`, `:9090` | |
-| `RAFT_DIR`, `REPLOG_DIR` | `/var/lib/dr/raft/wal`, `/var/lib/dr/replog` | C-04 |
+| `RAFT_DIR` | `/var/lib/dr/raft/wal` | C-04; o progresso do applier fica no diretório pai |
 | `DEGRADED_POLICY` | `reject` | Obrigatória (G-10) |
 | `TABLE_WAIT` | `120s` | Espera pelas tabelas na partida |
-| `GATE_PUBLISH_INTERVAL`, `REPLOG_SYNC_INTERVAL` | `100ms`, `1s` | |
+| `GATE_PUBLISH_INTERVAL` | `100ms` | |
 | `APPLY_WORKERS` | `16` | Inteiro de 1 a 256; padrão 16 (AP-11, [ADR-058](../doc/03_adr/ADR-058-apply-paralelo-por-chave-com-marca-dagua.md)) |
 | `APPLY_LAG_MAX` | vazio | Inteiro de 1 a 10.000.000; vazio = padrão `APPLY_WORKERS × 256` (AP-13); o compose repassa a variável do host |
 | `ELECTION_TICKS` | `30` | Inteiro de 3 a 100; padrão 10; o compose usa 30 (RT-06) |
@@ -311,7 +311,7 @@ As variáveis do antigo modo eventual (`READ_MODE_DEFAULT`, `WRITE_MODE`, `MAX_S
 |---|---|
 | `GET /livez` | 200 se o processo está de pé |
 | `GET /readyz` | 200 só com tabela conferida, Raft rodando, líder conhecida e applier sem erro |
-| `GET /status` | JSON com `celula`, `no`, `papel` (líder ou follower), `lider`, `termo`, `commit`, `gate`, `gatePronto`, `aplicado` (marca d'água), `apply` (`workers`, `emVoo`, `atraso` = gate − aplicado, `atrasoMax`, `fila` = lotes na fila do applier), `commitNaoEntregue` (commit menos o que o `CommitPump` entregou), `electionTicks`, `azure` (`on`/`off`), `replog` (`ultimo`, `duravel`), `erroApply`; na líder também o `match` de cada par |
+| `GET /status` | JSON com `celula`, `no`, `papel` (líder ou follower), `lider`, `termo`, `commit`, `gate`, `gatePronto`, `aplicado` (marca d'água), `apply` (`workers`, `emVoo`, `atraso` = gate − aplicado, `atrasoMax`, `fila` = lotes na fila do applier), `commitNaoEntregue` (commit menos o que o `CommitPump` entregou), `electionTicks`, `azure` (`on`/`off`), `erroApply`; na líder também o `match` de cada par |
 | `POST /transferir?para=N` | PODE: transferência planejada de liderança ([ADR-013](../doc/03_adr/ADR-013-transferencia-planejada-de-lideranca.md)) |
 
 ---
@@ -335,7 +335,7 @@ As variáveis do antigo modo eventual (`READ_MODE_DEFAULT`, `WRITE_MODE`, `MAX_S
 | O-11 | `docker-compose.yml` (S.4) | `docker compose config` sem erro |
 | O-12 | `taskfile.yaml` (S.5) | Critérios da O.3 |
 | O-13 | `README.md` da POC: pré-requisitos, comandos, o que observar | |
-| O-14 | Apply paralelo por chave (AP-03, AP-06, AP-07, AP-11) e checkpoint do log de replicação sem trava (AP-01, AP-10) | CA-15 e CA-16 |
+| O-14 | Apply paralelo por chave (AP-03, AP-06, AP-07, AP-11) e progresso do applier no volume do Raft (AP-06, C-04) | CA-15 e CA-16 |
 | O-15 | Laço do Raft sem espera, gate pelo commit, admissão, retomada, `benchstore` e métricas de causa e HTTP (RT-04, RT-06, RT-07, RT-09, RT-13, AP-01, AP-12, AP-13, AP-15; passos O-27 e O-28 do prompt do SPDD) | CA-17 e CA-18 |
 
 ### O.2 Pré-requisitos na máquina
@@ -356,11 +356,11 @@ Docker com Compose v2, Task v3, AWS CLI v2. Nada de Go no host (o build é no co
 | **CA-08** | **Quando** reinicio uma follower (`docker compose restart cell-N`) depois de algumas escritas, **então** ela volta ao `/readyz`, alcança o mesmo `aplicado` da líder e os itens dela não mudam de `_dr_v` (replay idempotente). |
 | **CA-09** | **Quando** paro a líder, **então** em até 10 s outra célula vira líder (com `ELECTION_TICKS=30` do compose a eleição leva de 3 a 6 s; eram 5 s com 10 ticks) e `task escrever` numa das células restantes funciona. **Quando** a antiga líder volta, **então** ela alcança as escritas que perdeu. |
 | **CA-10** | **Quando** envio `put-item` com um atributo `_dr_v`, **ou** sem o atributo `pk`, **ou** com `pk` numérica, **ou** para `cell-2` com a tabela `cadastro_cliente_cell_1`, **então** recebo 400 (`ValidationException` ou `ResourceNotFoundException`) e nada entra no log (o `commit` não muda). |
-| **CA-11** | **Quando** rodo `task wal CELL=1`, **então** vejo arquivos `.wal` em `/var/lib/dr/raft/wal` e segmentos `.seg` e o arquivo `progress` em `/var/lib/dr/replog`. |
+| **CA-11** | **Quando** rodo `task wal CELL=1`, **então** vejo arquivos `.wal` em `/var/lib/dr/raft/wal` e o arquivo `progress` em `/var/lib/dr/raft`. |
 | **CA-12** | **Dados** volumes já criados, **quando** mudo `PEERS` ou `LEARNERS` e subo sem limpar, **então** a célula não sobe e o log pede `task limpar` (RT-10). |
 | **CA-13** | **Quando** envio `delete-item` ou `batch-write-item`, **então** recebo 400 `ValidationException` "não suportado nesta fase". |
 | **CA-14** | **Quando** rodo `go test -race ./...` no container de build, **então** todos os testes passam, inclusive os do gate com learners simulados (O-02). |
-| **CA-15** | **Quando** rodo `go test -race ./...`, **então** passam os testes de: gravações de chaves diferentes ao mesmo tempo; marca d'água que não passa de uma entrada ainda no banco, mesmo com entradas seguintes já gravadas; mesma chave gravada na ordem do log com 16 workers; item venenoso parando a marca d'água logo antes dele, sem gravar a entrada seguinte da mesma chave; `Append` que termina enquanto o fsync do checkpoint está preso, com o índice durável sem passar do que estava gravado; lotes chegando ao gate e ao applier com o `Append` preso. |
+| **CA-15** | **Quando** rodo `go test -race ./...`, **então** passam os testes de: gravações de chaves diferentes ao mesmo tempo; marca d'água que não passa de uma entrada ainda no banco, mesmo com entradas seguintes já gravadas; mesma chave gravada na ordem do log com 16 workers; item venenoso parando a marca d'água logo antes dele, sem gravar a entrada seguinte da mesma chave; progresso do applier gravado e relido, e um registro corrompido tratado como ausente; gate avançando com o applier preso. |
 | **CA-16** | **Quando** rodo o benchmark do applier com banco simulado de 4 ms por item, **então** 16 workers aplicam pelo menos 10 vezes mais itens por segundo que 1 worker. **E**, com o ambiente de pé, o `task status` mostra `apply.workers: 16` nas três células. |
 | **CA-17** | **Quando** rodo `go test -race ./...`, **então** passam os testes de: 3.000 propostas com os consumidores do commit parados, sem troca de líder e com o commit publicado, e depois leitura contígua de tudo ao voltar; proposta numa follower descartada com a causa `nao_lider`; `Applied` da partida entre o snapshot e o commit; gate da POC acompanhando o commit com o applier parado; `CommitPump` começando na retomada e `ResumeFrom`; admissão recusando com `atraso_apply` e aceitando abaixo do teto; variáveis novas da S.6; séries novas de métricas. |
 | **CA-18** | **Dado** `task limpar` e `task subir`, **quando** rodo `task carga` e depois `task diag`, **então** a tabela por célula mostra entrada HTTP, ACK, pending, vazão e latência do apply, atraso, commit não entregue, tick e fsync P99, trocas de líder e contrapressão por causa, e o dashboard v2 mostra as seções 08 e 09. **E**, com a carga baixa (por exemplo 10 TPS), o termo **não muda**, `dr_raft_tick_gap_seconds` fica perto de 100 ms e não há contrapressão. **E**, com `task start APPLY_LAG_MAX=50` e uma rajada acima do teto do `task bench-localstack`, a líder recusa com `atraso_apply` sem troca de líder. |
@@ -401,8 +401,8 @@ Docker com Compose v2, Task v3, AWS CLI v2. Nada de Go no host (o build é no co
 | SG-12 | O modo sem Azure (G-08) é **só da POC**: aviso na partida, `azure: "off"` no `/status` e um comentário no código dizendo que nunca vai para produção. Em produção, `LEARNERS` vazia derruba a partida. |
 | SG-13 | Nenhuma credencial real em arquivo; nada de push para o repositório sem pedido do Bruno. |
 | SG-15 | **Mesma chave, mesma ordem:** a mesma chave (tabela e chave canônica) é gravada sempre pelo mesmo worker, na ordem do log. O aplicado só avança pela marca d'água contígua ([ADR-058](../doc/03_adr/ADR-058-apply-paralelo-por-chave-com-marca-dagua.md)). |
-| SG-16 | **O checkpoint não para o ACK:** o fsync do log de replicação nunca roda sob a trava do `Append`, e o `Append` nunca roda na goroutine que avança o gate ([ADR-059](../doc/03_adr/ADR-059-checkpoint-do-log-de-replicacao-sem-trava-no-append.md)). |
-| SG-17 | **O laço do Ready nunca espera o apply nem o log de replicação** (RT-13): nenhum envio bloqueante para consumidores dentro do laço. Quem espera, quando o banco é lento, é o `CommitPump` ([ADR-060](../doc/03_adr/ADR-060-laco-do-raft-nunca-espera-o-apply-e-admissao-por-atraso.md)). |
+| SG-16 | **Um único fsync no caminho do ACK:** o do WAL do Raft (RT-04). O progresso do applier é gravado sem fsync e nunca é fonte de entradas: o replay vem sempre do WAL do Raft (RT-09, AP-06). |
+| SG-17 | **O laço do Ready nunca espera o apply** (RT-13): nenhum envio bloqueante para consumidores dentro do laço. Quem espera, quando o banco é lento, é o `CommitPump` ([ADR-060](../doc/03_adr/ADR-060-laco-do-raft-nunca-espera-o-apply-e-admissao-por-atraso.md)). |
 | SG-14 | Imagem do LocalStack com versão fixa (`4.14.0`): a imagem da comunidade avisa que muda de modelo em 2026 e as versões novas podem exigir token. |
 
 ---
@@ -415,7 +415,7 @@ Docker com Compose v2, Task v3, AWS CLI v2. Nada de Go no host (o build é no co
 4. **Retry do AWS CLI sem dedupe.** O AWS CLI v2 repete 503 automaticamente. Uma escrita `PENDING` repetida vira outra entrada no log, com outro índice. O item final é o mesmo, mas o `_dr_v` fica com o índice da repetição. É o comportamento esperado sem o [ADR-026](../doc/03_adr/ADR-026-dedupe-de-retry-id-estavel.md). T-05 desliga o retry nas tasks.
 5. ~~**Um LocalStack para as três células.**~~ **Resolvido em 14/10:** um LocalStack por célula, como em produção. Cada célula tem o seu escritor do DynamoDB Local, e o banco de uma célula pode ser pausado sozinho (CA-19). Os três continuam dividindo a CPU e o SSD do notebook.
 6. **Leitura direta no LocalStack logo depois do ACK.** O ACK só espera o apply da líder (AP-09). Um `task inspecionar` imediato pode mostrar o item em 1 ou 2 tabelas. A busca via DR não tem esse problema, porque espera a barreira.
-7. **Memória do Raft sem compactação** (RT-11): rodar a POC por horas sob carga faz o processo crescer. Fora do escopo do teste de conceito. Com o RT-13 as entradas não consumidas também ficam aí enquanto o apply está atrasado (`dr_commit_undelivered`).
-10. **Teste de carga num notebook mede o notebook.** Três WALs, três logs de replicação, o LocalStack, o Prometheus e o k6 dividem o mesmo SSD e as mesmas CPUs. Começar de volumes limpos (`task limpar`), medir os LocalStacks sozinhos (`task bench-localstack`) e o disco (`fio`) antes. O Bruno decidiu (14/10) testar localmente com TPS baixo e medir vazão na AWS, sem banco em memória.
+7. **Memória do Raft sem compactação** (RT-11): rodar a POC por horas sob carga faz o processo crescer. Fora do escopo do teste de conceito. Com o RT-13 as entradas não consumidas também ficam aí enquanto o apply está atrasado (`dr_commit_undelivered`). Em produção, com a compactação ligada, o `MemoryStorage` do etcd-raft ainda guarda em RAM tudo o que não foi compactado: num modo degradado longo, a memória do nó cresce com o atraso da Azure até o teto da janela. Mitigações em aberto: teto da janela também por bytes retidos em memória, ou um `raft.Storage` que lê as entradas antigas do WAL em disco. Medir no spike S1.
+10. **Teste de carga num notebook mede o notebook.** Três WALs, o LocalStack, o Prometheus e o k6 dividem o mesmo SSD e as mesmas CPUs. Começar de volumes limpos (`task limpar`), medir os LocalStacks sozinhos (`task bench-localstack`) e o disco (`fio`) antes. O Bruno decidiu (14/10) testar localmente com TPS baixo e medir vazão na AWS, sem banco em memória.
 8. **Gate atrasado nas follower.** Cada follower só aplica até o último gate recebido. Se uma mensagem `GateUpdate` se perde, a reenvio periódica (G-06) cobre; o atraso máximo é `GATE_PUBLISH_INTERVAL`.
 9. **Chave quente.** O paralelismo é entre chaves. Muitas escritas na mesma `pk` são gravadas uma por vez (no máximo `1 / tempo do PutItem` por segundo), atrasam as outras chaves do mesmo worker e, pela marca d'água contígua, o ACK de todas as escritas seguintes. Na POC o `task carga` usa `pk` diferentes e não exercita isso. Aparece como `dr_apply_inflight` alto com `dr_applied_index` parado ([ADR-058](../doc/03_adr/ADR-058-apply-paralelo-por-chave-com-marca-dagua.md)).

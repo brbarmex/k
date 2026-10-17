@@ -13,7 +13,6 @@ type StateCollector struct {
 
 	isLeader, leaderID, term             *prometheus.Desc
 	commit, gate, gateReady, applied     *prometheus.Desc
-	replogLast, replogDurable            *prometheus.Desc
 	quorumActive, quorumVoters, quorumOk *prometheus.Desc
 	peerMatch, peerLag                   *prometheus.Desc
 	applierStopped, ready, azureOff      *prometheus.Desc
@@ -36,8 +35,6 @@ func NewStateCollector(source StatusSource) *StateCollector {
 		gate:              d("dr_gate_index", "Índice até onde o gate libera ACK e apply nesta célula."),
 		gateReady:         d("dr_gate_ready", "1 se o gate está pronto para leitura forte."),
 		applied:           d("dr_applied_index", "Último índice aplicado no banco desta célula."),
-		replogLast:        d("dr_replog_last_index", "Último índice gravado no log de replicação."),
-		replogDurable:     d("dr_replog_durable_index", "Último índice durável (com fsync) no log de replicação."),
 		quorumActive:      d("dr_quorum_active", "Votantes ativos recentemente vistos pela líder (contando ela). Só na líder."),
 		quorumVoters:      d("dr_quorum_voters", "Número de votantes do cluster. Só na líder."),
 		quorumOk:          d("dr_quorum_ok", "1 se a líder vê a maioria dos votantes ativa. Só na líder."),
@@ -58,7 +55,7 @@ func NewStateCollector(source StatusSource) *StateCollector {
 
 func (c *StateCollector) Describe(ch chan<- *prometheus.Desc) {
 	for _, d := range []*prometheus.Desc{c.isLeader, c.leaderID, c.term, c.commit, c.gate, c.gateReady, c.applied,
-		c.replogLast, c.replogDurable, c.quorumActive, c.quorumVoters, c.quorumOk, c.peerMatch, c.peerLag,
+		c.quorumActive, c.quorumVoters, c.quorumOk, c.peerMatch, c.peerLag,
 		c.applierStopped, c.ready, c.azureOff, c.applyWorkers, c.applyInFlight,
 		c.applyLag, c.applyLagMax, c.applyInbox, c.commitUndelivered, c.electionTicks} {
 		ch <- d
@@ -85,8 +82,6 @@ func (c *StateCollector) Collect(ch chan<- prometheus.Metric) {
 	g(c.gate, float64(st.Gate))
 	g(c.gateReady, b2f(st.GatePronto))
 	g(c.applied, float64(st.Aplicado))
-	g(c.replogLast, float64(st.Replog.Ultimo))
-	g(c.replogDurable, float64(st.Replog.Duravel))
 	if q := st.Quorum; q != nil {
 		g(c.quorumActive, float64(q.Ativos))
 		g(c.quorumVoters, float64(q.Votantes))

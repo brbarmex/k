@@ -20,7 +20,7 @@ O [ADR-038](ADR-038-skip-de-entrada-venenosa-sempre-humano.md) pulava a entrada 
 ## Consequências
 
 - O cliente de um lote com item pulado recebe um resultado parcial na consulta, como no `BatchWriteItem` real.
-- A tabela de structs do esboço ganha o checkpoint por item.
+- A tabela de structs do esboço ganha o progresso por item.
 
 ## Onde está o detalhe
 

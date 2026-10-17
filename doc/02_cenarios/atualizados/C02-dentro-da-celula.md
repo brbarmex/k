@@ -16,14 +16,12 @@ flowchart LR
             API["Porta de entrada<br/>HTTP compatível com DynamoDB"]
             UC["Casos de uso<br/>write, read, apply, degrade, recovery"]
             RAFT["RaftNode<br/>log do Raft"]
-            REPL["Log de replicação"]
             APL["Applier<br/>único com credencial de escrita"]
         end
     end
     APPS --> API --> UC
     UC --> RAFT
-    RAFT --> REPL
-    REPL --> APL
+    RAFT -->|"CommitPump: entradas commitadas"| APL
     APL --> DB[("DynamoDB ou Cosmos da célula")]
     UC -- "leitura forte: barreira de appliedIndex" --> DB
     APPS -. "sem credencial de escrita" .-x DB

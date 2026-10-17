@@ -66,7 +66,7 @@ Gerado em 17/10/2026 a partir do pacote DataReplication_Versao_1.
 <li><a href="../complex-path/X01-gate-e-troca-de-lider.html"><b>X01</b> Gate: definição, monotonicidade e troca de líder</a></li>
 <li><a href="../complex-path/X02-modo-degradado.html"><b>X02</b> Modo degradado: entrada, permanência, lease e saída</a></li>
 <li><a href="../complex-path/X03-desastre-e-promocao-da-azure.html"><b>X03</b> Desastre: promoção da Azure, fencing e reconciliação</a></li>
-<li><a href="../complex-path/X04-partida-recuperacao-e-dois-logs.html"><b>X04</b> Partida, recuperação e coerência entre os dois logs</a></li>
+<li><a href="../complex-path/X04-partida-e-recuperacao-do-no.html"><b>X04</b> Partida e recuperação do nó</a></li>
 <li><a href="../complex-path/X05-timeouts-e-idempotencia.html"><b>X05</b> Timeouts em cascata e idempotência do retry</a></li>
 <li><a href="../complex-path/X06-delete-ttl-gsi.html"><b>X06</b> DELETE, TTL, Scan e GSI</a></li>
 <li><a href="../complex-path/X07-gate-explicado-com-exemplos.html"><b>X07</b> O gate explicado com exemplos</a></li>
@@ -108,14 +108,14 @@ Gerado em 17/10/2026 a partir do pacote DataReplication_Versao_1.
     E[&quot;Líder nova assume&quot;] --&gt; F[&quot;Já tem a tabela: sem leitura de 5 min de log&quot;]
     G[&quot;Reinício de um nó&quot;] --&gt; H[&quot;Reconstrói pelo trecho recente do log do Raft&quot;]
     H --&gt; I{&quot;Retenção do log do Raft cobre a janela?&quot;}
-    I --&gt;|&quot;não&quot;| J[&quot;Lê também o log de replicação&quot;]
+    I --&gt;|&quot;não&quot;| J[&quot;Parte compactada vem do snapshot (ADR-063, pendente)&quot;]
     I --&gt;|&quot;sim&quot;| K[&quot;Pronto&quot;]</pre></div>
 </section>
 <section id="etapas"><h2>3. Legenda e etapas</h2>
 <p class="nota">A fonte chama esta seção de <b>Fluxo proposto</b>: é proposta, não decisão fechada.</p>
 <div class="etapas"><ol>
 <li>A tabela é uma <strong>projeção do log</strong>: todo votante a atualiza ao aplicar o commit, então qualquer um pode virar líder sem reconstruir.</li>
-<li>Desde o <a href="../../03_adr/ADR-055-log-de-replicacao-segmentado-derivado-do-raft.md">ADR-055</a> o log do Raft guarda só segundos; a reconstrução no reinício lê o <strong>log de replicação</strong>, cuja retenção mínima cobre a janela de dedupe mais uma margem.</li>
+<li>A reconstrução no reinício lê o trecho recente do <strong>log do Raft</strong>, cuja retenção mínima cobre a janela de dedupe mais uma margem (<a href="../../01_arquitetura/04_wal_e_fsync.md">04_wal_e_fsync</a>, 6.9). Na POC a compactação está desligada e o log inteiro está disponível; em produção, o que tiver sido compactado vem do snapshot (<a href="../../03_adr/ADR-063-snapshot-e-compactacao-do-log-do-raft.md">ADR-063</a>, pendente).</li>
 <li>Incluir ~58 MiB (e a variação com o tamanho do id) no orçamento de memória e em <code>GOMEMLIMIT</code>; estrutura compacta (tabela hash com id de 16 a 36 bytes) e expiração em lotes.</li>
 <li>Janela configurável (<code>DEDUPE_WINDOW</code>), com métrica de ocupação e de acertos.</li>
 </ol></div>
@@ -149,9 +149,9 @@ Gerado em 17/10/2026 a partir do pacote DataReplication_Versao_1.
 <article class="ponto">
 <h3><span class="num">4</span>Retenção do log do Raft e tamanho da janela <span class="origem">Pontos em aberto</span></h3>
 <dl>
-<dt>Contexto</dt><dd>Desde o <a href="../../03_adr/ADR-055-log-de-replicacao-segmentado-derivado-do-raft.md">ADR-055</a> o log do Raft guarda só segundos, então a reconstrução da tabela de dedupe no reinício precisa ler o log de replicação. A tabela ocupa cerca de 58 MiB por shard a 3.000 TPS com janela de 5 minutos, que não estavam no orçamento de memória. A retenção e o tamanho da janela afetam memória, tempo de reinício e, portanto, o RTO.</dd>
-<dt>O que a fonte define</dt><dd class="nd-fonte">Não decidido na fonte. Proposta na fonte: tabela mantida por todos os votantes como projeção do log, reconstrução pelo log de replicação com retenção mínima cobrindo a janela mais margem, memória incluída em <code>GOMEMLIMIT</code> e janela configurável (<code>DEDUPE_WINDOW</code>).</dd>
-<dt class="sug">Sugestão de encaminhamento <small>(inferência, não decidida)</small></dt><dd class="sug">Medir no spike o tempo de reconstrução da tabela no reinício a partir do log de replicação e incluí-lo no RTO de reinício (<a href="R18-rto-nao-quantificado.html">R18</a>). Definir uma regra de readiness que impeça o nó de votar ou virar líder antes de a tabela estar completa, para evitar uma líder com dedupe incompleto.</dd>
+<dt>Contexto</dt><dd>A reconstrução da tabela de dedupe no reinício lê o log do Raft retido, então a compactação precisa reter pelo menos a janela. A tabela ocupa cerca de 58 MiB por shard a 3.000 TPS com janela de 5 minutos, que não estavam no orçamento de memória. A retenção e o tamanho da janela afetam memória, tempo de reinício e, portanto, o RTO.</dd>
+<dt>O que a fonte define</dt><dd class="nd-fonte">Não decidido na fonte. Proposta na fonte: tabela mantida por todos os votantes como projeção do log, reconstrução pelo log do Raft com retenção mínima cobrindo a janela mais margem, memória incluída em <code>GOMEMLIMIT</code> e janela configurável (<code>DEDUPE_WINDOW</code>).</dd>
+<dt class="sug">Sugestão de encaminhamento <small>(inferência, não decidida)</small></dt><dd class="sug">Medir no spike o tempo de reconstrução da tabela no reinício a partir do log do Raft e incluí-lo no RTO de reinício (<a href="R18-rto-nao-quantificado.html">R18</a>). Definir uma regra de readiness que impeça o nó de votar ou virar líder antes de a tabela estar completa, para evitar uma líder com dedupe incompleto.</dd>
 </dl>
 </article>
 </section>

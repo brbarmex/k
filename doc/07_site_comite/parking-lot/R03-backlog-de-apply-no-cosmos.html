@@ -67,7 +67,7 @@ Gerado em 17/10/2026 a partir do pacote DataReplication_Versao_1.
 <li><a href="../complex-path/X01-gate-e-troca-de-lider.html"><b>X01</b> Gate: definição, monotonicidade e troca de líder</a></li>
 <li><a href="../complex-path/X02-modo-degradado.html"><b>X02</b> Modo degradado: entrada, permanência, lease e saída</a></li>
 <li><a href="../complex-path/X03-desastre-e-promocao-da-azure.html"><b>X03</b> Desastre: promoção da Azure, fencing e reconciliação</a></li>
-<li><a href="../complex-path/X04-partida-recuperacao-e-dois-logs.html"><b>X04</b> Partida, recuperação e coerência entre os dois logs</a></li>
+<li><a href="../complex-path/X04-partida-e-recuperacao-do-no.html"><b>X04</b> Partida e recuperação do nó</a></li>
 <li><a href="../complex-path/X05-timeouts-e-idempotencia.html"><b>X05</b> Timeouts em cascata e idempotência do retry</a></li>
 <li><a href="../complex-path/X06-delete-ttl-gsi.html"><b>X06</b> DELETE, TTL, Scan e GSI</a></li>
 <li><a href="../complex-path/X07-gate-explicado-com-exemplos.html"><b>X07</b> O gate explicado com exemplos</a></li>
@@ -94,10 +94,10 @@ Gerado em 17/10/2026 a partir do pacote DataReplication_Versao_1.
 <main>
 <div class="migalhas"><a href="../index.html">Início</a> / <a href="index.html">Parking lot</a> / R03</div>
 <h1>R03 — Backlog de apply no Cosmos (429 e RU insuficiente)</h1>
-<div class="meta"><span class="selo parking-lot">Parking lot</span><div><b>Status na fonte:</b> 🟡 A rever · parcialmente tratado; o limite de lag de apply para a elegibilidade ao failover é a PEND-18 (valor a definir)</div><div><b>Relacionados:</b> <a href="../fail-path/C13-ressincronizacao-da-azure.html">C13</a>, <a href="../success-path/C05-leitura-strong.html">C05</a>, <a href="../complex-path/X04-partida-recuperacao-e-dois-logs.html">X04</a></div></div>
+<div class="meta"><span class="selo parking-lot">Parking lot</span><div><b>Status na fonte:</b> 🟡 A rever · parcialmente tratado; o limite de lag de apply para a elegibilidade ao failover é a PEND-18 (valor a definir)</div><div><b>Relacionados:</b> <a href="../fail-path/C13-ressincronizacao-da-azure.html">C13</a>, <a href="../success-path/C05-leitura-strong.html">C05</a>, <a href="../complex-path/X04-partida-e-recuperacao-do-no.html">X04</a></div></div>
 <section id="visao-geral"><h2>1. Visão geral do cenário</h2>
 <p>O gate conta o índice <strong>durável (fsync)</strong> nos learners da Azure, não o apply. Por isso, se o Cosmos não tiver RU para o pico e devolver 429, o <strong>RPO segue 0</strong>, mas o atraso entre <code>commitIndex</code> e <code>appliedIndex</code> na Azure cresce sem limite. Consequências: leituras eventuais na Azure ficam velhas (<a href="../success-path/C05-leitura-strong.html">C05</a>) e, no failover, a Azure precisa drenar o backlog antes de abrir leituras fortes, então <strong>o RTO real depende do tamanho da fila</strong>.</p>
-<p><strong>Efeito escondido (novo).</strong> O log de replicação da Azure só pode ser truncado até o que foi aplicado. Backlog longo <strong>enche o disco dos learners</strong>; learner sem disco falha o fsync, sai do gate e a AWS acaba em modo degradado. <strong>Um Cosmos lento pode, por esse caminho, causar RPO &gt; 0.</strong></p>
+<p><strong>Efeito escondido (novo).</strong> O log do Raft de cada learner só pode ser compactado até o que foi aplicado no Cosmos daquela célula. Backlog longo <strong>enche o volume do Raft dos learners</strong> (e a memória do <code>MemoryStorage</code>, risco 46); learner sem disco falha o fsync, sai do gate e a AWS acaba em modo degradado. <strong>Um Cosmos lento pode, por esse caminho, causar RPO &gt; 0.</strong></p>
 <p class="aviso">Cenário <b>a rever</b>: o conteúdo abaixo traz propostas e riscos ainda <b>não decididos na fonte</b>, salvo quando o texto diz o contrário.</p>
 </section>
 <section id="diagrama"><h2>2. Diagrama</h2>
@@ -109,7 +109,7 @@ Gerado em 17/10/2026 a partir do pacote DataReplication_Versao_1.
     C --&gt;|&quot;não, 429&quot;| E[&quot;Applier desacelera, atraso cresce&quot;]
     E --&gt; F[&quot;Leitura nas células Azure espera a barreira e falha com 503&quot;]
     E --&gt; G[&quot;No failover, drenar backlog antes das leituras fortes: RTO cresce&quot;]
-    E --&gt; H[&quot;Log da Azure não pode ser truncado: disco enche&quot;]
+    E --&gt; H[&quot;Log do Raft da Azure não pode ser compactado: disco enche&quot;]
     H --&gt; I[&quot;Learner falha o fsync e sai do gate&quot;]
     I --&gt; J[&quot;AWS pode entrar em modo degradado: RPO maior que 0&quot;]
     E --&gt; K{&quot;Lag de apply acima do limite de elegibilidade? PEND-18&quot;}
@@ -176,7 +176,7 @@ Gerado em 17/10/2026 a partir do pacote DataReplication_Versao_1.
 <section id="adrs"><h2>5. ADRs relacionados</h2>
 <div class="tabela"><table><thead><tr><th>ADR</th><th>Título</th><th>Status efetivo</th><th>Decisão resumida</th><th>Arquivo</th></tr></thead><tbody>
 <tr><td class="nw"><a href="../../03_adr/ADR-017-azure-learners-e-gate.md">ADR-017</a></td><td>Azure como learners, com gate</td><td><span class="ef ef-ok">Vigente, complementado</span></td><td>Azure como learners; gateIndex = min(commit Raft, índice durável em 2 de 3 learners) controla ACK e applier.</td><td><a href="../../03_adr/ADR-017-azure-learners-e-gate.md">ADR-017-azure-learners-e-gate.md</a></td></tr>
-<tr><td class="nw"><a href="../../03_adr/ADR-018-dois-logs-raft-e-replicacao.md">ADR-018</a></td><td>Dois logs separados: o do Raft e o de replicação</td><td><span class="ef ef-ok">Vigente, complementado</span></td><td>Dois logs: o do Raft (curto, fsync antes do ACK) e o de replicação (longo, após o commit); revisado pelo <a href="../../03_adr/ADR-055-log-de-replicacao-segmentado-derivado-do-raft.md">ADR-055</a>.</td><td><a href="../../03_adr/ADR-018-dois-logs-raft-e-replicacao.md">ADR-018-dois-logs-raft-e-replicacao.md</a></td></tr>
+<tr><td class="nw"><a href="../../03_adr/ADR-041-disco-do-log-teto-de-70-por-cento-sem-s3-na-v1.md">ADR-041</a></td><td>Disco do log em degradação longa: teto de 70% e reconstrução completa; sem S3 na v1</td><td><span class="ef ef-ok">Vigente</span></td><td>Retenção do log para a Azure com teto de 70% do volume, depois reconstrução completa; sem S3 na v1.</td><td><a href="../../03_adr/ADR-041-disco-do-log-teto-de-70-por-cento-sem-s3-na-v1.md">ADR-041-disco-do-log-teto-de-70-por-cento-sem-s3-na-v1.md</a></td></tr>
 <tr><td class="nw"><a href="../../03_adr/ADR-057-um-unico-modo-strong-consistency.md">ADR-057</a></td><td>Um único modo: strong consistency</td><td><span class="ef ef-ok">Vigente, complementado</span></td><td>Um único modo, strong consistency, na escrita, na replicação e no Raft; leitura sempre forte; sem variável de modo.</td><td><a href="../../03_adr/ADR-057-um-unico-modo-strong-consistency.md">ADR-057-um-unico-modo-strong-consistency.md</a></td></tr>
 </tbody></table></div>
 <p class="nota">Lista extraída do cabeçalho “ADRs” do arquivo fonte. A decisão resumida condensa a seção “Decisão” de cada ADR. <b>Status efetivo</b> vem do <a href="../inventario-adrs.html">inventário dos ADRs</a>: <b>Vigente</b> vale como está escrito; <b>Vigente, complementado</b> vale, mas outros ADRs acrescentam regras; <b>Vigente em parte</b> tem item revertido ou em conflito; <b>Sem uso</b>, <b>Substituído</b> e <b>Descartado</b> são só registro; <b>Pendente</b> aguarda decisão. A regra consolidada está no <a href="../estado-atual.html">Estado atual</a>.</p>

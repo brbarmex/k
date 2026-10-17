@@ -1,6 +1,6 @@
 # ADR-060 — O laço do Raft nunca espera o apply, e a líder recusa escrita quando o apply está atrasado
 
-**Status:** Decidido (Bruno, 14/10/2026: respostas 1a 2a 3a 4a 5a 6a) · **Data:** 14/10/2026 · **Origem:** teste de carga da POC de 14/10 ([análise](../06_pendencias_e_riscos/analise_teste_de_carga_14_10.md)) · **Fecha:** o risco 3 da spec da POC · **Atenua:** risco 35 ([ADR-056](ADR-056-group-commit-por-shard-e-nada-sai-antes-do-fsync.md)) · **Precisa:** [ADR-058](ADR-058-apply-paralelo-por-chave-com-marca-dagua.md), [ADR-059](ADR-059-checkpoint-do-log-de-replicacao-sem-trava-no-append.md)
+**Status:** Decidido (Bruno, 14/10/2026: respostas 1a 2a 3a 4a 5a 6a) · **Data:** 14/10/2026 · **Origem:** teste de carga da POC de 14/10 ([análise](../06_pendencias_e_riscos/analise_teste_de_carga_14_10.md)) · **Fecha:** o risco 3 da spec da POC · **Atenua:** risco 35 ([ADR-056](ADR-056-group-commit-por-shard-e-nada-sai-antes-do-fsync.md)) · **Precisa:** [ADR-058](ADR-058-apply-paralelo-por-chave-com-marca-dagua.md)
 
 ## Contexto
 
@@ -14,7 +14,7 @@ A cadeia que o código explica:
 4. Sem `Advance`, o Raft não desconta o buffer de entradas não commitadas (`MaxUncommittedEntriesSize`, só descontado no `MsgStorageApplyResp`), e as propostas passam a ser descartadas (`ErrProposalDropped`, ThrottlingException). O `n.lead` só muda dentro do laço parado, então uma célula que já perdeu a liderança continua propondo e também recebe descarte.
 5. O gate da POC (gate = commit) só andava quando o `CommitPump` conseguia entregar o lote ao applier. Daí as 73 mil entradas de "commit sem gate".
 6. Pelo ADR-058 o ACK espera a marca d'água do apply. Com 207 mil entradas de atraso, nenhuma escrita nova tinha como ser confirmada no prazo de 7,5 s.
-7. O fsync do WAL teve P95 de até 775 ms e picos de 1 a 2 s (três WALs, três logs de replicação, o LocalStack e o Prometheus no mesmo SSD), dentro do mesmo laço do heartbeat, com eleição em 1 s.
+7. O fsync do WAL teve P95 de até 775 ms e picos de 1 a 2 s (três WALs, o LocalStack e o Prometheus no mesmo SSD), dentro do mesmo laço do heartbeat, com eleição em 1 s.
 
 O ponto central não é da POC. Em produção, um DynamoDB lento ou com throttling numa única célula (o modo sob demanda faz throttling quando o tráfego passa do dobro do pico anterior, o que é fácil numa tabela nova ou na tabela sombra do [ADR-047](ADR-047-delete-real-invariante-e-reconstrucao-em-tabela-sombra.md)) produz a mesma cascata: **a lentidão do banco de uma célula derruba a liderança do grupo inteiro**.
 
@@ -26,7 +26,7 @@ O ponto central não é da POC. Em produção, um DynamoDB lento ou com throttli
    - O gate passa a ser alimentado direto pelo avanço do commit (goroutine própria do `CommitPump`), e não depois da fila do applier. Na POC, gate = commit volta a ser verdade o tempo todo.
    - A decodificação das entradas sai do laço: o laço só decodifica quando há uma proposta local esperando (só na líder). As followers não pagam JSON dentro do laço.
    - A fila entre o `CommitPump` e o applier passa a ser pequena (64 lotes de até 1 MiB), porque o atraso fica nas entradas que o Raft já guarda.
-   - Regra de retenção: as entradas ficam na memória do Raft até o `CommitPump` consumi-las. Na POC a compactação está desligada. Em produção a compactação do Raft já é limitada ao `DurableIndex` do log de replicação ([ADR-055](ADR-055-log-de-replicacao-segmentado-derivado-do-raft.md)), que nunca passa do que o `CommitPump` entregou ao `Append`; a regra continua valendo sem mudança.
+   - Regra de retenção: as entradas ficam na memória do Raft até o `CommitPump` consumi-las. Na POC a compactação está desligada (RT-11). Em produção a compactação do Raft é limitada a `domain.RaftCompactLimit`, cujo primeiro termo é o aplicado local, que nunca passa do que o `CommitPump` entregou; nada que o applier ainda precisa é compactado ([ADR-063](ADR-063-snapshot-e-compactacao-do-log-do-raft.md)).
 2. **Admissão por atraso do apply (2a).**
    - Antes do `Propose`, a líder recusa a escrita com ThrottlingException quando `gate - aplicado > APPLY_LAG_MAX`. Nada entra no log.
    - `APPLY_LAG_MAX` tem padrão `APPLY_WORKERS × 256`, ou 4.096 com 16 workers, o que cabe nas filas dos workers. Com o DynamoDB real (2.000 a 4.000 itens/s por shard pelo ADR-058) isso dá de 1 a 2 s de atraso.
@@ -38,7 +38,7 @@ O ponto central não é da POC. Em produção, um DynamoDB lento ou com throttli
    - `task bench-localstack` mede o teto do LocalStack sozinho, com o mesmo PutItem condicional do applier (binário `benchstore`).
    - **Sem banco em memória** (Bruno, 14/10, depois da decisão 4a): ele aceita o limite do LocalStack, testa localmente com TPS baixo (por exemplo 10 TPS) e depois na AWS. Com TPS baixo o applier acompanha a carga, então o desacoplamento do laço (item 1) e a admissão (item 2) quase não são exercitados localmente. Para exercitar a admissão sem carga alta, `APPLY_LAG_MAX` pode ser baixado no compose (`task start APPLY_LAG_MAX=50`).
    - **Um LocalStack por célula** (Bruno, 14/10: 1a 2a 3a), como em produção: cada célula tem o seu escritor do DynamoDB Local, com `DYNAMODB_HEAP_SIZE=512m` por instância (o padrão é 256m). `task test-banco-lento CELL=N` pausa o banco de uma só célula e confere que o termo do Raft não muda: é a validação local do item 1 sem carga alta.
-5. **Partida não reaplica o log inteiro (5a).** O ponto de retomada é `min(último do log de replicação + 1, índice do progresso do applier)`. O Raft recebe `Applied = retomada - 1` (limitado entre o snapshot e o commit gravado) e o `CommitPump` começa na retomada. Precisa ser o mínimo dos dois: o log de replicação não tem fsync por entrada, e numa queda de host ele pode estar atrás do progresso; começar depois dele abriria um buraco (`ErrGap`, fatal). A entrada do progresso é reentregue inteira, e o applier pula os itens já gravados pela ordem salva.
+5. **Partida não reaplica o log inteiro (5a).** O ponto de retomada é o índice do progresso do applier; sem progresso, começa em 1. O Raft recebe `Applied = retomada - 1` (limitado entre o snapshot e o commit gravado) e o `CommitPump` começa na retomada; o replay vem do WAL do Raft. O progresso não tem fsync, então numa queda de host ele pode estar atrás do banco: isso só alonga o replay, que é idempotente pela versão. A entrada do progresso é reentregue inteira, e o applier pula os itens já gravados pela ordem salva.
 6. **Métricas que explicam o que aconteceu (6a).**
    - `dr_throttled_total{causa}`: `buffer_cheio`, `nao_lider`, `transferencia` ou `atraso_apply`, contada na célula onde a causa nasceu (a causa do Raft é lida do `Status()` do nó na hora do descarte).
    - `dr_raft_loop_duration_seconds`: duração de cada `Ready`.
@@ -59,10 +59,10 @@ O ponto central não é da POC. Em produção, um DynamoDB lento ou com throttli
 
 ## Consequências
 
-- **O Raft fica isolado do banco da célula.** Banco lento, applier estacionado (entrada venenosa, [ADR-038](ADR-038-skip-de-entrada-venenosa-sempre-humano.md)) ou disco do log de replicação lento não param mais o heartbeat nem provocam eleição. O efeito visível passa a ser `dr_commit_undelivered` e `dr_apply_lag` crescendo e, na líder, ThrottlingException com causa `atraso_apply`.
+- **O Raft fica isolado do banco da célula.** Banco lento, applier estacionado (entrada venenosa, [ADR-038](ADR-038-skip-de-entrada-venenosa-sempre-humano.md)) ou gravação lenta do progresso do applier não param mais o heartbeat nem provocam eleição. O efeito visível passa a ser `dr_commit_undelivered` e `dr_apply_lag` crescendo e, na líder, ThrottlingException com causa `atraso_apply`.
 - **Indisponibilidade de escrita explícita:** com o banco da líder lento, as escritas são recusadas na hora, sem PENDING e sem derrubar a liderança. RPO continua 0: nada recusado entrou no log.
 - **Follower atrasada continua sendo um problema de RTO.** A admissão só olha a líder. Uma follower com o apply muito atrás que vira líder recusa escritas (`atraso_apply`) até alcançar o limite. O tempo para isso entra no RTO e precisa de alerta em `dr_apply_lag` das followers ([R18](../02_cenarios/a_rever/R18-rto-nao-quantificado.md)).
-- **Memória:** as entradas não consumidas ficam no `MemoryStorage`. Na POC isso já acontecia, porque a compactação está desligada. Em produção a memória do Raft é limitada pela compactação até o `DurableIndex` e pelo teto de disco ([ADR-041](ADR-041-disco-do-log-teto-de-70-por-cento-sem-s3-na-v1.md)).
+- **Memória:** as entradas não consumidas ficam no `MemoryStorage`. Na POC isso já acontecia, porque a compactação está desligada. Em produção a memória do Raft é limitada pela compactação até `RaftCompactLimit` e pelo teto do volume do Raft ([ADR-041](ADR-041-disco-do-log-teto-de-70-por-cento-sem-s3-na-v1.md)); num modo degradado longo ela cresce com o atraso da Azure até esse teto, o que ainda precisa de mitigação (teto também por bytes em memória, ou um `raft.Storage` que lê do WAL em disco) e de medição no spike S1.
 - **O timeout de eleição maior aumenta o RTO** na queda da líder: de 1 a 2 s para 3 a 6 s na POC.
 - **A causa `nao_lider` continua possível** numa janela curta depois de uma troca de líder, porque `n.lead` ainda é atualizado pelo laço. Com o laço sem bloqueio a janela fica do tamanho de um `Ready`, e a métrica mostra quando acontece.
 - **O teste local com TPS baixo não exercita os itens 1 e 2.** Eles ficam provados pelos testes de unidade (laço com consumidores parados, admissão) e, de verdade, no teste na AWS. O teto do apply local sai do `task bench-localstack` e, em produção, do spike S5.
@@ -81,4 +81,4 @@ O ponto central não é da POC. Em produção, um DynamoDB lento ou com throttli
 - [Análise do teste de carga de 14/10](../06_pendencias_e_riscos/analise_teste_de_carga_14_10.md)
 - [03_consenso_raft_quorum_e_gate.md](../01_arquitetura/03_consenso_raft_quorum_e_gate.md) e [04_wal_e_fsync.md](../01_arquitetura/04_wal_e_fsync.md)
 - [C35-banco-lento-nao-derruba-a-lideranca.md](../02_cenarios/atualizados/C35-banco-lento-nao-derruba-a-lideranca.md)
-- [D04-dois-logs-e-commitpump.md](../04_diagramas/D04-dois-logs-e-commitpump.md)
+- [D04-commitpump-e-log-do-raft.md](../04_diagramas/D04-commitpump-e-log-do-raft.md)

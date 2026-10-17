@@ -66,7 +66,7 @@ Gerado em 17/10/2026 a partir do pacote DataReplication_Versao_1.
 <li><a href="complex-path/X01-gate-e-troca-de-lider.html"><b>X01</b> Gate: definição, monotonicidade e troca de líder</a></li>
 <li><a href="complex-path/X02-modo-degradado.html"><b>X02</b> Modo degradado: entrada, permanência, lease e saída</a></li>
 <li><a href="complex-path/X03-desastre-e-promocao-da-azure.html"><b>X03</b> Desastre: promoção da Azure, fencing e reconciliação</a></li>
-<li><a href="complex-path/X04-partida-recuperacao-e-dois-logs.html"><b>X04</b> Partida, recuperação e coerência entre os dois logs</a></li>
+<li><a href="complex-path/X04-partida-e-recuperacao-do-no.html"><b>X04</b> Partida e recuperação do nó</a></li>
 <li><a href="complex-path/X05-timeouts-e-idempotencia.html"><b>X05</b> Timeouts em cascata e idempotência do retry</a></li>
 <li><a href="complex-path/X06-delete-ttl-gsi.html"><b>X06</b> DELETE, TTL, Scan e GSI</a></li>
 <li><a href="complex-path/X07-gate-explicado-com-exemplos.html"><b>X07</b> O gate explicado com exemplos</a></li>
@@ -92,7 +92,7 @@ Gerado em 17/10/2026 a partir do pacote DataReplication_Versao_1.
 </nav>
 <main>
 <div class="migalhas"><a href="index.html">Início</a> / Inventário dos ADRs</div>
-<h1>Inventário dos ADRs: status efetivo, cadeias e pontos a decidir</h1><p><strong>Feito em:</strong> 14/10/2026; perguntas respondidas pelo Bruno no mesmo dia (1a 2a 3a 4a 5a 6b 7a 8a) · <strong>Cobre:</strong> ADR-001 a ADR-063 (58 arquivos) · <strong>Para que serve:</strong> base do <a href="estado-atual.html">ESTADO_ATUAL.md</a>. Cada ADR foi lido inteiro, e a coluna "Na POC" foi conferida no código de <code>DataReplicationApp</code> e no escopo da <a href="../../spec/SPEC_POC_LOCAL.md">spec da POC</a> (R.3 e R.4).</p>
+<h1>Inventário dos ADRs: status efetivo, cadeias e pontos a decidir</h1><p><strong>Feito em:</strong> 14/10/2026; perguntas respondidas pelo Bruno no mesmo dia (1a 2a 3a 4a 5a 6b 7a 8a) · <strong>Cobre:</strong> ADR-001 a ADR-063 (55 arquivos) · <strong>Para que serve:</strong> base do <a href="estado-atual.html">ESTADO_ATUAL.md</a>. Cada ADR foi lido inteiro, e a coluna "Na POC" foi conferida no código de <code>DataReplicationApp</code> e no escopo da <a href="../../spec/SPEC_POC_LOCAL.md">spec da POC</a> (R.3 e R.4).</p>
 <p>Os números 009, 012, 023, 040 e 053 não existem: eram ADRs do antigo modo Eventual, removidos pelo <a href="../03_adr/ADR-057-um-unico-modo-strong-consistency.md">ADR-057</a>.</p>
 <h2 id="legenda">Legenda</h2>
 <p><strong>Status efetivo</strong>, que nem sempre é o que está escrito no cabeçalho do ADR:</p>
@@ -269,20 +269,12 @@ Gerado em 17/10/2026 a partir do pacote DataReplication_Versao_1.
 <td>Gate com learners só em teste de unidade</td>
 </tr>
 <tr>
-<td><a href="../03_adr/ADR-018-dois-logs-raft-e-replicacao.md">018</a></td>
-<td>Logs</td>
-<td>Vigente, complementado</td>
-<td>055 (truncamento até o <code>DurableIndex</code>)</td>
-<td>Sim</td>
-<td></td>
-</tr>
-<tr>
 <td><a href="../03_adr/ADR-019-wal-proprio-volume-dedicado.md">019</a></td>
-<td>Logs</td>
+<td>Log do Raft</td>
 <td>Vigente, complementado</td>
-<td>055 (WAL do etcd e log segmentado), 056 (IOPS)</td>
+<td>056 (IOPS)</td>
 <td>Sim</td>
-<td>Dois volumes por célula</td>
+<td>Um volume por célula</td>
 </tr>
 <tr>
 <td><a href="../03_adr/ADR-020-raft-etcd-io-camada-multigrupo.md">020</a></td>
@@ -438,11 +430,11 @@ Gerado em 17/10/2026 a partir do pacote DataReplication_Versao_1.
 </tr>
 <tr>
 <td><a href="../03_adr/ADR-041-disco-do-log-teto-de-70-por-cento-sem-s3-na-v1.md">041</a></td>
-<td>Logs</td>
-<td>Vigente, complementado</td>
-<td>055</td>
+<td>Log do Raft</td>
+<td>Vigente</td>
+<td>063 (pendente)</td>
 <td>Fora</td>
-<td>Truncamento fora da POC</td>
+<td>Compactação fora da POC</td>
 </tr>
 <tr>
 <td><a href="../03_adr/ADR-042-aws-que-volta-boot-cercado-e-recriacao-da-celula.md">042</a></td>
@@ -541,16 +533,8 @@ Gerado em 17/10/2026 a partir do pacote DataReplication_Versao_1.
 <td>Um LocalStack por célula desde 14/10</td>
 </tr>
 <tr>
-<td><a href="../03_adr/ADR-055-log-de-replicacao-segmentado-derivado-do-raft.md">055</a></td>
-<td>Logs</td>
-<td>Vigente, complementado</td>
-<td>059; revisa 018 e 019</td>
-<td>Parcial</td>
-<td>Log segmentado, checkpoint e <code>DurableIndex</code> sim; compactação e truncamento não</td>
-</tr>
-<tr>
 <td><a href="../03_adr/ADR-056-group-commit-por-shard-e-nada-sai-antes-do-fsync.md">056</a></td>
-<td>Logs</td>
+<td>Log do Raft</td>
 <td>Vigente, complementado</td>
 <td>060 (risco 35)</td>
 <td>Parcial</td>
@@ -573,18 +557,10 @@ Gerado em 17/10/2026 a partir do pacote DataReplication_Versao_1.
 <td></td>
 </tr>
 <tr>
-<td><a href="../03_adr/ADR-059-checkpoint-do-log-de-replicacao-sem-trava-no-append.md">059</a></td>
-<td>Logs</td>
-<td>Vigente</td>
-<td>complementa 055</td>
-<td>Sim</td>
-<td></td>
-</tr>
-<tr>
 <td><a href="../03_adr/ADR-060-laco-do-raft-nunca-espera-o-apply-e-admissao-por-atraso.md">060</a></td>
 <td>Raft e apply</td>
 <td>Vigente</td>
-<td>atualiza 056 e 059</td>
+<td>atualiza 056</td>
 <td>Sim</td>
 <td></td>
 </tr>
@@ -632,14 +608,14 @@ Gerado em 17/10/2026 a partir do pacote DataReplication_Versao_1.
 <td>Commit 2/3 AWS, gate com 2/3 Azure no termo atual, apply na líder (marca d'água contígua), lease conferido</td>
 </tr>
 <tr>
-<td>Os dois logs e o fsync</td>
-<td>018 → 019 → 055 → 056 → 059 → 060</td>
-<td>Só o fsync do Raft no caminho do ACK; o log de replicação é derivado, sem fsync por entrada, com checkpoint</td>
+<td>O log do Raft e o fsync</td>
+<td>019 → 056 → 060</td>
+<td>Um único log por nó, num volume dedicado; só o fsync do Raft no caminho do ACK; o <code>CommitPump</code> entrega as entradas commitadas da memória do Raft</td>
 </tr>
 <tr>
 <td>Retenção e compactação</td>
-<td>018 → 041 → 055 → 063 (pendente)</td>
-<td>Raft só até o <code>DurableIndex</code>; o log de replicação retém para a Azure com teto de 70%</td>
+<td>019 → 041 → 047 → 063 (pendente)</td>
+<td>Raft só até <code>RaftCompactLimit</code>; a retenção para a Azure fica no log do Raft, com teto de 70% do volume e saída por reconstrução</td>
 </tr>
 <tr>
 <td>Apply</td>
@@ -697,7 +673,7 @@ Gerado em 17/10/2026 a partir do pacote DataReplication_Versao_1.
 </ol>
 <h2 id="desatualizacoes-encontradas-fora-dos-adrs">Desatualizações encontradas fora dos ADRs</h2>
 <ul>
-<li><code>00_COMECE_AQUI.md</code> dizia "54 decisões"; são 58 arquivos, até o ADR-063.</li>
+<li><code>00_COMECE_AQUI.md</code> dizia "54 decisões"; são 55 arquivos, até o ADR-063.</li>
 <li>O cabeçalho do <code>INDEX.md</code> dizia "ADR-016 a 060"; vai até o 063.</li>
 <li><code>07_site_comite/_gerador/adr_resumo.py</code> não tinha os ADRs 061 a 063.</li>
 </ul>

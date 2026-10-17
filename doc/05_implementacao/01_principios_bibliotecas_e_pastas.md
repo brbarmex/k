@@ -29,8 +29,8 @@ A pedida foi a biblioteca mais performática. Antes da tabela, uma ressalva hone
 | **JSON do DynamoDB** | A decidir no H-DR6 | `encoding/json` (v2 se estável no Go 1.27), `bytedance/sonic`, `goccy/go-json` | É o único item de biblioteca com ganho mensurável. Fica atrás da interface `codec`. Decidir com benchmark sobre itens reais dos clientes, incluindo ARM se usarem Graviton (o `sonic` tem restrições de arquitetura) |
 | **Métricas** | `prometheus/client_golang` ou OpenTelemetry | — | Contadores atômicos no caminho quente; exportação fora dele |
 | **Raft** | `go.etcd.io/raft/v3` | `dragonboat` (plano B) | Já decidido; importado **só** em `adapter/out/etcdraft` |
-| **Log do Raft** | pacote `wal` do etcd (`go.etcd.io/etcd/server/v3/storage/wal`), um por shard | WAL próprio segmentado (W2, desenho anterior) | Decidido em 13/10 ([ADR-055](../03_adr/ADR-055-log-de-replicacao-segmentado-derivado-do-raft.md)). Muito testado; custa um fsync por shard e traz o módulo do servidor etcd e o `zap` como dependência. Importado **só** em `adapter/out/etcdraft`. Group commit por shard no laço do `Ready`, modo síncrono com F3 e nada sai antes do fsync ([ADR-056](../03_adr/ADR-056-group-commit-por-shard-e-nada-sai-antes-do-fsync.md)) |
-| **Log de replicação** | Pacote próprio `adapter/out/replog` (só biblioteca padrão) | `cockroachdb/pebble` (descartado em 13/10) | Decidido em 13/10 ([ADR-055](../03_adr/ADR-055-log-de-replicacao-segmentado-derivado-do-raft.md)): log segmentado, sem fsync por entrada, checkpoint com fsync; volume próprio. Fora do caminho do ACK e refeito a partir do Raft, por isso código próprio é aceitável |
+| **Log do Raft** | pacote `wal` do etcd (`go.etcd.io/etcd/server/v3/storage/wal`), um por shard | WAL próprio segmentado (W2, desenho anterior) | Decidido em 13/10 ([ADR-019](../03_adr/ADR-019-wal-proprio-volume-dedicado.md)): é o único log do nó e a única fonte das entradas commitadas, num volume de bloco dedicado por nó. Muito testado; custa um fsync por shard e traz o módulo do servidor etcd e o `zap` como dependência. Importado **só** em `adapter/out/etcdraft`. Group commit por shard no laço do `Ready`, modo síncrono com F3 e nada sai antes do fsync ([ADR-056](../03_adr/ADR-056-group-commit-por-shard-e-nada-sai-antes-do-fsync.md)) |
+| **Progresso do applier** | Pacote próprio `adapter/out/progress` (só biblioteca padrão) | — | Um registro pequeno (índice e ordem da marca d'água, [ADR-058](../03_adr/ADR-058-apply-paralelo-por-chave-com-marca-dagua.md)) com CRC, sem fsync, no volume do Raft. Perdê-lo só alonga o replay, que é idempotente pela versão, por isso código próprio é aceitável |
 | **Config YAML** | `spf13/viper` (decisão do Bruno) | `koanf` | Ver nota |
 
 > **Nota sobre config e env.** Você decidiu `viper` para o YAML e variáveis de ambiente obrigatórias. O `viper` também lê env, então **uma lib basta**. Minha crítica: `viper` é pesado (muitas dependências, binário maior, e historicamente aceita chaves desconhecidas sem reclamar, o que você já proibiu). Dá para usá-lo com `UnmarshalExact`, e a medição do peso dele já está prevista nos spikes. Se pesar, o `koanf` é o plano B e a troca é barata porque a lib fica atrás de `platform/config`. **Recomendo manter `viper` até a medição.**
@@ -52,18 +52,18 @@ datareplication/
 │   │   └── errors.go                  # erros de negócio
 │   ├── port/                          # contratos (interfaces)
 │   │   ├── in.go                      # Writer, Reader, Admin  (driving)
-│   │   └── out.go                     # ReplicationLog, ConsensusEngine, StateStore,
+│   │   └── out.go                     # ConsensusEngine, ApplyProgress, StateStore,
 │   │                                  # Forwarder, DedupeIndex, Clock, Metrics (driven)
 │   ├── usecase/                       # um arquivo por intenção de negócio
 │   │   ├── write.go                   # escrever: líder (WAIT_LEADER), dedupe por requisição, propor, gate, apply, lease, ACK
 │   │   ├── batchwrite.go              # lote vira uma Entry; dedupe por requisição inteira (ADR-035)
 │   │   ├── read.go                    # leitura forte (barreira min(ReadIndex, gate), ADR-049) só na tabela base; Query em GSI recusada (ADR-050)
-│   │   ├── replicate.go               # CommitPump: progresso dos learners -> gate (por evento); commit do Raft -> gate, applier e log de replicação
-│   │   ├── checkpoint.go              # fsync do log de replicação, compacta o Raft (RaftCompactLimit) e trunca o log (ReplogTruncateLimit) (ADR-055)
+│   │   ├── replicate.go               # CommitPump: progresso dos learners -> gate (por evento); commit do Raft -> gate e applier
+│   │   ├── compact.go                 # laço de compactação do log do Raft até RaftCompactLimit (ADR-063, pendente)
 │   │   ├── apply.go                   # aplicar no banco depois do gate, paralelo por chave com ordem por chave, marca d'água (ADR-058), SKIP por item (ADR-048)
 │   │   ├── degrade.go                 # DegradeService: política, DEGRADE/RESTORE/RENEW e lease (ADR-044, ADR-045)
 │   │   ├── leadership.go              # transferência planejada (ADR-013)
-│   │   └── recovery.go                # partida: completar o log, reabrir leitura
+│   │   └── recovery.go                # partida: retomar do progresso do applier, reabrir leitura
 │   ├── adapter/
 │   │   ├── in/
 │   │   │   ├── dynamohttp/            # API HTTP compatível com DynamoDB (fasthttp); mTLS e lista identidade -> tabelas (ADR-052)
@@ -71,7 +71,7 @@ datareplication/
 │   │   │   └── adminhttp/             # /livez /readyz /metrics (net/http)
 │   │   └── out/
 │   │       ├── etcdraft/              # ÚNICO pacote que importa go.etcd.io/raft e o wal do etcd; LOG DO RAFT (volume do Raft)
-│   │       ├── replog/                # LOG DE REPLICAÇÃO (ReplicationLog) segmentado, sem fsync + checkpoint (volume próprio)
+│   │       ├── progress/              # progresso do applier (ApplyProgress): registro com CRC, sem fsync, no volume do Raft
 │   │       ├── dynamodb/              # StateStore da AWS (aws-sdk-go-v2); também a tabela sombra do rebuild (ADR-047)
 │   │       ├── cosmos/                # StateStore da Azure via Cloud-Adapter
 │   │       ├── peerclient/            # cliente gRPC (forward, replicação)
@@ -85,13 +85,13 @@ datareplication/
 │       └── modules.go                 # um fx.Option por adaptador
 ├── api/proto/                         # .proto do gRPC interno (versionado)
 ├── test/
-│   ├── conformance/                   # suítes por porta (ReplicationLog, ConsensusEngine, StateStore) e a suíte DynamoDB real x camada x Cosmos (ADR-051)
+│   ├── conformance/                   # suítes por porta (ConsensusEngine, ApplyProgress, StateStore) e a suíte DynamoDB real x camada x Cosmos (ADR-051)
 │   ├── fault/                         # injeção de falha (disco, rede, relógio)
 │   └── tla/                           # modelo TLA+ ampliado (D12, ADR-046): lease, promoção, troca de membros, dedupe, DELETE e replay
 └── .golangci.yml                      # depguard: impõe a regra de dependência
 ```
 
-**Por que grita:** em `usecase/` você lê `write`, `read`, `apply`, `degrade`, `leadership`, `recovery`: é o que o produto faz. Em `adapter/out/` você lê `etcdraft`, `replog`, `dynamodb`, `cosmos`: são as tecnologias, empurradas para a borda.
+**Por que grita:** em `usecase/` você lê `write`, `read`, `apply`, `degrade`, `leadership`, `recovery`: é o que o produto faz. Em `adapter/out/` você lê `etcdraft`, `dynamodb`, `cosmos`: são as tecnologias, empurradas para a borda.
 
 ### 3.1 Mapa para os módulos do documento base (3.2)
 
@@ -99,10 +99,9 @@ datareplication/
 |---|---|
 | `api` | `adapter/in/dynamohttp` + parse/validação em `usecase/write.go` |
 | `core` | `domain` + `usecase` + `port` |
-| `replicationlog` | `adapter/out/replog` |
 | `consensus/etcdraft` | `adapter/out/etcdraft` |
 | `transport` | `adapter/in/peergrpc` + `adapter/out/peerclient` + `adapter/out/discovery` |
-| `applier` | `usecase/apply.go` (regra) + `adapter/out/dynamodb` e `cosmos` (I/O) |
+| `applier` | `usecase/apply.go` (regra) + `adapter/out/dynamodb` e `cosmos` (I/O) + `adapter/out/progress` (progresso) |
 | `platform` | `platform` + `bootstrap` |
 
 ### 3.2 Regras de dependência (impostas por lint)

@@ -38,7 +38,6 @@ func (r *recMetrics) WriteDone(res string, _ time.Duration) { r.inc("write:" + r
 func (r *recMetrics) ReadDone(op, res string)               { r.inc("read:" + op + ":" + res) }
 func (r *recMetrics) ReadBarrier(time.Duration)             { r.inc("barrier") }
 func (r *recMetrics) ApplyItem(time.Duration)               { r.inc("apply") }
-func (r *recMetrics) ReplogSync(time.Duration)              { r.inc("replogsync") }
 func (r *recMetrics) RaftLoop(time.Duration)                { r.inc("raftloop") }
 func (r *recMetrics) RaftTickGap(time.Duration)             { r.inc("tickgap") }
 func (r *recMetrics) Throttled(c string)                    { r.inc("throttled:" + c) }

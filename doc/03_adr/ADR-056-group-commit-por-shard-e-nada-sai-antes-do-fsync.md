@@ -1,6 +1,6 @@
 # ADR-056 — Group commit por shard, nada sai antes do fsync e `AsyncStorageWrites` decidido por spike
 
-**Status:** Decidido (Bruno, 13/10/2026: respostas 1a 2a 3b 4a 5a 6a) · **Data:** 13/10/2026 · **Complementa:** [ADR-055](ADR-055-log-de-replicacao-segmentado-derivado-do-raft.md) (item 7), [ADR-019](ADR-019-wal-proprio-volume-dedicado.md), [ADR-030](ADR-030-verificacao-formal-tla.md), [ADR-034](ADR-034-fsync-fatal-e-identidade-nova.md)
+**Status:** Decidido (Bruno, 13/10/2026: respostas 1a 2a 3b 4a 5a 6a) · **Data:** 13/10/2026 · **Complementa:** [ADR-019](ADR-019-wal-proprio-volume-dedicado.md), [ADR-030](ADR-030-verificacao-formal-tla.md), [ADR-034](ADR-034-fsync-fatal-e-identidade-nova.md)
 
 ## Contexto
 
@@ -13,7 +13,7 @@ O Bruno pediu (1) fsync com group commit e buffer em memória enquanto as escrit
 ## Decisão
 
 1. **Nada sai antes do fsync (1a).** O buffer em memória é **só a área de montagem do lote**. Nenhum ACK ao cliente, nenhum voto (`MsgVoteResp`) e nenhuma resposta de `AppendEntries` (`MsgAppResp`) sai antes do fsync que cobre a entrada, em nenhum dos 6 nós. A líder só se conta no quórum depois do próprio fsync. É uma **invariante** (vale no ADR, no TLA+ e nos testes), não uma configuração. A decisão de 12/10 (sem ACK em memória) continua.
-2. **Group commit por shard (2a).** Um `wal` do etcd por shard, como no ADR-055. O laço do `Ready` de cada shard grava **tudo o que está pendente** num único `Save` com um `fdatasync` e só então libera as respostas, em ordem. Nada de WAL compartilhado na v1.
+2. **Group commit por shard (2a).** Um `wal` do etcd por shard, como no ADR-019. O laço do `Ready` de cada shard grava **tudo o que está pendente** num único `Save` com um `fdatasync` e só então libera as respostas, em ordem. Nada de WAL compartilhado na v1.
    - **IOPS provisionadas** no volume do Raft (io2 ou gp3 com IOPS acima da base na AWS; Premium SSD v2 com IOPS acima da base na Azure) e **teto de shards por nó** (`MAX_SHARDS_PER_NODE`, valor do S1).
    - **Gatilho do plano B** (WAL compartilhado entre shards, o W2): o S1 mede, na carga de 2x (6.000 TPS), fsync P99 acima do orçamento da seção 7 **ou** IOPS de escrita acima de 70% do provisionado. Se o gatilho disparar, a volta do W2 é uma decisão nova, com a bateria completa de testes de armazenamento.
 3. **Modo síncrono com F3 na fase 1; `AsyncStorageWrites` decidido no spike S1b (3b).**
@@ -66,5 +66,5 @@ O Bruno pediu (1) fsync com group commit e buffer em memória enquanto as escrit
 
 - [04_wal_e_fsync.md](../01_arquitetura/04_wal_e_fsync.md) (6.8 e 6.10)
 - [03_consenso_raft_quorum_e_gate.md](../01_arquitetura/03_consenso_raft_quorum_e_gate.md) (5.5.2)
-- [D04-dois-logs-e-commitpump.md](../04_diagramas/D04-dois-logs-e-commitpump.md), [D05-gate-e-quorum.md](../04_diagramas/D05-gate-e-quorum.md)
+- [D04-commitpump-e-log-do-raft.md](../04_diagramas/D04-commitpump-e-log-do-raft.md), [D05-gate-e-quorum.md](../04_diagramas/D05-gate-e-quorum.md)
 - [06_testes_e_spikes.md](../05_implementacao/06_testes_e_spikes.md) (S1 e S1b)

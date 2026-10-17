@@ -52,7 +52,6 @@ type Recorder struct {
 	reads         *prometheus.CounterVec
 	readBarrier   prometheus.Histogram
 	applyItem     prometheus.Histogram
-	replogSync    prometheus.Histogram
 	raftLoop      prometheus.Histogram
 	raftTickGap   prometheus.Histogram
 	throttled     *prometheus.CounterVec
@@ -109,10 +108,6 @@ func NewRecorder(celula string, source StatusSource) *Recorder {
 	r.applyItem = f(prometheus.NewHistogram(prometheus.HistogramOpts{
 		Name: "dr_apply_item_duration_seconds", Help: "Duração da gravação de um item no banco da célula pelo applier, com as repetições (ADR-058).",
 		Buckets: prometheus.ExponentialBucketsRange(0.0005, 10, 16),
-	})).(prometheus.Histogram)
-	r.replogSync = f(prometheus.NewHistogram(prometheus.HistogramOpts{
-		Name: "dr_replog_sync_duration_seconds", Help: "Duração do fsync do checkpoint do log de replicação, fora da trava do Append (ADR-059).",
-		Buckets: prometheus.ExponentialBucketsRange(0.0005, 5, 14),
 	})).(prometheus.Histogram)
 
 	r.raftLoop = f(prometheus.NewHistogram(prometheus.HistogramOpts{
@@ -186,7 +181,6 @@ func (r *Recorder) WriteDone(resultado string, d time.Duration) {
 func (r *Recorder) ReadDone(op, resultado string) { r.reads.WithLabelValues(op, resultado).Inc() }
 func (r *Recorder) ReadBarrier(d time.Duration)   { r.readBarrier.Observe(d.Seconds()) }
 func (r *Recorder) ApplyItem(d time.Duration)     { r.applyItem.Observe(d.Seconds()) }
-func (r *Recorder) ReplogSync(d time.Duration)    { r.replogSync.Observe(d.Seconds()) }
 func (r *Recorder) RaftLoop(d time.Duration)      { r.raftLoop.Observe(d.Seconds()) }
 func (r *Recorder) RaftTickGap(d time.Duration)   { r.raftTickGap.Observe(d.Seconds()) }
 func (r *Recorder) Throttled(causa string)        { r.throttled.WithLabelValues(causa).Inc() }

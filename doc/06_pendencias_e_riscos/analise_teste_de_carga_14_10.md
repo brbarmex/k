@@ -4,7 +4,7 @@
 
 > **Correção depois da análise:** o painel "Resultados de escrita por segundo" do dashboard v2 estava **empilhado** (stacking normal). A linha de cima era a soma de todos os resultados, não só o throttling. Por isso a proporção entre throttling e pending continua sem número: a próxima rodada mede isso com `dr_throttled_total{causa}`, o painel sem empilhamento e `task diag`.
 
-Teste do Bruno: notebook RHEL 9, SSD, 32 GB, tudo na mesma máquina (3 células, um LocalStack, Prometheus, Grafana e k6). PutItem com objeto simples (só pk). Aquecimento de 100 TPS por 1 min, rampa até 500 TPS por 1 min, 1000 TPS sustentados por 1 min, 30 s de graceful shutdown. Código analisado: `DataReplicationApp/` no commit `ac25fc2` (ADR-058 e ADR-059) e `go.etcd.io/raft/v3 v3.7.0`.
+Teste do Bruno: notebook RHEL 9, SSD, 32 GB, tudo na mesma máquina (3 células, um LocalStack, Prometheus, Grafana e k6). PutItem com objeto simples (só pk). Aquecimento de 100 TPS por 1 min, rampa até 500 TPS por 1 min, 1000 TPS sustentados por 1 min, 30 s de graceful shutdown. Código analisado: `DataReplicationApp/` no commit `ac25fc2` (ADR-058) e `go.etcd.io/raft/v3 v3.7.0`.
 
 ## 1. Resposta curta
 
@@ -44,7 +44,7 @@ flowchart TD
 | Termo por célula e mudanças de líder | termo de 7 para 18, até 5 mudanças por janela | O laço do Raft bloqueado deixa a célula muda. Ver a seção 2. |
 | Quórum ativos e Quórum OK | cai de 3 para 1 ou 2, Quórum OK chega a 0 | `RecentActive` das followers fica falso porque elas não respondem enquanto o laço delas está preso. |
 | Última atividade Raft | idade de 6 a 8 s | Laço do Raft parado por segundos (fila cheia mais fsync lento). |
-| WAL fsync | P50 de 500 µs, P95 de até 775 ms, picos de 1 a 2 s | Três WALs, três logs de replicação com checkpoint a cada 1 s, LocalStack e Prometheus no mesmo SSD. Em XFS ou ext4, o fsync de um arquivo grande (checkpoint do log de replicação) pode atrasar o fdatasync dos outros pelo journal. |
+| WAL fsync | P50 de 500 µs, P95 de até 775 ms, picos de 1 a 2 s | Três WALs, LocalStack e Prometheus no mesmo SSD. Em XFS ou ext4, o fsync de um arquivo grande de outro processo pode atrasar o fdatasync dos WALs pelo journal. |
 | Resultados de escrita | quase tudo throttling | Throttling só nasce de `raft.ErrProposalDropped` (`node.go:261`). Há duas fontes: buffer de 32 MiB cheio e proposta numa célula que ainda se acha líder (`n.lead` desatualizado). O print não deixa separar throttling de pending: o painel estava empilhado (confirmado no JSON do dashboard e corrigido no ADR-060). |
 | Picos verdes em Resultados | coincidem com as trocas de líder | Provavelmente são no_leader, que tem cor parecida. Não são ok: a latência das escritas confirmadas está vazia e ACK OK = 0. É uma inferência pela coincidência de horário. |
 | Mensagens descartadas por fila cheia | sem dados | O transporte gRPC não descartou nada. O gargalo não é a rede. |
@@ -60,7 +60,7 @@ Cenário oculto: o atraso do apply das followers entra no RTO. Uma follower que 
 
 ### 5.1 O laço do Raft nunca espera o apply (crítico)
 
-- O laço do Raft só publica o commit (um índice atômico mais um aviso). O CommitPump lê as entradas por faixa do armazenamento do Raft, em vez de recebê-las por canal. O MemoryStorage já guarda tudo, porque a compactação está desligada na POC. Em produção, a regra de compactação passa a ser o mínimo entre o DurableIndex e o que o CommitPump já consumiu.
+- O laço do Raft só publica o commit (um índice atômico mais um aviso). O CommitPump lê as entradas por faixa do armazenamento do Raft, em vez de recebê-las por canal. O MemoryStorage já guarda tudo, porque a compactação está desligada na POC. Em produção, a compactação nunca passa do que o applier já aplicou.
 - `Gate.SetRaftCommit` passa a ser alimentado pelo laço do Raft, e não pelo CommitPump depois da fila do Applier. O gate deixa de depender do banco.
 - `n.lead` passa a vir de `node.Status()` ou de um aviso fora do laço, para não ficar desatualizado.
 - Alternativa descartada: aumentar as filas. A fila de 4096 lotes já era a versão "generosa" e só adiou o problema.
@@ -89,7 +89,7 @@ Cenário oculto: o atraso do apply das followers entra no RTO. Uma follower que 
 
 ### 5.5 Partida reaplica o log inteiro
 
-- `RestartNode` recebe `Applied` = índice do snapshot, que é 0 na POC. A cada partida, o Raft reentrega todas as 308K entradas pelo canal. Proposta: `Applied` = mínimo entre o último índice do log de replicação e o progresso do applier. Precisa ser o mínimo dos dois: o log de replicação não tem fsync por entrada, e numa queda de host um `Applied` maior que o log abriria um buraco (ErrGap fatal).
+- `RestartNode` recebe `Applied` = índice do snapshot, que é 0 na POC. A cada partida, o Raft reentrega todas as 308K entradas pelo canal. Proposta: retomar no índice do progresso do applier, com `Applied` = retomada − 1. A entrada do progresso é reentregue inteira e o applier pula os itens já gravados pela ordem salva; o replay é idempotente pela versão, então perder o progresso numa queda de host só alonga a partida.
 
 ### 5.6 Observabilidade que faltou para fechar o diagnóstico
 

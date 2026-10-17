@@ -4,7 +4,7 @@
 
 ## 7. Exemplos de código
 
-> Os trechos 7.1 a 7.8 estão na pasta [`codigo_exemplo/`](codigo_exemplo/) e foram compilados (`go build`, `go vet`, Go 1.26.0, com `fx`, `fasthttp` e `zerolog` reais); os testes passam com `go test -race`. O de 7.9 e o `main` são ilustrativos. Tudo é **esboço para fixar o desenho**, não o código final: faltam o log, o Raft, o parser e os provedores que o `bootstrap` espera (`ConsensusEngine`, `Forwarder`, `AppliedWaiter` e o parser entram por módulos de adaptador). O Go 1.27 não existia neste ambiente; reconfirmar a compatibilidade no primeiro build.
+> Os trechos 7.1 a 7.8 estão na pasta [`codigo_exemplo/`](codigo_exemplo/) e foram compilados (`go build`, `go vet`, Go 1.26.0, com `fx`, `fasthttp` e `zerolog` reais); os testes passam com `go test -race`. O de 7.9 (o laço do `Ready`) e o `main` são ilustrativos. Tudo é **esboço para fixar o desenho**, não o código final: faltam o adaptador do Raft com o seu log, o parser e os provedores que o `bootstrap` espera (`ConsensusEngine`, `Forwarder`, `AppliedWaiter` e o parser entram por módulos de adaptador). O Go 1.27 não existia neste ambiente; reconfirmar a compatibilidade no primeiro build.
 
 > **Atualizado em 14/10/2026 ([ADR-060](../03_adr/ADR-060-laco-do-raft-nunca-espera-o-apply-e-admissao-por-atraso.md)):** o `Committed() <-chan CommitBatch` deste esboço foi trocado no código da POC (`DataReplicationApp/`) por `CommitIndex()`, `CommitChanged()`, `CommittedEntries(lo, hi, maxBytes)` e `FirstIndex()`: o laço do Raft só publica o commit e o `CommitPump` lê por faixa. O canal bloqueante deste esboço é justamente o que parou o laço do Raft no teste de carga. Os trechos abaixo ficam como registro do desenho anterior.
 
@@ -16,7 +16,7 @@ O esboço original tinha oito defeitos, confirmados na [revisão](../06_pendenci
 |---|---|---|---|
 | 1 | `Gate.WaitFor` deixava o waiter registrado quando o contexto expirava (vazamento sob Azure fora) | O waiter é removido na expiração; `Waiting()` expõe o contador | `TestWaitForRemovesWaiterOnTimeout`, `TestWaitForRaceReleaseVsTimeout` |
 | 2 | `SetAzureDurable` guardava só um número, sem termo nem identidade | `SetAzureDurable(termo, índice, learner)` só adota o termo atual ([ADR-046](../03_adr/ADR-046-gate-so-conta-progresso-validado-pelo-raft.md)); termo novo descarta o progresso herdado e o gate continua monotônico | `TestGateAdoptsOnlyCurrentTerm`, `TestGateNewTermRebuildsWithoutRecuar`, `TestGateConcurrentAdvanceIsMonotonicAndReleasesAll` |
-| 3 | O gate só consultava os learners ao processar um lote commitado: sem commit novo, a escrita esperava até o timeout | `CommitPump` com duas goroutines; cada resposta de learner (`LearnerEvents`) alimenta o gate na hora | `TestGateIsFedByLearnerEventsWithoutNewCommit`, `TestGateAdvancesWhileLogAppendIsBlocked`, `TestGateAdvancesWhileApplierIsStuck` |
+| 3 | O gate só consultava os learners ao processar um lote commitado: sem commit novo, a escrita esperava até o timeout | `CommitPump` com goroutine própria de progresso; cada resposta de learner (`LearnerEvents`) alimenta o gate na hora | `TestGateIsFedByLearnerEventsWithoutNewCommit`, `TestGateAdvancesWhileApplierIsStuck` |
 | 4 | `b.Entries[len(b.Entries)-1]` quebrava com lote vazio; canal fechado não era tratado | Lote vazio é ignorado; canal fechado devolve `ErrStreamClosed` | `TestEmptyBatchDoesNotPanic`, `TestClosedChannelsReturnError` |
 | 5 | Sem líder conhecida o código seguia para `Propose` | Espera até `WAIT_LEADER` (1 s) e devolve `ErrNoLeader` (503); requisição já encaminhada nunca é reencaminhada; teto de esperantes ([ADR-039](../03_adr/ADR-039-sem-lider-conhecida-espera-ate-1s-e-503.md)) | `TestNoLeaderWaitsThenFailsWithoutPropose`, `TestForwardedIsNeverReforwarded`, `TestMaxWaitingLeader` |
 | 6 | Nenhuma validade do modo degradado; `DEGRADED_POLICY` inexistente | `Lease` contado desde `t_c`, o último contato com a maioria Azure (não desde a proposta do `DEGRADE`), conferido a cada ACK com relógio injetável (`now < t_c + D`, `503 LEASE_EXPIRED`); líder nova ou nó reiniciado herda o `DEGRADE` sem `t_c` (vencido até contato ou `RENEW`); `reject` nunca propõe `DEGRADE` ([ADR-044](../03_adr/ADR-044-lease-do-modo-degradado-e-promocao-da-azure.md), [ADR-045](../03_adr/ADR-045-politica-de-degradacao-por-instalacao.md)) | `TestLateDegradeWithOldContactIsExpired`, `TestNewLeaderWithoutContactIsExpired`, `TestLeaseRenewAndClear`, `TestLeaseCheckedAtEveryAck`, `TestRejectNeverDegrades`, `TestConcurrentWritesEnterDegradedOnce` |
@@ -25,7 +25,7 @@ O esboço original tinha oito defeitos, confirmados na [revisão](../06_pendenci
 
 Também mudou a configuração: `DEGRADED_POLICY` é obrigatória e sem padrão; `DEGRADED_LEASE` também não tem padrão e é obrigatória **só com `DEGRADED_POLICY=accept`** (com `reject` é ignorada, sem erro); não há variável de modo ([ADR-057](../03_adr/ADR-057-um-unico-modo-strong-consistency.md)), e `READ_MODE_DEFAULT`, `WRITE_MODE` ou `MAX_STALENESS` ainda definidas derrubam a partida (evita um manifesto antigo ser ignorado em silêncio).
 
-**Pontos que o esboço não resolve (de propósito):** `Log.Append` continua síncrono dentro da goroutine de commits (o gate não depende dela, mas o próximo lote ao `Applier` sim; a versão final usa fila limitada); o `DegradeService` é disparado por requisição que espera a Azure, enquanto a versão final terá um monitor com histerese (`DegradeController`); a regra de promoção contra prorrogação (H-DR13) fica para o TLA+; o `t_c` depende de o adaptador do Raft preencher `SentAt` (instante de envio, relógio monotônico da líder) em cada resposta de learner, heartbeat incluído; o parser, a leitura (barreira `min(ReadIndex, gate)`, [ADR-049](../03_adr/ADR-049-barreira-da-leitura-forte-e-o-gate.md)), o `Applier` com checkpoint por item ([ADR-048](../03_adr/ADR-048-skip-por-item.md)) e o mTLS por aplicação ([ADR-052](../03_adr/ADR-052-autorizacao-por-aplicacao-com-mtls.md)) não existem no esboço.
+**Pontos que o esboço não resolve (de propósito):** o commit do Raft chega ao gate e ao `Applier` pela mesma goroutine de commits (na POC o gate segue o commit em goroutine própria e as entradas são lidas por faixa, [ADR-060](../03_adr/ADR-060-laco-do-raft-nunca-espera-o-apply-e-admissao-por-atraso.md)); o `DegradeService` é disparado por requisição que espera a Azure, enquanto a versão final terá um monitor com histerese (`DegradeController`); a regra de promoção contra prorrogação (H-DR13) fica para o TLA+; o `t_c` depende de o adaptador do Raft preencher `SentAt` (instante de envio, relógio monotônico da líder) em cada resposta de learner, heartbeat incluído; o parser, a leitura (barreira `min(ReadIndex, gate)`, [ADR-049](../03_adr/ADR-049-barreira-da-leitura-forte-e-o-gate.md)), o `Applier` com checkpoint por item ([ADR-048](../03_adr/ADR-048-skip-por-item.md)) e o mTLS por aplicação ([ADR-052](../03_adr/ADR-052-autorizacao-por-aplicacao-com-mtls.md)) não existem no esboço.
 
 ### 7.1 Domínio: a entrada replicada
 
@@ -520,33 +520,12 @@ import (
 
 // ---- Portas de saída (driven): o núcleo pede, o adaptador implementa ----
 
-// ReplicationLog é o log de replicação (5.5.1): log segmentado próprio, em volume separado,
-// derivado do log do Raft (ADR-055). Append grava SEM fsync (fora do caminho do ACK).
-// Sync é o checkpoint durável: faz fsync e devolve o novo DurableIndex. Só até o
-// DurableIndex o log do Raft pode ser compactado; nunca até o índice apenas copiado.
-type ReplicationLog interface {
-	Append(ctx context.Context, batch []domain.Entry) error
-	Read(ctx context.Context, from, to domain.Index) ([]domain.Entry, error)
-	TruncateSuffix(ctx context.Context, from domain.Index) error
-	CompactPrefix(ctx context.Context, upTo domain.Index) error
-	Sync(ctx context.Context) (domain.Index, error)
-	DurableIndex() domain.Index
-	LastIndex() domain.Index
-}
-
 // ApplyProgress guarda o progresso do applier por item (índice, ordem), no volume do log
-// de replicação e sem fsync (ADR-048, ADR-055). Perder o progresso só alonga o replay,
-// que é idempotente pela versão.
+// do Raft e sem fsync (ADR-048). Perder o progresso só alonga o replay, que é idempotente
+// pela versão.
 type ApplyProgress interface {
 	SaveProgress(idx domain.Index, ord uint32) error
 	LoadProgress() (domain.Index, uint32, error)
-}
-
-// RaftCompactor é o que o checkpoint precisa do adaptador do Raft para compactar o log
-// do Raft (ADR-055): o menor índice confirmado pelos pares e a compactação em si.
-type RaftCompactor interface {
-	MinPeerMatch() domain.Index
-	Compact(upTo domain.Index) error
 }
 
 // ConsensusEngine esconde a biblioteca Raft (5.5).
@@ -1018,9 +997,9 @@ func TestNoLeaderWaitsThenFailsWithoutPropose(t *testing.T) {
 }
 ```
 
-### 7.4b Caso de uso: ligar o Raft ao log de replicação, ao gate e ao applier
+### 7.4b Caso de uso: ligar o Raft ao gate e ao applier
 
-Duas goroutines: uma só de progresso (cada resposta de learner alimenta o gate na hora) e uma de commits. Um `Append` lento ou um applier parado não atrasam o gate.
+No esboço, duas goroutines: uma só de progresso (cada resposta de learner alimenta o gate na hora) e uma de commits. Um applier parado não atrasa o progresso da Azure no gate. Na POC ([ADR-060](../03_adr/ADR-060-laco-do-raft-nunca-espera-o-apply-e-admissao-por-atraso.md)) são três: progresso, gate (segue o commit) e commits (lê as entradas commitadas por faixa da memória do Raft e entrega ao `Applier`).
 
 ```go
 package usecase
@@ -1042,18 +1021,16 @@ var ErrStreamClosed = errors.New("canal do consenso fechado")
 //
 //  1. progresso: cada resposta de learner da Azure (evento) alimenta o gate no momento
 //     em que chega, com termo e identidade (ADR-046), e registra o contato (t_c) que sustenta
-//     o lease do modo degradado (ADR-044). Não depende de haver commit novo,
-//     nem de o disco do log de replicação ou o applier estarem lentos;
-//  2. commits: cada lote commitado vai (a) para o gate (commit Raft), (b) para o Applier,
-//     da memória, e (c) para o log de replicação.
+//     o lease do modo degradado (ADR-044). Não depende de haver commit novo nem de o
+//     applier estar lento;
+//  2. commits: cada lote commitado vai (a) para o gate (commit Raft) e (b) para o
+//     Applier, pela memória.
 //
-// Ponto de atenção: Log.Append continua SÍNCRONO dentro da goroutine de commits (gravação
-// sem fsync no log de replicação, ADR-055). Ele atrasa a entrega do próximo lote ao Applier, mas não atrasa o
-// gate, que tem goroutine própria. Na versão final o Append roda numa goroutine com
-// fila limitada (backpressure), e o Applier espera o gate, não o Append.
+// Ponto de atenção: a entrega ao Applier é bloqueante dentro da goroutine de commits. Na
+// versão final (ADR-060) o commit é um sinal e o CommitPump lê as entradas por faixa da
+// memória do Raft, para o laço do Raft nunca esperar o Applier.
 type CommitPump struct {
 	Consensus port.ConsensusEngine
-	Log       port.ReplicationLog
 	Gate      *domain.Gate
 	Lease     *domain.Lease // opcional: recebe t_c (último contato com a maioria Azure)
 	ToApplier chan<- []domain.Entry
@@ -1122,9 +1099,6 @@ func (p *CommitPump) runCommits(ctx context.Context) error {
 			case <-ctx.Done():
 				return ctx.Err()
 			}
-			if err := p.Log.Append(ctx, b.Entries); err != nil {
-				return err // erro de escrita no log de replicação é fatal (ADR-055)
-			}
 		}
 	}
 }
@@ -1137,7 +1111,7 @@ Teste do defeito principal (o commit chega antes da Azure e nenhum commit novo v
 // vem depois. Com o gate alimentado só por lote, a escrita ficava esperando até o
 // timeout. Com evento, cada resposta de learner libera o gate na hora.
 func TestGateIsFedByLearnerEventsWithoutNewCommit(t *testing.T) {
-	r := startPump(t, &fakeLog{}, 10)
+	r := startPump(t, 10)
 	r.commit(t, 5)
 	<-r.toApply
 	if r.g.Index() != 0 {
@@ -1591,30 +1565,7 @@ func TestWriterDegradedFollowsRealShardState(t *testing.T) {
 }
 ```
 
-### 7.9 Log de replicação, applier e checkpoint (ADR-055)
-
-> Agora no [`codigo_exemplo/`](codigo_exemplo/README.md), compilado e testado: `internal/adapter/out/replog` (log segmentado), `internal/usecase/apply.go` (`Applier`), `internal/usecase/checkpoint.go` (`Checkpointer`) e `internal/domain/retention.go` (regras de retenção). O trecho abaixo é o coração do checkpoint.
-
-```go
-// usecase.Checkpointer.Tick: um ciclo, fora do caminho do ACK.
-func (c *Checkpointer) Tick(ctx context.Context) error {
-	durable, err := c.Log.Sync(ctx) // fsync do segmento ativo: publica o DurableIndex
-	if err != nil {
-		return err // fatal, como o fsync do Raft (ADR-034)
-	}
-	// Nunca além do durável; folga para o par mais atrasado, se couber em RetainMax.
-	if err := c.Raft.Compact(domain.RaftCompactLimit(durable, c.Raft.MinPeerMatch(), c.RetainMax)); err != nil {
-		return err
-	}
-	if c.Retention == nil {
-		return nil
-	}
-	// min(applied, maioria Azure se dentro da janela, F-1 de um rebuild): apaga segmentos inteiros.
-	return c.Log.CompactPrefix(ctx, domain.ReplogTruncateLimit(c.Retention()))
-}
-```
-
-### 7.10 Laço do Ready e regra de envio (ADR-056)
+### 7.9 Laço do Ready e regra de envio (ADR-056)
 
 > No [`codigo_exemplo/`](codigo_exemplo/README.md), compilado e testado: `internal/domain/sendrule.go` (o que pode sair antes do fsync). O adaptador `etcdraft`, que ainda não existe, a usa no laço do `Ready` sobre o `wal` do etcd e o `MemoryStorage`.
 

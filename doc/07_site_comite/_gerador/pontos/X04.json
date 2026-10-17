@@ -2,53 +2,39 @@
  "id": "X04",
  "pontos": [
   {
-   "titulo": "Erro de escrita ou de fsync no log de replicação",
+   "titulo": "Compactação parada (applier ou Azure atrasados)",
    "origem": "Falhas e tratativas",
-   "contexto": "O log de replicação é gravado depois do commit e o checkpoint faz fsync periódico. Um erro de escrita ou de fsync deixa incerto o que está em disco, e continuar operando poderia permitir compactar o Raft com base num `DurableIndex` falso. Isso arrisca perder entradas para a Azure e o replay do applier.",
-   "na_fonte": "Erro é fatal para o processo, como o fsync do Raft (ADR-034); na volta, o trecho perdido vem do Raft (passo 1 da partida).",
-   "sugestao": "Teste de falha com injeção de erro de fsync (dispositivo de bloco com falha, por exemplo `dm-flakey`) confirmando que o processo morre e que, na volta, o log é completado a partir do Raft. Alertar sobre reinícios repetidos por fsync, que indicam disco ruim e deveriam levar à troca do nó com identidade nova."
-  },
-  {
-   "titulo": "Perda só do volume do log de replicação",
-   "origem": "Falhas e tratativas",
-   "contexto": "O Raft do nó fica inteiro, mas guarda só segundos de histórico; o histórico para a Azure, o progresso do applier e o high-water mark se perdem. Manter a identidade do nó com esse estado perdido poderia fazê-lo contar com dados que não tem. Tratar como disco perdido aumenta o tempo de volta do nó (RTO do nó) por exigir catch-up completo.",
-   "na_fonte": "Padrão adotado: tratar como disco perdido, e o nó volta com identidade nova (ADR-034). A alternativa (manter identidade e recarregar o histórico de um par) está nas perguntas para o Bruno.",
-   "sugestao": "Manter o padrão de identidade nova pela simplicidade de prova (P13) e medir o tempo de catch-up completo de um votante como parte do RTO do nó. Só reabrir a alternativa se essa medida for inaceitável, levando o número ao Bruno."
-  },
-  {
-   "titulo": "Checkpoint parado (volume lento ou cheio)",
-   "origem": "Falhas e tratativas",
-   "contexto": "Se o checkpoint para, o `DurableIndex` não avança e o Raft deixa de ser compactado. O log do Raft cresce no volume pequeno dele e na memória do `MemoryStorage`, o que pode levar a falta de memória ou de disco no votante. É uma falha silenciosa que vira queda de nó depois.",
-   "na_fonte": "Métrica `raft_log_bytes` com alerta e `replog_durable_lag` (risco 31); erro de fsync é fatal.",
-   "sugestao": "Definir limiares de alerta (a definir) para `replog_durable_lag` e `raft_log_bytes` e um teste de caos que degrade a latência do volume do log de replicação até o checkpoint ficar atrás, observando o crescimento de memória. Avaliar um limite duro em que o nó recusa novas entradas em vez de morrer por falta de memória."
+   "contexto": "A compactação não passa do aplicado local nem, dentro da janela, do índice durável da maioria Azure. Com o applier parado ou a Azure atrasada, o log do Raft cresce no volume e na memória do `MemoryStorage`, o que pode levar a falta de memória ou de disco no votante. É uma falha silenciosa que vira queda de nó depois.",
+   "na_fonte": "Métrica `raft_log_bytes` com alerta, teto de 70% do volume (ADR-041) e admissão por atraso do apply na líder (ADR-060); erro de fsync é fatal. A memória é o risco 46.",
+   "sugestao": "Definir limiares de alerta (a definir) para `raft_log_bytes` e para a memória do processo, e um teste de caos com o applier parado e a Azure atrasada, observando o crescimento de memória. Avaliar um limite duro em que o nó recusa novas entradas em vez de morrer por falta de memória."
   },
   {
    "titulo": "High-water mark perdido",
    "origem": "Falhas e tratativas",
-   "contexto": "Numa queda de host, o high-water mark do applier pode voltar até um checkpoint atrás. Se as leituras abrirem com base nele, um item apagado pode reaparecer durante o replay e ser lido, violando I-DEL. É um risco de leitura incorreta, não de perda de dado.",
+   "contexto": "Numa queda de host, o high-water mark do applier pode voltar para trás, porque o progresso é gravado sem fsync. Se as leituras abrirem com base nele, um item apagado pode reaparecer durante o replay e ser lido, violando I-DEL. É um risco de leitura incorreta, não de perda de dado.",
    "na_fonte": "Proposta na fonte: abrir as leituras só quando o applier alcançar o índice de commit recuperado do `HardState` do Raft. A fonte registra que falta fixar no desenho e testar.",
    "sugestao": "Fixar a proposta em ADR e incluí-la no teste de propriedade de I-DEL com queda de host simulada (descartar o que veio depois do último fsync). Medir quanto isso atrasa a abertura de leituras na partida, já que entra no RTO do nó."
   },
   {
    "titulo": "Conformidade com queda de host simulada",
    "origem": "Pontos em aberto",
-   "contexto": "Os testes de conformidade de `ReplicationLog` e `ConsensusEngine` precisam cobrir todas as janelas de queda (A a D) entre os dois logs. Queda de processo preserva o cache de páginas e não exercita a perda do que veio depois do último fsync. Sem simular queda de host, a regra de compactação pelo `DurableIndex` não é testada de verdade.",
+   "contexto": "Os testes de conformidade de `ConsensusEngine` e do applier precisam cobrir todas as janelas de queda da partida. Queda de processo preserva o cache de páginas e não exercita a perda do progresso gravado sem fsync. Sem simular queda de host, a retomada e a regra de compactação não são testadas de verdade.",
    "na_fonte": "A fonte registra o ponto como pendente: incluir todos os casos, com queda de host simulada, e não só queda de processo.",
-   "sugestao": "Implementar um sistema de arquivos de teste que descarte escritas não sincronizadas na queda e rodar a suíte em cada janela A a D, com asserção de I-DEL e de `RaftCompactLimit`. Tornar isso critério de aceite da fase 1."
+   "sugestao": "Implementar um sistema de arquivos de teste que descarte escritas não sincronizadas na queda e rodar a suíte em cada janela de queda, com asserção de I-DEL e de `RaftCompactLimit`. Tornar isso critério de aceite da fase 1."
   },
   {
-   "titulo": "Valores de `REPLOG_SYNC_INTERVAL` e `RAFT_RETAIN_MAX`",
+   "titulo": "Valor de `RAFT_RETAIN_MAX`",
    "origem": "Pontos em aberto",
-   "contexto": "O intervalo de checkpoint define quanto replay há após queda de host e quanto o Raft cresce antes de ser compactado. A retenção máxima do Raft limita a memória do `MemoryStorage`. Valores mal escolhidos trocam latência de fsync por tempo de partida ou por risco de memória.",
-   "na_fonte": "Não decidido na fonte. PEND-22 traz valores propostos, a validar nos spikes S1 e S2.",
-   "sugestao": "Rodar os spikes S1 e S2 com carga de pico e medir latência de escrita, tempo de replay e uso de memória para cada valor candidato. Registrar o critério de escolha junto com o valor."
+   "contexto": "A folga de retenção do Raft para votantes atrasados define quanto o log cresce antes de ser compactado e, com isso, a memória do `MemoryStorage`. Um valor mal escolhido troca reconstruções desnecessárias por risco de memória.",
+   "na_fonte": "Não decidido na fonte. PEND-24 traz o valor proposto, a validar nos spikes S1 e S2.",
+   "sugestao": "Rodar os spikes S1 e S2 com carga de pico e medir tempo de replay e uso de memória para cada valor candidato. Registrar o critério de escolha junto com o valor."
   },
   {
    "titulo": "Tempo total de partida do nó",
    "origem": "Pontos em aberto",
-   "contexto": "A partida inclui truncar a cauda, completar o log a partir do Raft, reconstruir a tabela de dedupe, fazer o replay do applier e varrer segmentos para validar CRC. Com volume grande, essa varredura pode dominar o tempo de volta do nó. Isso entra no RTO do nó e indiretamente na disponibilidade do shard.",
-   "na_fonte": "Não decidido na fonte. R18 trata do RTO medido em exercícios de falha como distribuição; a varredura de CRC entra na medição.",
-   "sugestao": "Medir a partida por etapa (abertura do log, dedupe, replay) com volume cheio no teto de 70%. Se a varredura de CRC dominar, avaliar validar só o último segmento na partida e o restante em segundo plano."
+   "contexto": "A partida inclui reabrir o WAL do Raft, reconstruir a tabela de dedupe e fazer o replay do applier a partir do progresso. Com um log retido grande, a releitura do WAL pode dominar o tempo de volta do nó. Isso entra no RTO do nó e indiretamente na disponibilidade do shard.",
+   "na_fonte": "Não decidido na fonte. R18 trata do RTO medido em exercícios de falha como distribuição; a releitura do WAL entra na medição.",
+   "sugestao": "Medir a partida por etapa (abertura do WAL, dedupe, replay) com o volume cheio no teto de 70%. Se a releitura dominar, avaliar a compactação com snapshot do ADR-063 para encurtá-la."
   }
  ]
 }
