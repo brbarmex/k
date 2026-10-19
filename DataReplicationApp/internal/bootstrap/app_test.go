@@ -64,6 +64,7 @@ func setEnv(t *testing.T) {
 	t.Setenv("PEERS", "1=cell-1:7000,2=cell-2:7000,3=cell-3:7000")
 	t.Setenv("TABLES", "cadastro_cliente_cell_{cell}")
 	t.Setenv("AWS_REGION", "sa-east-1")
+	t.Setenv("CLUSTER_ID", "poc-local")
 }
 
 func build(t *testing.T) (port.Writer, *domain.Gate) {

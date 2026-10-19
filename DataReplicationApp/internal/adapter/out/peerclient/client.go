@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/rs/zerolog"
@@ -29,6 +30,7 @@ const (
 // port.GatePublisher.
 type Client struct {
 	forwardTimeout time.Duration
+	queueBytes     int64 // PEER_QUEUE_BYTES: teto em bytes da fila de cada par; 0 = sem teto (DC-09)
 	log            zerolog.Logger
 	peers          map[uint64]*peer
 	ctx            context.Context
@@ -51,16 +53,19 @@ type peer struct {
 	conn   *grpc.ClientConn
 	rpc    peerv1.Client
 	raftQ  chan []byte
+	queued atomic.Int64 // bytes na raftQ (DC-09)
 	gateMu sync.Mutex
 	gate   *peerv1.GateUpdateRequest // só o valor mais recente
 	gateC  chan struct{}
 }
 
-// New cria um cliente para cada par (o próprio nó fica de fora). Sem TLS na POC. extra
-// acrescenta opções de conexão (os testes usam um dialer em memória).
-func New(self uint64, peers map[uint64]string, forwardTimeout time.Duration, log zerolog.Logger, extra ...grpc.DialOption) (*Client, error) {
+// New cria um cliente para cada par (o próprio nó fica de fora). Sem TLS na POC.
+// queueBytes limita os bytes na fila de saída de cada par (PEER_QUEUE_BYTES, DC-09), além
+// das 4.096 mensagens. extra acrescenta opções de conexão (os testes usam um dialer em
+// memória).
+func New(self uint64, peers map[uint64]string, forwardTimeout time.Duration, queueBytes int64, log zerolog.Logger, extra ...grpc.DialOption) (*Client, error) {
 	ctx, cancel := context.WithCancel(context.Background())
-	c := &Client{forwardTimeout: forwardTimeout, log: log, peers: map[uint64]*peer{}, ctx: ctx, cancel: cancel}
+	c := &Client{forwardTimeout: forwardTimeout, queueBytes: queueBytes, log: log, peers: map[uint64]*peer{}, ctx: ctx, cancel: cancel}
 	for id, addr := range peers {
 		if id == self {
 			continue
@@ -81,21 +86,34 @@ func New(self uint64, peers map[uint64]string, forwardTimeout time.Duration, log
 	return c, nil
 }
 
-// Send enfileira a mensagem do Raft para o par, sem bloquear. Fila cheia ou par
-// desconhecido devolve false, e o nó avisa o Raft (ReportUnreachable).
+// Send enfileira a mensagem do Raft para o par, sem bloquear. Fila cheia (em mensagens ou
+// em bytes, DC-09) ou par desconhecido devolve false, e o nó avisa o Raft
+// (ReportUnreachable).
 func (c *Client) Send(to uint64, msg []byte) bool {
 	p := c.peers[to]
 	if p == nil {
 		return false
 	}
+	n := int64(len(msg))
+	if c.queueBytes > 0 && p.queued.Add(n) > c.queueBytes {
+		p.queued.Add(-n)
+		port.MetricsOrNop(c.Metrics).PeerSendDropped(to)
+		return false
+	} else if c.queueBytes <= 0 {
+		p.queued.Add(n)
+	}
 	select {
 	case p.raftQ <- msg:
 		return true
 	default:
+		p.queued.Add(-n)
 		port.MetricsOrNop(c.Metrics).PeerSendDropped(to)
 		return false
 	}
 }
+
+// dequeued devolve à conta da fila os bytes de uma mensagem que saiu dela.
+func (c *Client) dequeued(p *peer, msg []byte) { p.queued.Add(-int64(len(msg))) }
 
 func (c *Client) pumpRaft(p *peer) {
 	defer c.wg.Done()
@@ -106,11 +124,13 @@ func (c *Client) pumpRaft(p *peer) {
 			return
 		case first = <-p.raftQ:
 		}
+		c.dequeued(p, first)
 		batch := [][]byte{first}
 	drain:
 		for len(batch) < stepBatch {
 			select {
 			case m := <-p.raftQ:
+				c.dequeued(p, m)
 				batch = append(batch, m)
 			default:
 				break drain
@@ -165,12 +185,12 @@ func (c *Client) Barrier(ctx context.Context, leader string) (domain.Index, doma
 	}
 }
 
-// Publish guarda o gate mais recente para cada par e acorda o envio. Nunca bloqueia e
-// nunca perde o último valor (G-06).
-func (c *Client) Publish(gate domain.Index) {
+// Publish guarda o gate e o piso mais recentes para cada par e acorda o envio. Nunca
+// bloqueia e nunca perde o último valor (G-06, RT-15).
+func (c *Client) Publish(gate, floor domain.Index) {
 	for _, p := range c.peers {
 		p.gateMu.Lock()
-		p.gate = &peerv1.GateUpdateRequest{Gate: uint64(gate)}
+		p.gate = &peerv1.GateUpdateRequest{Gate: uint64(gate), Floor: uint64(floor)}
 		p.gateMu.Unlock()
 		select {
 		case p.gateC <- struct{}{}:

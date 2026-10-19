@@ -30,13 +30,14 @@ type CommitPump struct {
 	Gate      *domain.Gate
 	ToApplier chan<- []domain.Entry
 	// From é o primeiro índice a entregar (ADR-060, item 5): ResumeFrom na partida. Abaixo
-	// do primeiro índice guardado pelo Raft, começa nele.
+	// do primeiro índice retido em disco, começa nele: tudo o que está antes já foi
+	// aplicado com o progresso durável, porque o disco nunca é liberado além dele (G1).
 	From domain.Index
 
 	delivered atomic.Uint64 // último índice entregue ao Applier
 }
 
-// readBytes é o teto de cada leitura por faixa da memória do Raft.
+// readBytes é o teto de cada leitura por faixa do log (RAM ou disco).
 const readBytes = 1 << 20
 
 // ResumeFrom é o primeiro índice que a bomba entrega na partida (ADR-060, item 5): o
@@ -81,6 +82,7 @@ func (p *CommitPump) runGate(ctx context.Context) {
 func (p *CommitPump) runCommits(ctx context.Context) error {
 	next := max(p.From, p.Consensus.FirstIndex(), 1)
 	p.delivered.Store(uint64(next - 1))
+	started := false // já entregou algo nesta execução
 	for {
 		changed := p.Consensus.CommitChanged() // antes de ler o índice: não perde avanço
 		commit := p.Consensus.CommitIndex()
@@ -93,8 +95,18 @@ func (p *CommitPump) runCommits(ctx context.Context) error {
 			}
 		}
 		ents, err := p.Consensus.CommittedEntries(next, commit, readBytes)
+		if errors.Is(err, port.ErrNotRetained) && !started {
+			// Na partida, sem a entrada next na RAM nem no disco, a célula está atrás da
+			// cauda e vai receber o marcador (O-34, RT-18): espera o commit avançar.
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-changed:
+				continue
+			}
+		}
 		if err != nil {
-			return err // a memória do Raft perdeu entradas não entregues: bug, fatal
+			return err // o log perdeu entradas não entregues: bug, fatal (G1)
 		}
 		if len(ents) == 0 {
 			continue
@@ -109,5 +121,6 @@ func (p *CommitPump) runCommits(ctx context.Context) error {
 		}
 		next = ents[len(ents)-1].Index + 1
 		p.delivered.Store(uint64(next - 1))
+		started = true
 	}
 }

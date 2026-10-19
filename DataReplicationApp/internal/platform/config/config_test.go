@@ -13,6 +13,7 @@ func valid() map[string]string {
 		"CELL_ID": "a",
 		"NODE_ID": "1", "PEERS": "1=cell-1:7000,2=cell-2:7000,3=cell-3:7000",
 		"TABLES": "cadastro_cliente_cell_{cell}", "AWS_REGION": "sa-east-1",
+		"CLUSTER_ID": "poc-local",
 	}
 }
 
@@ -165,6 +166,89 @@ func TestLoadADR060Vars(t *testing.T) {
 		m[k] = bad
 		if _, err := LoadFrom(env(m)); err == nil || !strings.Contains(err.Error(), k) {
 			t.Errorf("%s=%s devia falhar citando a variável, veio %v", k, bad, err)
+		}
+	}
+}
+
+// O-30: padrões das variáveis da compactação (S.6 da trecho).
+func TestCompactionDefaults(t *testing.T) {
+	c, err := LoadFrom(env(valid()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.ClusterID != "poc-local" || c.SnapshotEveryEntries != 10_000 || c.SnapshotEveryBytes != 64<<20 ||
+		c.RaftCatchupEntries != 5_000 || c.RaftRAMMax != 256<<20 || c.RaftCompactInterval != time.Second ||
+		c.RetainMaxBytes != 2<<30 || c.RetainDiskHard != 0.85 || c.RetainDiskHardBytes != 0 ||
+		c.WalSegmentBytes != 64_000_000 || c.RebuildRetry != time.Minute || c.RebuildPinTTL != 5*time.Minute ||
+		c.PeerQueueBytes != 64<<20 {
+		t.Fatalf("padrões da compactação inesperados: %+v", c)
+	}
+}
+
+// O-30: os valores de teste da trecho (S.6) são aceitos, com sufixos.
+func TestCompactionTestValues(t *testing.T) {
+	m := valid()
+	for k, v := range map[string]string{
+		"SNAPSHOT_EVERY_ENTRIES": "200", "RAFT_CATCHUP_ENTRIES": "50", "WAL_SEGMENT_BYTES": "1MiB",
+		"RETAIN_MAX_BYTES": "4MiB", "RETAIN_DISK_HARD_BYTES": "12MiB", "REBUILD_RETRY": "20s",
+	} {
+		m[k] = v
+	}
+	c, err := LoadFrom(env(m))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.SnapshotEveryEntries != 200 || c.RaftCatchupEntries != 50 || c.WalSegmentBytes != 1<<20 ||
+		c.RetainMaxBytes != 4<<20 || c.RetainDiskHardBytes != 12<<20 || c.RebuildRetry != 20*time.Second {
+		t.Fatalf("valores de teste não lidos: %+v", c)
+	}
+}
+
+// O-30: cada faixa (abaixo, acima, formato) e cada regra de coerência recusa, citando a variável.
+func TestCompactionInvalid(t *testing.T) {
+	cases := []struct {
+		name string
+		over map[string]string
+		want string
+	}{
+		{"cluster ausente", map[string]string{"CLUSTER_ID": ""}, "CLUSTER_ID"},
+		{"cluster formato", map[string]string{"CLUSTER_ID": "POC_Local"}, "CLUSTER_ID"},
+		{"entradas abaixo", map[string]string{"SNAPSHOT_EVERY_ENTRIES": "99"}, "SNAPSHOT_EVERY_ENTRIES"},
+		{"entradas acima", map[string]string{"SNAPSHOT_EVERY_ENTRIES": "10000001"}, "SNAPSHOT_EVERY_ENTRIES"},
+		{"bytes formato", map[string]string{"SNAPSHOT_EVERY_BYTES": "64XB"}, "SNAPSHOT_EVERY_BYTES"},
+		{"bytes acima", map[string]string{"SNAPSHOT_EVERY_BYTES": "2GiB"}, "SNAPSHOT_EVERY_BYTES"},
+		{"intervalo abaixo", map[string]string{"RAFT_COMPACT_INTERVAL": "10ms"}, "RAFT_COMPACT_INTERVAL"},
+		{"teto fração", map[string]string{"RETAIN_DISK_HARD": "0.99"}, "RETAIN_DISK_HARD"},
+		{"segmento abaixo", map[string]string{"WAL_SEGMENT_BYTES": "1KiB"}, "WAL_SEGMENT_BYTES"},
+		{"pino abaixo", map[string]string{"REBUILD_PIN_TTL": "1s"}, "REBUILD_PIN_TTL"},
+		{"fila acima", map[string]string{"PEER_QUEUE_BYTES": "2GiB"}, "PEER_QUEUE_BYTES"},
+		{"catchup >= snapshot", map[string]string{"SNAPSHOT_EVERY_ENTRIES": "200", "RAFT_CATCHUP_ENTRIES": "200"}, "RAFT_CATCHUP_ENTRIES"},
+		{"ram pequena", map[string]string{"RAFT_RAM_MAX": "96MiB"}, "RAFT_RAM_MAX"},
+		{"teto absoluto <= janela", map[string]string{"RETAIN_MAX_BYTES": "4MiB", "WAL_SEGMENT_BYTES": "1MiB", "RETAIN_DISK_HARD_BYTES": "4MiB"}, "RETAIN_DISK_HARD_BYTES"},
+		{"janela < segmento", map[string]string{"RETAIN_MAX_BYTES": "32MiB"}, "RETAIN_MAX_BYTES"},
+	}
+	for _, tc := range cases {
+		m := valid()
+		for k, v := range tc.over {
+			m[k] = v
+		}
+		_, err := LoadFrom(env(m))
+		if err == nil || !strings.Contains(err.Error(), tc.want) {
+			t.Errorf("%s: devia falhar citando %s, veio %v", tc.name, tc.want, err)
+		}
+	}
+}
+
+// O-30: todos os erros da compactação vêm reunidos numa chamada.
+func TestCompactionErrorsJoined(t *testing.T) {
+	m := valid()
+	m["CLUSTER_ID"] = ""
+	m["SNAPSHOT_EVERY_ENTRIES"] = "1"
+	m["PEER_QUEUE_BYTES"] = "x"
+	_, err := LoadFrom(env(m))
+	for _, k := range []string{"CLUSTER_ID", "SNAPSHOT_EVERY_ENTRIES", "PEER_QUEUE_BYTES"} {
+		if err == nil || !strings.Contains(err.Error(), k) {
+			t.Errorf("faltou %s no erro reunido: %v", k, err)
 		}
 	}
 }

@@ -22,7 +22,7 @@ type LeaderBarrier interface {
 
 // GateReceiver recebe o gate publicado pela líder (usecase.GateSync).
 type GateReceiver interface {
-	OnGateUpdate(gate domain.Index)
+	OnGateUpdate(gate, floor domain.Index)
 }
 
 // Server implementa peerv1.PeerServer.
@@ -63,7 +63,7 @@ func (s *Server) ReadBarrier(ctx context.Context, _ *peerv1.BarrierRequest) (*pe
 }
 
 func (s *Server) GateUpdate(_ context.Context, req *peerv1.GateUpdateRequest) (*peerv1.Empty, error) {
-	s.Gate.OnGateUpdate(domain.Index(req.Gate))
+	s.Gate.OnGateUpdate(domain.Index(req.Gate), domain.Index(req.Floor))
 	return &peerv1.Empty{}, nil
 }
 

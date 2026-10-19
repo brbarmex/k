@@ -44,4 +44,7 @@ func (r *recMetrics) Throttled(c string)                    { r.inc("throttled:"
 func (r *recMetrics) HTTPRequest(op string, st int, _ time.Duration) {
 	r.inc("http:" + op + ":" + strconv.Itoa(st))
 }
-func (r *recMetrics) HTTPInFlight(d int) { r.inc("inflight:" + strconv.Itoa(d)) }
+func (r *recMetrics) HTTPInFlight(d int)            { r.inc("inflight:" + strconv.Itoa(d)) }
+func (r *recMetrics) SnapshotTaken(time.Duration)   { r.inc("snapshot") }
+func (r *recMetrics) SnapshotDeferred()             { r.inc("snapshot_deferred") }
+func (r *recMetrics) StartupDuration(time.Duration) { r.inc("startup") }

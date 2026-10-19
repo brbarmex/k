@@ -100,6 +100,15 @@ func (a *Applier) Run(ctx context.Context) error {
 	if a.parked == nil {
 		a.parked = make(chan struct{})
 	}
+	// A marca d'água começa no progresso, não em 0 (O-32): a entrada do progresso está
+	// inteira no banco só com OrdComplete; senão, só as anteriores. Um "aplicado" falso
+	// na partida bloquearia o marcador do snapshot (SG-19).
+	switch {
+	case pOrd == port.OrdComplete:
+		a.applied = max(a.applied, pIdx)
+	case pIdx > 0:
+		a.applied = max(a.applied, pIdx-1)
+	}
 	a.mu.Unlock()
 	ctx, cancel := context.WithCancelCause(ctx)
 	defer cancel(nil)
@@ -343,6 +352,14 @@ func (a *Applier) WorkerCount() int { return max(a.Workers, 1) }
 
 // InFlight é quantos itens foram despachados e ainda não terminaram.
 func (a *Applier) InFlight() int { return int(a.queued.Load()) }
+
+// Idle diz se não há item a caminho do banco nem entrada despachada pendente (usado pela
+// reconstrução, que só começa com o applier ocioso).
+func (a *Applier) Idle() bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.queued.Load() == 0 && len(a.pending) == 0
+}
 
 // WaitApplied implementa port.AppliedWaiter: o ACK da líder espera o apply local (6.9).
 // Com o applier estacionado, um índice no item venenoso ou depois dele nunca será

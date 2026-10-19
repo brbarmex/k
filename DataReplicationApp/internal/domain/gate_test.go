@@ -136,3 +136,51 @@ func (g *Gate) waiting() int {
 	defer g.mu.Unlock()
 	return len(g.waiters)
 }
+
+// O-31, DC-02: na follower com o commit local parado, o recuperado libera até
+// min(recuperado, recebido); a líder ignora o recuperado; a monotonia continua.
+func TestGateRecovered(t *testing.T) {
+	g := &Gate{}
+	g.SetFollower(true)
+	g.SetRaftCommit(10)
+	g.SetReceived(100)
+	if g.Index() != 10 {
+		t.Fatalf("gate = %d, quer o commit local 10", g.Index())
+	}
+	g.SetRecovered(60)
+	if g.Index() != 60 || g.Snapshot().Recovered != 60 {
+		t.Fatalf("gate = %d, quer o recuperado 60", g.Index())
+	}
+	g.SetRecovered(500)
+	if g.Index() != 100 {
+		t.Fatalf("gate = %d, quer limitado pelo recebido 100", g.Index())
+	}
+	g.SetRecovered(20) // nunca recua
+	if g.Index() != 100 {
+		t.Fatalf("gate recuou para %d", g.Index())
+	}
+
+	l := &Gate{}
+	l.SetRaftCommit(7)
+	l.SetRecovered(50)
+	if l.Index() != 7 {
+		t.Fatalf("líder: gate = %d, quer o commit 7", l.Index())
+	}
+}
+
+// O-31, G6: Restore sobe o recebido com o confirmado do marcador na partida.
+func TestGateRestore(t *testing.T) {
+	g := &Gate{}
+	g.SetFollower(true)
+	g.Restore(40)
+	g.SetRaftCommit(55)
+	if g.Index() != 40 {
+		t.Fatalf("follower: gate = %d, quer o confirmado 40", g.Index())
+	}
+	l := &Gate{}
+	l.Restore(40)
+	l.SetRaftCommit(55)
+	if l.Index() != 55 {
+		t.Fatalf("líder: gate = %d, quer o commit 55", l.Index())
+	}
+}

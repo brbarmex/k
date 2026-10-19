@@ -3,6 +3,8 @@ package port
 import (
 	"context"
 	"errors"
+	"math"
+	"time"
 
 	"example.com/datareplication/internal/domain"
 )
@@ -12,10 +14,19 @@ import (
 // ApplyProgress guarda o progresso do applier por item (índice, ordem), no volume do log
 // do Raft e sem fsync (ADR-048). Perder o progresso só alonga o replay, que é idempotente
 // pela versão.
+//
+// Sync torna durável o maior índice gravado antes dele e devolve o índice durável (AP-06):
+// o Compactor chama Sync antes de cada snapshot e de cada liberação de disco, e o disco
+// nunca é liberado além dele (SG-18, G1).
 type ApplyProgress interface {
 	SaveProgress(idx domain.Index, ord uint32) error
 	LoadProgress() (domain.Index, uint32, error)
+	Sync() (domain.Index, error)
 }
+
+// OrdComplete na ordem do progresso quer dizer que a entrada inteira já está no banco
+// (usada pela reconstrução, DC-04).
+const OrdComplete = math.MaxUint32
 
 // ConsensusEngine esconde a biblioteca Raft (5.5).
 type ConsensusEngine interface {
@@ -83,10 +94,40 @@ type BarrierClient interface {
 	Barrier(ctx context.Context, leader string) (readIndex, gate domain.Index, err error)
 }
 
-// GatePublisher leva o gate da líder às outras células (G-06). Nunca bloqueia e nunca
-// perde o valor mais recente.
+// GatePublisher leva o gate da líder às outras células (G-06), junto com o piso de
+// retenção do disco (RT-15). Nunca bloqueia e nunca perde o valor mais recente.
 type GatePublisher interface {
-	Publish(gate domain.Index)
+	Publish(gate, floor domain.Index)
+}
+
+// ErrNotRetained: a faixa pedida já saiu do disco retido (RT-16).
+var ErrNotRetained = errors.New("faixa do log fora do disco retido")
+
+// SnapshotPolicy decide se um MsgSnap recebido chega ao Raft (RT-18, SG-19): só com o
+// aplicado local ≥ índice do marcador. Behind avisa que a célula está atrás da cauda.
+type SnapshotPolicy interface {
+	Applied() domain.Index
+	Behind(target domain.Index)
+}
+
+// LogSource lê entradas commitadas e definitivas do log, da RAM ou do disco (RT-16).
+type LogSource interface {
+	Read(ctx context.Context, lo, hi domain.Index, maxBytes uint64) ([]domain.Entry, error)
+	FirstRetained() domain.Index
+}
+
+// RetentionPins segura o disco do log a partir de um índice enquanto alguém lê dele
+// (leitura do disco, canal de recuperação, reconstrução). O pino segura as entradas
+// depois de idx.
+type RetentionPins interface {
+	Pin(owner string, idx domain.Index) (release func())
+	PinFor(owner string, idx domain.Index, ttl time.Duration)
+	Unpin(owner string)
+}
+
+// RetentionFloorSink recebe, na follower, o piso de retenção publicado pela líder (RT-15).
+type RetentionFloorSink interface {
+	SetFloor(domain.Index)
 }
 
 // RaftInbound recebe mensagens do Raft já serializadas, vindas de um par.
@@ -111,6 +152,19 @@ type RaftInfo struct {
 	QuorumActive int
 	// Voters: número de votantes da configuração.
 	Voters int
+
+	// Log do Raft limitado (O-37, item 6).
+	Snapshot      domain.Index    // índice do último snapshot-marcador
+	MemEntries    uint64          // entradas no MemoryStorage
+	MemBytes      int64           // bytes das entradas no MemoryStorage
+	RetainedBytes int64           // bytes dos arquivos .wal no disco
+	RetainedFiles int             // arquivos .wal no disco
+	Floor         domain.Index    // piso de retenção (calculado na líder, recebido na follower)
+	Pins          int             // pinos ativos
+	HardCeiling   bool            // disco no teto duro
+	HeldByApplied bool            // no teto duro, quem segura o disco é o aplicado local
+	BehindTail    bool            // a célula recebeu um marcador à frente do seu aplicado
+	Window        map[uint64]bool // réplicas dentro da janela de retenção (só na líder)
 }
 
 type VersionedOp struct {

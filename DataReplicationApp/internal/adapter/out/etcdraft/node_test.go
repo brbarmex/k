@@ -50,6 +50,11 @@ type cluster struct {
 	done   map[uint64]chan error
 	got    map[uint64]*collector
 	m      map[uint64]*recMetrics
+	// tune ajusta a configuração de um nó antes do Open (compactação, política, marcador).
+	tune map[uint64]func(*Config)
+	// paused faz o coletor do nó já começar parado.
+	paused map[uint64]bool
+	cdone  map[uint64]chan struct{}
 }
 
 // collector lê as entradas commitadas por faixa, como o CommitPump faria.
@@ -81,6 +86,9 @@ func newCluster(t *testing.T, ctx context.Context) *cluster {
 		done:   map[uint64]chan error{},
 		got:    map[uint64]*collector{},
 		m:      map[uint64]*recMetrics{},
+		tune:   map[uint64]func(*Config){},
+		paused: map[uint64]bool{},
+		cdone:  map[uint64]chan struct{}{},
 	}
 	for id := uint64(1); id <= 3; id++ {
 		c.dirs[id] = filepath.Join(base, "n"+string(rune('0'+id)), "wal")
@@ -94,8 +102,11 @@ func (c *cluster) start(ctx context.Context, id uint64, voters []uint64) {
 	if c.m[id] == nil {
 		c.m[id] = &recMetrics{}
 	}
-	n, err := Open(Config{ID: id, Voters: voters, Dir: c.dirs[id], TickInterval: 10 * time.Millisecond, Metrics: c.m[id]},
-		memSender{net: c.net, from: id}, zerolog.Nop())
+	cfg := Config{ID: id, Voters: voters, Dir: c.dirs[id], TickInterval: 10 * time.Millisecond, Metrics: c.m[id]}
+	if f := c.tune[id]; f != nil {
+		f(&cfg)
+	}
+	n, err := Open(cfg, memSender{net: c.net, from: id}, zerolog.Nop())
 	if err != nil {
 		c.t.Fatalf("Open(%d): %v", id, err)
 	}
@@ -107,9 +118,21 @@ func (c *cluster) start(ctx context.Context, id uint64, voters []uint64) {
 	c.cancel[id] = cancel
 	done := make(chan error, 1)
 	c.done[id] = done
-	col := &collector{}
+	col := &collector{paused: c.paused[id]}
+	c.net.mu.Lock() // o progresso simulado do Compactor lê o coletor (compactor_test.go)
 	c.got[id] = col
+	c.net.mu.Unlock()
 	go func() { done <- n.Run(nctx) }()
+	cdone := make(chan struct{})
+	c.cdone[id] = cdone
+	go func() {
+		defer close(cdone)
+		if cp := n.Compactor(); cp != nil {
+			if err := cp.Run(nctx); err != nil && nctx.Err() == nil {
+				c.t.Errorf("compactor do nó %d: %v", id, err)
+			}
+		}
+	}()
 	go func() { // lê por faixa, como o CommitPump (ADR-060)
 		next := n.FirstIndex()
 		for {
@@ -146,6 +169,7 @@ func (c *cluster) stop(id uint64) {
 	c.net.mu.Unlock()
 	c.cancel[id]()
 	<-c.done[id]
+	<-c.cdone[id]
 	_ = n.Close()
 }
 

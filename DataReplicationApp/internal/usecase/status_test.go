@@ -77,3 +77,27 @@ func TestStatusShowsApplyLagAndUndelivered(t *testing.T) {
 		t.Fatalf("commitNaoEntregue %d, electionTicks %d", st.CommitNaoEntregue, st.ElectionTicks)
 	}
 }
+
+// O-37, item 6: os blocos raft e wal no /status, com a janela só na líder; o teto duro
+// segurado pelo aplicado tira a célula do /readyz.
+func TestStatusShowsBoundedLog(t *testing.T) {
+	info := port.RaftInfo{NodeID: 1, Lead: 1, Running: true, Snapshot: 900, MemEntries: 110, MemBytes: 4096,
+		RetainedBytes: 3 << 20, RetainedFiles: 3, Floor: 850, Pins: 1, BehindTail: true,
+		Window: map[uint64]bool{2: true, 3: false}}
+	st := newStatus(info).Status()
+	if st.Raft != (RaftLogStatus{Snapshot: 900, Memoria: MemoriaStatus{Entradas: 110, Bytes: 4096}, AtrasCauda: true}) {
+		t.Fatalf("raft = %+v", st.Raft)
+	}
+	if st.Wal.Retido != (RetidoStatus{Bytes: 3 << 20, Arquivos: 3}) || st.Wal.Piso != 850 || st.Wal.Pinos != 1 ||
+		!st.Wal.Janela["2"] || st.Wal.Janela["3"] {
+		t.Fatalf("wal = %+v", st.Wal)
+	}
+	info.HardCeiling = true
+	if ok, _ := newStatus(info).Ready(); !ok {
+		t.Fatal("teto duro sem o aplicado segurando não tira do /readyz")
+	}
+	info.HeldByApplied = true
+	if ok, why := newStatus(info).Ready(); ok || why != "disco no teto duro: reconstrução necessária" {
+		t.Fatalf("Ready = %v %q", ok, why)
+	}
+}

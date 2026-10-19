@@ -49,6 +49,15 @@ type Metrics interface {
 	HTTPRequest(op string, status int, d time.Duration)
 	// HTTPInFlight: requisições em andamento na porta de API (+1 na chegada, -1 na saída).
 	HTTPInFlight(delta int)
+
+	// SnapshotTaken: duração de um snapshot-marcador, do fsync do progresso ao
+	// CreateSnapshot (RT-11).
+	SnapshotTaken(d time.Duration)
+	// SnapshotDeferred: MsgSnap recebido e descartado porque o aplicado local está atrás
+	// do índice do marcador (RT-18, SG-19).
+	SnapshotDeferred()
+	// StartupDuration: duração da abertura do WAL e da releitura da cauda na partida (RT-09).
+	StartupDuration(d time.Duration)
 }
 
 // NopMetrics não faz nada: usada nos testes e quando nenhuma métrica é injetada.
@@ -72,6 +81,9 @@ func (NopMetrics) RaftTickGap(time.Duration)              {}
 func (NopMetrics) Throttled(string)                       {}
 func (NopMetrics) HTTPRequest(string, int, time.Duration) {}
 func (NopMetrics) HTTPInFlight(int)                       {}
+func (NopMetrics) SnapshotTaken(time.Duration)            {}
+func (NopMetrics) SnapshotDeferred()                      {}
+func (NopMetrics) StartupDuration(time.Duration)          {}
 
 // MetricsOrNop devolve m, ou NopMetrics quando m é nulo.
 func MetricsOrNop(m Metrics) Metrics {

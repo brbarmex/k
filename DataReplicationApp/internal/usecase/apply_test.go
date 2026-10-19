@@ -62,6 +62,11 @@ func (p *fakeProgress) LoadProgress() (domain.Index, uint32, error) {
 	defer p.mu.Unlock()
 	return p.idx, p.ord, nil
 }
+func (p *fakeProgress) Sync() (domain.Index, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.idx, nil
+}
 
 func write(idx domain.Index, items int) domain.Entry {
 	e := domain.Entry{Index: idx, Term: 1, Kind: domain.KindWrite}
@@ -495,5 +500,39 @@ func BenchmarkApplierThroughput(b *testing.B) {
 				<-done
 			}
 		})
+	}
+}
+
+// O-32: a marca d'água começa no progresso: (5, parcial) → 4; (5, OrdComplete) → 5. O
+// replay com OrdComplete não regrava nenhum item da entrada 5.
+func TestApplierWatermarkStartsAtProgress(t *testing.T) {
+	for _, tc := range []struct {
+		ord  uint32
+		want domain.Index
+	}{{2, 4}, {port.OrdComplete, 5}} {
+		g := &domain.Gate{}
+		releaseGate(g, 10)
+		in := make(chan []domain.Entry, 1)
+		st := &fakeStore{}
+		a := &Applier{Gate: g, Store: st, Progress: &fakeProgress{idx: 5, ord: tc.ord}, In: in}
+		cancel, _ := startApplier(t, a)
+		waitUntil(t, func() bool { return a.Applied() == tc.want }, "marca d'água da partida")
+		if !a.Idle() {
+			t.Fatal("applier recém-iniciado devia estar ocioso")
+		}
+		in <- []domain.Entry{write(5, 3), write(6, 1)}
+		ctx, c2 := context.WithTimeout(context.Background(), time.Second)
+		if err := a.WaitApplied(ctx, 6); err != nil {
+			t.Fatal(err)
+		}
+		c2()
+		want := 2 // (5, 3) e (6, 1)
+		if tc.ord == port.OrdComplete {
+			want = 1 // só (6, 1): a entrada 5 já estava inteira no banco
+		}
+		if st.count() != want {
+			t.Fatalf("ord %d: itens gravados = %d, quer %d", tc.ord, st.count(), want)
+		}
+		cancel()
 	}
 }

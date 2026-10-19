@@ -25,6 +25,41 @@ type CellStatus struct {
 	ErroApply         string            `json:"erroApply,omitempty"`
 	Match             map[string]uint64 `json:"match,omitempty"`
 	Quorum            *QuorumStatus     `json:"quorum,omitempty"` // só na líder
+
+	// Log do Raft limitado (O-37, item 6; S.7 da trecho).
+	Raft RaftLogStatus `json:"raft"`
+	Wal  WalStatus     `json:"wal"`
+}
+
+// RaftLogStatus é o log do Raft na RAM: o último snapshot-marcador e o que sobrou no
+// MemoryStorage (RT-11, RT-14).
+type RaftLogStatus struct {
+	Snapshot domain.Index  `json:"snapshot"`
+	Memoria  MemoriaStatus `json:"memoria"`
+	// AtrasCauda: a célula recebeu um marcador à frente do seu aplicado e espera a
+	// recuperação (Incremento B).
+	AtrasCauda bool `json:"atrasCauda"`
+}
+
+type MemoriaStatus struct {
+	Entradas uint64 `json:"entradas"`
+	Bytes    int64  `json:"bytes"`
+}
+
+// WalStatus é o log do Raft no disco (RT-15).
+type WalStatus struct {
+	Retido   RetidoStatus `json:"retido"`
+	Piso     domain.Index `json:"piso"`
+	Pinos    int          `json:"pinos"`
+	TetoDuro bool         `json:"tetoDuro"`
+	// SeguradoPeloAplicado: no teto duro, quem segura o disco é o aplicado local.
+	SeguradoPeloAplicado bool            `json:"seguradoPeloAplicado,omitempty"`
+	Janela               map[string]bool `json:"janela,omitempty"` // só na líder
+}
+
+type RetidoStatus struct {
+	Bytes    int64 `json:"bytes"`
+	Arquivos int   `json:"arquivos"`
 }
 
 // QuorumStatus é o quórum visto pela líder: votantes ativos recentemente (contando ela).
@@ -85,6 +120,16 @@ func (r *StatusReporter) Status() CellStatus {
 		}
 	}
 	st.ElectionTicks = r.ElectionTicks
+	st.Raft = RaftLogStatus{Snapshot: ri.Snapshot, Memoria: MemoriaStatus{Entradas: ri.MemEntries, Bytes: ri.MemBytes},
+		AtrasCauda: ri.BehindTail}
+	st.Wal = WalStatus{Retido: RetidoStatus{Bytes: ri.RetainedBytes, Arquivos: ri.RetainedFiles}, Piso: ri.Floor,
+		Pinos: ri.Pins, TetoDuro: ri.HardCeiling, SeguradoPeloAplicado: ri.HeldByApplied}
+	if len(ri.Window) > 0 {
+		st.Wal.Janela = make(map[string]bool, len(ri.Window))
+		for id, in := range ri.Window {
+			st.Wal.Janela[strconv.FormatUint(id, 10)] = in
+		}
+	}
 	if ri.Lead != 0 && ri.Lead == r.NodeID {
 		st.Papel = "lider"
 		st.Match = make(map[string]uint64, len(ri.Match))
@@ -113,6 +158,8 @@ func (r *StatusReporter) Ready() (bool, string) {
 		return false, "sem líder conhecida"
 	case r.Applier.Health().Stopped:
 		return false, "applier parado"
+	case ri.HardCeiling && ri.HeldByApplied:
+		return false, "disco no teto duro: reconstrução necessária"
 	}
 	return true, ""
 }

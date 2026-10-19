@@ -57,14 +57,15 @@ func (f fakeBarrier) LeaderBarrier(context.Context) (domain.Index, domain.Index,
 }
 
 type fakeGate struct {
-	mu   sync.Mutex
-	last domain.Index
+	mu    sync.Mutex
+	last  domain.Index
+	floor domain.Index
 }
 
-func (f *fakeGate) OnGateUpdate(g domain.Index) {
+func (f *fakeGate) OnGateUpdate(g, floor domain.Index) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.last = g
+	f.last, f.floor = g, floor
 }
 
 func (f *fakeGate) get() domain.Index {
@@ -73,13 +74,19 @@ func (f *fakeGate) get() domain.Index {
 	return f.last
 }
 
+func (f *fakeGate) getFloor() domain.Index {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.floor
+}
+
 func setup(t *testing.T, srv *peergrpc.Server) *Client {
 	t.Helper()
 	lis := bufconn.Listen(1 << 20)
 	go func() { _ = srv.Serve(lis) }()
 	t.Cleanup(srv.Stop)
 	dialer := grpc.WithContextDialer(func(ctx context.Context, _ string) (net.Conn, error) { return lis.DialContext(ctx) })
-	c, err := New(1, map[uint64]string{1: "self", 2: "passthrough:///peer2"}, time.Second, zerolog.Nop(), dialer)
+	c, err := New(1, map[uint64]string{1: "self", 2: "passthrough:///peer2"}, time.Second, 64<<20, zerolog.Nop(), dialer)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -123,7 +130,7 @@ func TestRoundTrip(t *testing.T) {
 	}
 
 	for i := domain.Index(1); i <= 20; i++ {
-		c.Publish(i)
+		c.Publish(i, i*10)
 	}
 	deadline = time.Now().Add(2 * time.Second)
 	for g.get() != 20 && time.Now().Before(deadline) {
@@ -131,6 +138,9 @@ func TestRoundTrip(t *testing.T) {
 	}
 	if g.get() != 20 {
 		t.Fatalf("o último gate publicado não chegou: %d", g.get())
+	}
+	if g.getFloor() != 200 { // O-35: o piso de retenção vai junto com o gate (RT-15)
+		t.Fatalf("piso publicado = %d, quer 200", g.getFloor())
 	}
 }
 
@@ -149,6 +159,23 @@ func TestForwardPreservesErrorClass(t *testing.T) {
 	}
 	if _, err := c.Forward(context.Background(), "9", port.WriteRequest{}); !errors.Is(err, usecase.ErrNoLeader) {
 		t.Fatalf("líder desconhecida = %v", err)
+	}
+}
+
+// DC-09: a fila por par também tem teto em bytes; ao sair da fila, os bytes voltam.
+func TestSendDropsOverQueueBytes(t *testing.T) {
+	m := &recMetrics{}
+	p := &peer{id: 2, raftQ: make(chan []byte, 10)}
+	c := &Client{peers: map[uint64]*peer{2: p}, queueBytes: 10, Metrics: m}
+	if !c.Send(2, make([]byte, 6)) || c.Send(2, make([]byte, 6)) {
+		t.Fatal("a segunda mensagem passa do teto de 10 bytes e devia ser descartada")
+	}
+	if m.n("dropped") != 1 || p.queued.Load() != 6 {
+		t.Fatalf("descartes = %d, bytes na fila = %d", m.n("dropped"), p.queued.Load())
+	}
+	c.dequeued(p, <-p.raftQ)
+	if !c.Send(2, make([]byte, 6)) {
+		t.Fatal("depois de sair da fila, cabe de novo")
 	}
 }
 

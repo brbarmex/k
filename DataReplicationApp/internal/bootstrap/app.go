@@ -4,6 +4,7 @@ package bootstrap
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net"
 	"os"
 	"path/filepath"
@@ -188,7 +189,7 @@ func newResume(p port.ApplyProgress) (Resume, error) {
 }
 
 func newPeerClient(lc fx.Lifecycle, cfg config.Config, log zerolog.Logger, m port.Metrics) (*peerclient.Client, error) {
-	c, err := peerclient.New(cfg.NodeID, cfg.Peers, cfg.ForwardTimeout, log)
+	c, err := peerclient.New(cfg.NodeID, cfg.Peers, cfg.ForwardTimeout, cfg.PeerQueueBytes, log)
 	if err != nil {
 		return nil, err
 	}
@@ -197,20 +198,82 @@ func newPeerClient(lc fx.Lifecycle, cfg config.Config, log zerolog.Logger, m por
 	return c, nil
 }
 
-func newRaft(lc fx.Lifecycle, cfg config.Config, send *peerclient.Client, log zerolog.Logger, m port.Metrics, r Resume) (*etcdraft.Node, error) {
-	if err := os.MkdirAll(filepath.Dir(cfg.RaftDir), 0o755); err != nil {
+// raftIn reúne o que o nó Raft precisa: o transporte, o progresso e o gate (Compactor) e o
+// aplicado (política do MsgSnap).
+type raftIn struct {
+	fx.In
+	Lc       fx.Lifecycle
+	Cfg      config.Config
+	Send     *peerclient.Client
+	Log      zerolog.Logger
+	Metrics  port.Metrics
+	Resume   Resume
+	Progress port.ApplyProgress
+	Gate     *domain.Gate
+	Applied  port.AppliedWaiter
+}
+
+func newRaft(in raftIn) (*etcdraft.Node, error) {
+	cfg := in.Cfg
+	volume := filepath.Dir(cfg.RaftDir)
+	if err := os.MkdirAll(volume, 0o755); err != nil {
 		return nil, err
+	}
+	// RETAIN_MAX_BYTES < volume × RETAIN_DISK_HARD (O-37): a janela precisa caber abaixo do teto
+	// duro, senão a réplica atrasada nunca sai da janela antes de o disco encher.
+	if vb, err := etcdraft.VolumeBytes(volume); err == nil && float64(cfg.RetainMaxBytes) >= float64(vb)*cfg.RetainDiskHard {
+		return nil, fmt.Errorf("RETAIN_MAX_BYTES maior que o teto duro do volume (%d >= %d × %.2f)", cfg.RetainMaxBytes, vb, cfg.RetainDiskHard)
 	}
 	n, err := etcdraft.Open(etcdraft.Config{
 		ID: cfg.NodeID, Voters: config.IDs(cfg.Peers),
 		Dir: cfg.RaftDir, TickInterval: 100 * time.Millisecond, ElectionTicks: cfg.ElectionTicks,
-		Applied: uint64(r.From) - 1, Metrics: m,
-	}, send, log)
+		Applied: uint64(in.Resume.From) - 1, Metrics: in.Metrics,
+		ClusterID: cfg.ClusterID, SegmentBytes: cfg.WalSegmentBytes,
+		MarkerPath: filepath.Join(volume, "snapshot"),
+		Policy:     newNoopPolicy(in.Applied, in.Log),
+		Compaction: etcdraft.CompactionConfig{
+			Progress: in.Progress, Gate: in.Gate,
+			EveryEntries: cfg.SnapshotEveryEntries, EveryBytes: cfg.SnapshotEveryBytes,
+			CatchupEntries: cfg.RaftCatchupEntries, RAMMax: cfg.RaftRAMMax,
+			RetainMax: cfg.RetainMaxBytes, HardFrac: cfg.RetainDiskHard, HardBytes: cfg.RetainDiskHardBytes,
+			Interval: cfg.RaftCompactInterval,
+		},
+	}, in.Send, in.Log)
 	if err != nil {
 		return nil, err
 	}
-	lc.Append(fx.StopHook(n.Close))
+	// G6: o confirmado nunca recua depois de um reinício; o do marcador restaura o gate antes
+	// de os laços começarem.
+	in.Gate.Restore(n.Marker().Confirmed)
+	in.Lc.Append(fx.StopHook(n.Close))
 	return n, nil
+}
+
+// noopPolicy é a política do MsgSnap do Incremento A (O-37): aceita o marcador só com o
+// aplicado ≥ S (SG-19) e, atrás da cauda, só avisa. A recuperação pelo canal entre células
+// é do Incremento B; até lá a célula fica parada e visível no /status (atrasCauda).
+type noopPolicy struct {
+	applied port.AppliedWaiter
+	log     zerolog.Logger
+
+	mu   sync.Mutex
+	last time.Time
+}
+
+func newNoopPolicy(a port.AppliedWaiter, log zerolog.Logger) *noopPolicy {
+	return &noopPolicy{applied: a, log: log}
+}
+
+func (p *noopPolicy) Applied() domain.Index { return p.applied.Applied() }
+
+func (p *noopPolicy) Behind(target domain.Index) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if now := time.Now(); now.Sub(p.last) >= 10*time.Second {
+		p.last = now
+		p.log.Warn().Uint64("alvo", uint64(target)).Uint64("aplicado", uint64(p.applied.Applied())).
+			Msg("célula atrás da cauda: aguardando recuperação (Incremento B)")
+	}
 }
 
 func newApplier(cfg config.Config, g *domain.Gate, st port.StateStore, p port.ApplyProgress, in chan []domain.Entry, log zerolog.Logger, m port.Metrics) *usecase.Applier {
@@ -222,8 +285,11 @@ func newReadService(cfg config.Config, c port.ConsensusEngine, g *domain.Gate, a
 	return &usecase.ReadService{Consensus: c, Gate: g, Applied: a, Barrier: b, Store: st, Scanner: sc, WaitLeader: cfg.WaitLeader, Metrics: m}
 }
 
-func newGateSync(cfg config.Config, c port.ConsensusEngine, g *domain.Gate, p port.GatePublisher, log zerolog.Logger) *usecase.GateSync {
-	return &usecase.GateSync{Consensus: c, Gate: g, Publisher: p, Interval: cfg.GatePublishInterval, Log: log}
+// newGateSync: o piso de retenção vai junto com o gate (RT-15). Na líder, o Compactor o
+// calcula; na follower, a retenção local recebe o da líder.
+func newGateSync(cfg config.Config, c port.ConsensusEngine, g *domain.Gate, p port.GatePublisher, log zerolog.Logger, n *etcdraft.Node) *usecase.GateSync {
+	return &usecase.GateSync{Consensus: c, Gate: g, Publisher: p, Interval: cfg.GatePublishInterval, Log: log,
+		Floor: n.Floor, FloorSink: n.Pins()}
 }
 
 func newCommitPump(n *etcdraft.Node, g *domain.Gate, to chan []domain.Entry, r Resume) *usecase.CommitPump {
@@ -304,9 +370,14 @@ func runRuntime(d runtimeDeps) {
 			fatal("commitpump", pump.Run)
 			fatal("applier", d.Applier.Run)
 			fatal("gatesync", d.GateSync.Run)
+			if c := d.Node.Compactor(); c != nil {
+				fatal("compactor", c.Run) // fsync do progresso, do marcador ou do WAL: fatal (RT-05)
+			}
 			d.Log.Info().Str("peer", d.Cfg.PeerAddr).Int("applyWorkers", d.Applier.WorkerCount()).
 				Uint64("applyLagMax", d.Cfg.ApplyLagMax).Int("electionTicks", d.Cfg.ElectionTicks).
-				Uint64("retomaEm", uint64(d.Pump.From)).Msg("célula iniciada")
+				Uint64("retomaEm", uint64(d.Pump.From)).Uint64("snapshot", uint64(d.Node.SnapshotIndex())).
+				Int64("ramMax", d.Cfg.RaftRAMMax).Int64("retainMax", d.Cfg.RetainMaxBytes).
+				Int64("segmento", d.Cfg.WalSegmentBytes).Msg("célula iniciada")
 			return nil
 		},
 		OnStop: func(stopCtx context.Context) error {

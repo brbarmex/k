@@ -40,9 +40,11 @@ type BarrierResponse struct {
 	Gate      uint64
 }
 
-// GateUpdateRequest é o gate publicado pela líder (G-06).
+// GateUpdateRequest é o gate publicado pela líder (G-06) e o piso de retenção do disco
+// calculado por ela (RT-15).
 type GateUpdateRequest struct {
-	Gate uint64
+	Gate  uint64
+	Floor uint64
 }
 
 // PeerServer é o servidor entre células.

@@ -27,8 +27,31 @@ tasks:
     desc: Start Compose, create tables, and wait for all three cells (CA-01)
     vars:
       APPLY_LAG_MAX: '{{.APPLY_LAG_MAX | default ""}}' # ADR-060: vazio = padrão; baixo exercita a admissão
+      # Compactação do log (O-37): vazio = padrão da S.6; valores baixos exercitam snapshot,
+      # RAM e disco com pouca carga (ex.: SNAPSHOT_EVERY_ENTRIES=200 WAL_SEGMENT_BYTES=1MiB).
+      SNAPSHOT_EVERY_ENTRIES: '{{.SNAPSHOT_EVERY_ENTRIES | default ""}}'
+      SNAPSHOT_EVERY_BYTES: '{{.SNAPSHOT_EVERY_BYTES | default ""}}'
+      RAFT_CATCHUP_ENTRIES: '{{.RAFT_CATCHUP_ENTRIES | default ""}}'
+      RAFT_RAM_MAX: '{{.RAFT_RAM_MAX | default ""}}'
+      RETAIN_MAX_BYTES: '{{.RETAIN_MAX_BYTES | default ""}}'
+      RETAIN_DISK_HARD: '{{.RETAIN_DISK_HARD | default ""}}'
+      RETAIN_DISK_HARD_BYTES: '{{.RETAIN_DISK_HARD_BYTES | default ""}}'
+      WAL_SEGMENT_BYTES: '{{.WAL_SEGMENT_BYTES | default ""}}'
+      REBUILD_RETRY: '{{.REBUILD_RETRY | default ""}}'
+      REBUILD_PIN_TTL: '{{.REBUILD_PIN_TTL | default ""}}'
+      PEER_QUEUE_BYTES: '{{.PEER_QUEUE_BYTES | default ""}}'
+      GOMEMLIMIT: '{{.GOMEMLIMIT | default ""}}'
+      CELL_MEM_LIMIT: '{{.CELL_MEM_LIMIT | default ""}}'
     cmds:
-      - APPLY_LAG_MAX={{.APPLY_LAG_MAX}} docker compose up -d --build
+      - >-
+        APPLY_LAG_MAX={{.APPLY_LAG_MAX}}
+        SNAPSHOT_EVERY_ENTRIES={{.SNAPSHOT_EVERY_ENTRIES}} SNAPSHOT_EVERY_BYTES={{.SNAPSHOT_EVERY_BYTES}}
+        RAFT_CATCHUP_ENTRIES={{.RAFT_CATCHUP_ENTRIES}} RAFT_RAM_MAX={{.RAFT_RAM_MAX}}
+        RETAIN_MAX_BYTES={{.RETAIN_MAX_BYTES}} RETAIN_DISK_HARD={{.RETAIN_DISK_HARD}}
+        RETAIN_DISK_HARD_BYTES={{.RETAIN_DISK_HARD_BYTES}} WAL_SEGMENT_BYTES={{.WAL_SEGMENT_BYTES}}
+        REBUILD_RETRY={{.REBUILD_RETRY}} REBUILD_PIN_TTL={{.REBUILD_PIN_TTL}} PEER_QUEUE_BYTES={{.PEER_QUEUE_BYTES}}
+        {{if .GOMEMLIMIT}}GOMEMLIMIT={{.GOMEMLIMIT}}{{end}} {{if .CELL_MEM_LIMIT}}CELL_MEM_LIMIT={{.CELL_MEM_LIMIT}}{{end}}
+        docker compose up -d --build
       - task: create-tables
       - |
         for N in {{.CELLS}}; do
@@ -636,7 +659,7 @@ tasks:
         echo "PASS: all five invalid/unsupported requests were rejected"
 
   wal:
-    desc: List the WAL and applier progress files for cell CELL (CA-11)
+    desc: List the WAL, the applier progress and the snapshot marker files for cell CELL (CA-11, DC-06)
     cmds:
       - docker compose exec cell-{{.CELL}} ls -la /var/lib/dr/raft /var/lib/dr/raft/wal
 

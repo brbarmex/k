@@ -19,13 +19,20 @@ const stallTicks = 50
 //     follower) e o termo atual;
 //   - na líder, publica o gate às outras células a cada avanço e, sem avanço, a cada
 //     GATE_PUBLISH_INTERVAL;
-//   - na follower, OnGateUpdate adota o gate recebido (o commit local continua limitando).
+//   - na follower, OnGateUpdate adota o gate recebido (o commit local continua limitando);
+//   - o piso de retenção do disco (RT-15) vai junto: a líder publica o que calculou no
+//     último ciclo do Compactor e a follower o repassa à retenção local.
 type GateSync struct {
 	Consensus port.ConsensusEngine
 	Gate      *domain.Gate
 	Publisher port.GatePublisher
 	Interval  time.Duration // GATE_PUBLISH_INTERVAL (100 ms)
 	Log       zerolog.Logger
+
+	// Floor é o piso calculado pela líder (etcdraft.Node.Floor); nulo = 0 (nada liberado
+	// nas followers). FloorSink recebe o piso na follower; nulo = ignorado.
+	Floor     func() domain.Index
+	FloorSink port.RetentionFloorSink
 }
 
 func (s *GateSync) Run(ctx context.Context) error {
@@ -67,9 +74,18 @@ func (s *GateSync) Tick() {
 	leader := ok && l.Local
 	s.Gate.SetFollower(!leader)
 	if leader {
-		s.Publisher.Publish(s.Gate.Index())
+		var floor domain.Index
+		if s.Floor != nil {
+			floor = s.Floor()
+		}
+		s.Publisher.Publish(s.Gate.Index(), floor)
 	}
 }
 
-// OnGateUpdate recebe o gate publicado pela líder.
-func (s *GateSync) OnGateUpdate(gate domain.Index) { s.Gate.SetReceived(gate) }
+// OnGateUpdate recebe o gate e o piso de retenção publicados pela líder.
+func (s *GateSync) OnGateUpdate(gate, floor domain.Index) {
+	s.Gate.SetReceived(gate)
+	if s.FloorSink != nil {
+		s.FloorSink.SetFloor(floor)
+	}
+}

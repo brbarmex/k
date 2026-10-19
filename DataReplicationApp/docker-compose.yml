@@ -18,11 +18,29 @@ x-dr-env: &dr-env
   # exercita a admissão por atraso do apply com pouca carga.
   APPLY_LAG_MAX: "${APPLY_LAG_MAX:-}"
   RAFT_DIR: "/var/lib/dr/raft/wal"
+  # Compactação do log do Raft (S.6 da trecho, O-37). CLUSTER_ID é a identidade do grupo
+  # gravada no WAL e no marcador (RT-20). GOMEMLIMIT fica abaixo do mem_limit (AP-15).
+  # As demais vêm do host: vazio = padrão (task start SNAPSHOT_EVERY_ENTRIES=200 ...).
+  CLUSTER_ID: "poc-local"
+  GOMEMLIMIT: "${GOMEMLIMIT:-800MiB}"
+  SNAPSHOT_EVERY_ENTRIES: "${SNAPSHOT_EVERY_ENTRIES:-}"
+  SNAPSHOT_EVERY_BYTES: "${SNAPSHOT_EVERY_BYTES:-}"
+  RAFT_CATCHUP_ENTRIES: "${RAFT_CATCHUP_ENTRIES:-}"
+  RAFT_RAM_MAX: "${RAFT_RAM_MAX:-}"
+  RETAIN_MAX_BYTES: "${RETAIN_MAX_BYTES:-}"
+  RETAIN_DISK_HARD: "${RETAIN_DISK_HARD:-}"
+  RETAIN_DISK_HARD_BYTES: "${RETAIN_DISK_HARD_BYTES:-}"
+  WAL_SEGMENT_BYTES: "${WAL_SEGMENT_BYTES:-}"
+  REBUILD_RETRY: "${REBUILD_RETRY:-}"
+  REBUILD_PIN_TTL: "${REBUILD_PIN_TTL:-}"
+  PEER_QUEUE_BYTES: "${PEER_QUEUE_BYTES:-}"
 
 x-cell: &cell
   image: datareplication-poc:local
   pull_policy: never # a imagem é construída pela cell-1 (C-02)
   restart: on-failure
+  # AP-15: teto de memória por célula; o GOMEMLIMIT acima fica em ~80% dele.
+  mem_limit: "${CELL_MEM_LIMIT:-1g}"
 
 # Um LocalStack por célula, como em produção (um DynamoDB por célula, ADR-022 e ADR-054):
 # cada célula tem o seu escritor do DynamoDB Local, e pausar um deles simula o banco lento

@@ -165,6 +165,8 @@ func TestAllSeriesRegistered(t *testing.T) {
 		"dr_raft_loop_duration_seconds", "dr_raft_tick_gap_seconds", "dr_throttled_total",
 		"dr_http_requests_total", "dr_http_request_duration_seconds", "dr_http_inflight",
 		"dr_apply_lag", "dr_apply_lag_max", "dr_apply_inbox_batches", "dr_commit_undelivered", "dr_election_ticks",
+		// Compactação do log, Incremento A (O-37, item 6)
+		"dr_raft_snapshot_duration_seconds", "dr_raft_snapshot_deferred_total", "dr_startup_duration_seconds",
 	} {
 		if !names[n] {
 			t.Errorf("série %s não registrada", n)

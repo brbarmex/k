@@ -10,8 +10,10 @@ import (
 // Regras (ADR-029):
 //   - o valor nunca recua (monotônico), nem na troca de líder;
 //   - na célula líder o gate é o commit do Raft;
-//   - numa célula follower o gate é min(commit local, maior gate recebido da líder)
-//     (G-06): um gate recebido é um valor já provado e o commit local continua limitando.
+//   - numa célula follower o gate é min(max(commit local, recuperado), maior gate recebido
+//     da líder) (G-06, DC-02): um gate recebido é um valor já provado e o commit local
+//     continua limitando; o recuperado é o confirmado provado pela fonte do CatchUp,
+//     que substitui o commit local enquanto a célula está atrás da cauda.
 //
 // O valor zero é utilizável (papel de líder). Todos os métodos são seguros para uso
 // concorrente.
@@ -21,6 +23,7 @@ type Gate struct {
 	current    Index
 	waiters    map[*waiter]struct{}
 	received   Index         // maior gate recebido da líder (G-06)
+	recovered  Index         // confirmado provado pela fonte da recuperação (DC-02)
 	follower   bool          // a célula não é a líder: o gate segue o recebido
 	changed    chan struct{} // fechado e trocado a cada avanço de current
 }
@@ -29,6 +32,7 @@ type Gate struct {
 type GateState struct {
 	Index      Index
 	RaftCommit Index
+	Recovered  Index
 }
 
 type waiter struct {
@@ -48,6 +52,15 @@ func (g *Gate) SetRaftCommit(i Index) { g.update(func() { g.raftCommit = max(g.r
 // recebido é um valor já provado. Na follower o commit local continua limitando.
 func (g *Gate) SetReceived(i Index) { g.update(func() { g.received = max(g.received, i) }) }
 
+// SetRecovered registra o confirmado provado pela fonte de um lote do CatchUp (DC-02).
+// Na líder não muda nada.
+func (g *Gate) SetRecovered(i Index) { g.update(func() { g.recovered = max(g.recovered, i) }) }
+
+// Restore sobe o recebido com o confirmado do snapshot-marcador na partida (G6: o
+// confirmado nunca recua depois de um reinício). Na líder não muda nada: o gate segue o
+// commit gravado no HardState, que já é ≥ o confirmado.
+func (g *Gate) Restore(confirmed Index) { g.update(func() { g.received = max(g.received, confirmed) }) }
+
 // SetFollower informa o papel da célula. Na follower o gate segue o recebido da líder;
 // na líder, o commit do Raft. O valor já liberado não recua.
 func (g *Gate) SetFollower(on bool) { g.update(func() { g.follower = on }) }
@@ -66,7 +79,7 @@ func (g *Gate) Changed() <-chan struct{} {
 func (g *Gate) Snapshot() GateState {
 	g.mu.Lock()
 	defer g.mu.Unlock()
-	return GateState{Index: g.current, RaftCommit: g.raftCommit}
+	return GateState{Index: g.current, RaftCommit: g.raftCommit, Recovered: g.recovered}
 }
 
 func (g *Gate) update(mutate func()) {
@@ -75,7 +88,7 @@ func (g *Gate) update(mutate func()) {
 	mutate()
 	next := g.raftCommit
 	if g.follower {
-		next = min(next, g.received) // G-06
+		next = min(max(next, g.recovered), g.received) // G-06, DC-02
 	}
 	prev := g.current
 	g.current = max(g.current, next) // monotônico

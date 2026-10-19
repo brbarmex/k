@@ -160,15 +160,33 @@ func TestReadTimeoutAndNoLeader(t *testing.T) {
 }
 
 type recPublisher struct {
-	mu   sync.Mutex
-	last domain.Index
-	n    int
+	mu    sync.Mutex
+	last  domain.Index
+	floor domain.Index
+	n     int
 }
 
-func (p *recPublisher) Publish(g domain.Index) {
+func (p *recPublisher) Publish(g, floor domain.Index) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	p.last, p.n = g, p.n+1
+	p.last, p.floor, p.n = g, floor, p.n+1
+}
+
+type recFloorSink struct {
+	mu    sync.Mutex
+	floor domain.Index
+}
+
+func (f *recFloorSink) SetFloor(i domain.Index) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.floor = i
+}
+
+func (f *recFloorSink) get() domain.Index {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.floor
 }
 
 func (p *recPublisher) get() (domain.Index, int) {
@@ -182,7 +200,9 @@ func TestGateSync(t *testing.T) {
 	fc := newFakeConsensus()
 	g := &domain.Gate{}
 	pub := &recPublisher{}
-	s := &GateSync{Consensus: fc, Gate: g, Publisher: pub, Interval: 5 * time.Millisecond}
+	sink := &recFloorSink{}
+	s := &GateSync{Consensus: fc, Gate: g, Publisher: pub, Interval: 5 * time.Millisecond,
+		Floor: func() domain.Index { return 3 }, FloorSink: sink}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	done := make(chan error, 1)
@@ -190,6 +210,11 @@ func TestGateSync(t *testing.T) {
 
 	g.SetRaftCommit(4)
 	waitUntil(t, func() bool { last, _ := pub.get(); return last == 4 }, "a líder não publicou o avanço")
+	if pub.mu.Lock(); pub.floor != 3 { // O-35: a líder publica o piso junto com o gate
+		pub.mu.Unlock()
+		t.Fatalf("piso publicado = %d, quer 3", pub.floor)
+	}
+	pub.mu.Unlock()
 	_, n := pub.get()
 	waitUntil(t, func() bool { _, m := pub.get(); return m > n+2 }, "a líder não republicou no intervalo")
 
@@ -201,9 +226,12 @@ func TestGateSync(t *testing.T) {
 		return m == m2
 	}, "o papel não foi atualizado")
 	g.SetRaftCommit(10)
-	s.OnGateUpdate(20)
+	s.OnGateUpdate(20, 7)
 	if g.Index() != 10 {
 		t.Fatalf("follower: gate = %d, quer 10 (commit local limita)", g.Index())
+	}
+	if sink.get() != 7 {
+		t.Fatalf("follower: piso recebido = %d, quer 7", sink.get())
 	}
 	cancel()
 	<-done

@@ -58,6 +58,10 @@ type Recorder struct {
 	httpRequests  *prometheus.CounterVec
 	httpDuration  *prometheus.HistogramVec
 	httpInFlight  prometheus.Gauge
+
+	snapshotDuration prometheus.Histogram
+	snapshotDeferred prometheus.Counter
+	startupDuration  prometheus.Gauge
 }
 
 var _ port.Metrics = (*Recorder)(nil)
@@ -132,6 +136,17 @@ func NewRecorder(celula string, source StatusSource) *Recorder {
 		Name: "dr_http_inflight", Help: "Requisições em andamento na porta de API.",
 	})).(prometheus.Gauge)
 
+	r.snapshotDuration = f(prometheus.NewHistogram(prometheus.HistogramOpts{
+		Name: "dr_raft_snapshot_duration_seconds", Help: "Duração de cada snapshot-marcador, do fsync do progresso ao CreateSnapshot (RT-11).",
+		Buckets: prometheus.ExponentialBucketsRange(0.0005, 5, 14),
+	})).(prometheus.Histogram)
+	r.snapshotDeferred = f(prometheus.NewCounter(prometheus.CounterOpts{
+		Name: "dr_raft_snapshot_deferred_total", Help: "MsgSnap recebidos e descartados com o aplicado local atrás do marcador (RT-18, SG-19).",
+	})).(prometheus.Counter)
+	r.startupDuration = f(prometheus.NewGauge(prometheus.GaugeOpts{
+		Name: "dr_startup_duration_seconds", Help: "Duração da última abertura do WAL com a releitura da cauda (RT-09, CA-22).",
+	})).(prometheus.Gauge)
+
 	for _, c := range ThrottleCauses {
 		r.throttled.WithLabelValues(c)
 	}
@@ -188,7 +203,10 @@ func (r *Recorder) HTTPRequest(op string, status int, d time.Duration) {
 	r.httpRequests.WithLabelValues(op, strconv.Itoa(status)).Inc()
 	r.httpDuration.WithLabelValues(op).Observe(d.Seconds())
 }
-func (r *Recorder) HTTPInFlight(delta int) { r.httpInFlight.Add(float64(delta)) }
+func (r *Recorder) HTTPInFlight(delta int)          { r.httpInFlight.Add(float64(delta)) }
+func (r *Recorder) SnapshotTaken(d time.Duration)   { r.snapshotDuration.Observe(d.Seconds()) }
+func (r *Recorder) SnapshotDeferred()               { r.snapshotDeferred.Inc() }
+func (r *Recorder) StartupDuration(d time.Duration) { r.startupDuration.Set(d.Seconds()) }
 
 // RegisterState registra o coletor de estado. Existe porque a fonte (StatusReporter)
 // depende do nó Raft, que por sua vez recebe este Recorder: o bootstrap liga a fonte
