@@ -180,7 +180,7 @@ Legenda: igual à da seção 3.2. Antes da barreira, a célula recusa GSI (`400`
 
 ### 3.11 Falhas e recuperação
 
-- Corrupção no meio do log do Raft faz o nó recusar subir; cauda rasgada é truncada [034](03_adr/ADR-034-fsync-fatal-e-identidade-nova.md). **POC: Sim**.
+- Corrupção no meio do log do Raft faz o nó recusar subir; cauda rasgada é truncada [034](03_adr/ADR-034-fsync-fatal-e-identidade-nova.md). **POC: Parcial** (a corrupção no meio recusa a partida; uma cauda zerada pela pré-alocação é limpa, mas uma cauda rasgada com dados também recusa, porque a POC não chama `wal.Repair`; cenário FD-06 da validação).
 - Perda do volume do Raft é tratada como disco perdido: o nó volta com identidade nova [034](03_adr/ADR-034-fsync-fatal-e-identidade-nova.md). Até a troca de membros por ConfChange existir (feature `troca-de-pvc-em-cell-ativa`, [parking lot](../parklot/adr-troca-de-pvc-em-cell-ativa.md)), uma célula com o volume vazio num grupo que já existe **não sobe** (fail-fast, DC-12). **POC: Fora** (vem no Incremento B).
 - Backup e restauração do banco e do WAL ficam fora deste produto (P-04): são de outro escopo. Um backup do WAL nunca é restaurado numa célula de um grupo ativo.
 - A memória do nó não cresce com o atraso de uma réplica: a RAM do log tem teto próprio (`RAFT_RAM_MAX`) e o que fica retido para a réplica atrasada está em disco [especificação](../spec/compactacao_do_log/especificacao.md) (G7). **POC: Sim**.

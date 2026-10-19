@@ -388,7 +388,7 @@ Em caso de divergência, vale o Markdown do pacote.</div>
 </ul>
 <h5 id="d-estado-atual--311-falhas-e-recuperação">3.11 Falhas e recuperação</h5>
 <ul>
-<li>Corrupção no meio do log do Raft faz o nó recusar subir; cauda rasgada é truncada <a href="#d-03-adr-adr-034-fsync-fatal-e-identidade-nova">034</a>. <strong>POC: Sim</strong>.</li>
+<li>Corrupção no meio do log do Raft faz o nó recusar subir; cauda rasgada é truncada <a href="#d-03-adr-adr-034-fsync-fatal-e-identidade-nova">034</a>. <strong>POC: Parcial</strong> (a corrupção no meio recusa a partida; uma cauda zerada pela pré-alocação é limpa, mas uma cauda rasgada com dados também recusa, porque a POC não chama <code>wal.Repair</code>; cenário FD-06 da validação).</li>
 <li>Perda do volume do Raft é tratada como disco perdido: o nó volta com identidade nova <a href="#d-03-adr-adr-034-fsync-fatal-e-identidade-nova">034</a>. Até a troca de membros por ConfChange existir (feature <code>troca-de-pvc-em-cell-ativa</code>, <a href="../parklot/adr-troca-de-pvc-em-cell-ativa.md">parking lot</a>), uma célula com o volume vazio num grupo que já existe <strong>não sobe</strong> (fail-fast, DC-12). <strong>POC: Fora</strong> (vem no Incremento B).</li>
 <li>Backup e restauração do banco e do WAL ficam fora deste produto (P-04): são de outro escopo. Um backup do WAL nunca é restaurado numa célula de um grupo ativo.</li>
 <li>A memória do nó não cresce com o atraso de uma réplica: a RAM do log tem teto próprio (<code>RAFT_RAM_MAX</code>) e o que fica retido para a réplica atrasada está em disco <a href="../spec/compactacao_do_log/especificacao.md">especificação</a> (G7). <strong>POC: Sim</strong>.</li>
