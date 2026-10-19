@@ -6,6 +6,20 @@
 > Esta ADR cruza a proposta técnica anexada com as decisões existentes do
 > DataReplication e com o estado atual do `DataReplicationApp`.
 
+> **Nota (18/10/2026): premissa alterada pela DC-11.** Esta ADR parte da reconstrução
+> em tabela sombra da ADR-047. A DC-11 do canvas de compactação
+> ([GGQPA-XXX-202610181712](../spdd/prompt/GGQPA-XXX-202610181712-[Feat]-service-compactacao-log-raft-recuperacao-reconstrucao.md))
+> trocou isso: a reconstrução **sobrescreve no lugar** a tabela que a célula já tem,
+> pelo `PutItem` condicional por `_dr_v`, e a tabela sombra e o apagar e recriar
+> ficaram fora. Consequências para quando esta ADR for retomada:
+> 1. A lápide deixa de ser contingência e vira **obrigatória** para o DELETE: sem ela,
+>    um item apagado na fonte continua vivo na tabela da célula reconstruída.
+> 2. A remoção segura de lápides precisa considerar a tabela velha de **qualquer
+>    célula que ainda possa ser reconstruída**, inclusive uma parada há muito tempo.
+>    Sem a saída "recomeçar do zero", ou a lápide é mantida para sempre, ou se define
+>    um prazo além do qual uma célula parada não volta por sobrescrita.
+> 3. As referências à ADR-047 como base da reconstrução passam a ser à DC-11.
+
 ## Resumo
 
 O projeto já escolheu, para a v1 arquitetural, **DELETE real no banco**, sem

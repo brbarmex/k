@@ -86,7 +86,7 @@ Ligação com a compactação: o atraso da Azure cresce com a duração do corte
 |---|---|
 | DL | O comando de promoção não exige cercar a AWS antes. **Risco aceito:** comando dado com a AWS viva (corte de link) gera duas líderes aceitando escritas; a história de uma delas será descartada. |
 | D7 | Réplica atrasada recebe as entradas antigas por um canal de recuperação separado, fora do laço do Raft, lendo os segmentos do WAL em sequência de qualquer célula que as tenha; só entradas commitadas e confirmáveis; a réplica grava no banco e depois aceita um snapshot-marcador no índice alcançado. |
-| D8 | Reconstrução: cópia do banco de uma célula AWS sã pelo adaptador dela até F, numa tabela sombra; depois aplica o log desde F e troca. |
+| D8 | Reconstrução: cópia do banco de uma célula AWS sã pelo adaptador dela até F, numa tabela sombra; depois aplica o log desde F e troca. **Substituída pela DC-11 (rodada 6):** a cópia sobrescreve no lugar, sem tabela sombra. |
 | D9 | Se a cópia passar do orçamento, F continua segurando o log só em disco, com teto duro de disco e alerta. |
 | D10 | Snapshot e compactação da RAM a cada 10 mil entradas ou 64 MiB, o que vier primeiro. A partida relê só desde o último snapshot. |
 | D11 | `GOMEMLIMIT` + teto duro de bytes no cache em RAM; estourou, o cache descarta e o leitor vai ao disco. O processo não cai por memória do log. |
@@ -105,3 +105,25 @@ Derivações (sem pergunta nova):
 | DO | A POC implementa tudo: snapshot-marcador, compactação da RAM e do disco, partida pela cauda, `GOMEMLIMIT`, teto do cache, canal de recuperação e reconstrução. |
 
 Especificação consolidada: [especificacao.md](especificacao.md). Trecho da spec da POC: [spec_poc_trecho.md](spec_poc_trecho.md).
+
+## Rodada 6 (Bruno, 18/10): canvas do SPDD e matriz de garantias
+
+Origem: o canvas [GGQPA-XXX-202610181712](../../spdd/prompt/GGQPA-XXX-202610181712-[Feat]-service-compactacao-log-raft-recuperacao-reconstrucao.md) resolveu as lacunas da análise com as decisões DC-01 a DC-10; a [matriz de garantias](../../spdd/analysis/GGQPA-XXX-202610181805-[Analysis]-matriz-garantias-replicacao-rpo-disponibilidade-recuperacao.md) levantou as perguntas P-01 a P-05.
+
+| # | Decisão |
+|---|---|
+| DC-01 | Duas entregas. A (memória, disco e partida) já trata o `MsgSnap` sem erro fatal; B traz a recuperação e a reconstrução. |
+| DC-02 | Na follower, gate = `min(max(commit local, recuperado), recebido)`. O recuperado é o índice confirmado provado pela fonte do canal de recuperação. |
+| DC-03 | O `CommitPump` é o único alimentador do applier; em recuperação ele lê da fonte remota. |
+| DC-04 | A reconstrução termina com progresso F (fsync) e reinício do processo. Uma célula com progresso atrás do disco retido entra sozinha em reconstrução, em vez de não subir. |
+| DC-05 | S = último índice entregue pelo laço **e** avançado (`Advance`), não o commit publicado. |
+| DC-06 | O marcador (`cluster_id`, `epoch`, confirmado) é gravado num arquivo `snapshot` próprio com CRC e fsync, porque o snapshot do WAL do etcd não tem campo de dados. |
+| DC-07 | Tamanho do segmento do WAL e teto duro absoluto configuráveis (`WAL_SEGMENT_BYTES`, `RETAIN_DISK_HARD_BYTES`), para os testes no notebook. |
+| DC-08 | A regra do `Match` na RAM da líder só vale para as followers dentro da janela. Os testes reiniciam a líder para forçar o `MsgSnap`. |
+| DC-09 | Fila de saída por par limitada em bytes (`PEER_QUEUE_BYTES`). |
+| DC-10 | O pino da reconstrução na fonte dura até o canal de recuperação da célula reconstruída começar, ou até `REBUILD_PIN_TTL` (5 min). |
+| DC-11 | (P-02) A reconstrução **sobrescreve no lugar** a tabela que a célula já tem, pelo `PutItem` condicional por `_dr_v`. Tabela sombra e apagar e recriar ficam fora. Fonte com `cluster_id` ou `epoch` diferente: recusa. O DELETE futuro exige lápide (ver `parklot/adr-tombstone.md`). |
+| DC-12 | (P-03) **Fail-fast do volume do Raft perdido:** uma célula com o volume vazio só cria o grupo quando ele está nascendo (token de partida gravado no volume e registrado por quem cria o grupo). Com sinal de grupo existente, ela não sobe. A devolução segura (remover o ID e adicionar um novo por ConfChange) é a feature `troca-de-pvc-em-cell-ativa`, em `parklot/adr-troca-de-pvc-em-cell-ativa.md`. |
+| P-01 | DC-04, DC-05, DC-06, DC-08 e DC-10 aprovadas. |
+| P-04 | Backup e restauração do banco e do WAL não são deste produto: ficam com outro escopo. Um backup do WAL nunca é restaurado numa célula de um grupo ativo. |
+| P-05 | Ordem das entregas: A → B → ConfChange e troca de PVC → multicloud (a volta da AWS depois da promoção usa a ConfChange). |
