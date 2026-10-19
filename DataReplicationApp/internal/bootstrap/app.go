@@ -175,7 +175,8 @@ func newStore(cfg config.Config, tm domain.TableMap) (CellStore, error) {
 
 // Resume é onde a partida retoma a entrega das entradas commitadas (ADR-060, item 5).
 type Resume struct {
-	From domain.Index // primeiro índice que o CommitPump entrega
+	From     domain.Index // primeiro índice que o CommitPump entrega
+	Progress domain.Index // índice do progresso lido (0 = ausente ou corrompido)
 }
 
 // newResume calcula o ponto de retomada a partir do progresso do applier, para o Raft não
@@ -185,7 +186,7 @@ func newResume(p port.ApplyProgress) (Resume, error) {
 	if err != nil {
 		return Resume{}, err
 	}
-	return Resume{From: usecase.ResumeFrom(idx)}, nil
+	return Resume{From: usecase.ResumeFrom(idx), Progress: idx}, nil
 }
 
 func newPeerClient(lc fx.Lifecycle, cfg config.Config, log zerolog.Logger, m port.Metrics) (*peerclient.Client, error) {
@@ -240,6 +241,11 @@ func newRaft(in raftIn) (*etcdraft.Node, error) {
 		},
 	}, in.Send, in.Log)
 	if err != nil {
+		return nil, err
+	}
+	// O-37, item 7: um progresso atrás do disco retido pularia entradas; a célula não sobe.
+	if err := usecase.CheckResume(in.Resume.Progress, n.FirstIndex()); err != nil {
+		_ = n.Close()
 		return nil, err
 	}
 	// G6: o confirmado nunca recua depois de um reinício; o do marcador restaura o gate antes

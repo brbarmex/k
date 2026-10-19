@@ -207,3 +207,24 @@ func TestHTTPOpLabelIsBounded(t *testing.T) {
 		}
 	}
 }
+
+// SG-07, FC-02: o limite de 400 KB conta os bytes do _dr_v que o applier acrescenta. Um
+// item no limite exato é recusado na borda (antes passava e o banco o recusava no apply,
+// depois do ACK); com a reserva livre, é aceito.
+func TestItemSizeCountsVersionAttribute(t *testing.T) {
+	p := newParser(t, "1")
+	body := func(total int) []byte {
+		v := strings.Repeat("a", total-len("pk")-len("a")-len("x")) // nomes e valores do item
+		return []byte(`{"TableName":"t1_cell_1","Item":{"pk":{"S":"a"},"x":{"S":"` + v + `"}}}`)
+	}
+	if _, err := p.Parse("DynamoDB_20120810.PutItem", body(maxItemSize)); err == nil ||
+		!strings.Contains(err.Error(), "Item size has exceeded the maximum allowed size") {
+		t.Fatalf("item no limite exato sem espaço para o _dr_v: erro = %v", err)
+	}
+	if _, err := p.Parse("DynamoDB_20120810.PutItem", body(maxItemSize-versionReserve)); err != nil {
+		t.Fatalf("item com a reserva do _dr_v livre devia passar: %v", err)
+	}
+	if versionReserve != len("_dr_v")+11 {
+		t.Fatalf("reserva do _dr_v = %d", versionReserve)
+	}
+}

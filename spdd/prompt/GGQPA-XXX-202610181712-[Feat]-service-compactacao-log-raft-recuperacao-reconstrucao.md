@@ -517,6 +517,11 @@ Notas de modelagem (extensão conservadora do que existe):
    - CA-21 com `task start SNAPSHOT_EVERY_ENTRIES=200 RAFT_CATCHUP_ENTRIES=50 WAL_SEGMENT_BYTES=1MiB RETAIN_MAX_BYTES=4MiB` e `task load COUNT=5000 INTERVAL=0`: `raft.snapshot` avança nas 3 células, `raft.memoria.entradas ≤ 250` e `wal.retido.arquivos` cai depois de cada snapshot.
    - CA-23 adaptada (ver O-44).
    - Os critérios antigos de queda de follower e de líder (`test-follower-outage`, `test-leader-failover`, CA-08 e CA-09) passam **sem queda de processo**, inclusive com uma follower atrás da cauda (ela fica em `atrasCauda` até o Incremento B).
+7. **Progresso atrás do disco retido na partida** (antecipa a DC-04; ponto 8 da revisão da validação, cenário FL-07):
+   - Com o disco liberado só até o progresso com fsync (G1), o progresso gravado nunca fica atrás do primeiro índice retido. Se ficar (um arquivo `progress` antigo restaurado, ou o banco da célula voltando no tempo junto com ele), começar no primeiro retido pularia entradas sem aviso.
+   - Regra pura `usecase.CheckResume(progresso, primeiroRetido) error`: com `progresso > 0` e `progresso + 1 < primeiroRetido`, devolve `ErrProgressBehind` (`"progresso %d atrás do disco retido %d: reconstrução necessária"`). Progresso 0 (ausente ou corrompido) é aceito: tudo antes do primeiro retido já foi aplicado com o progresso durável.
+   - O `bootstrap` confere logo depois do `etcdraft.Open`; com erro, fecha o nó e a partida falha (a célula não sobe). No Incremento B, a O-42 troca a recusa pela partida em `reconstruindo`.
+   - Testes: progresso 0; progresso na cauda; progresso igual ao primeiro retido − 1; progresso atrás.
 6. Trazidos da O-42 para o Incremento A (a O-35, a O-36 e a verificação da CA-21 dependem deles):
    - `port.Metrics` ganha `SnapshotTaken(d)`, `SnapshotDeferred()` e `StartupDuration(d)` (e `NopMetrics` e os fakes). `prommetrics` ganha `dr_raft_snapshot_duration_seconds` (histograma), `dr_raft_snapshot_deferred_total` e `dr_startup_duration_seconds` (gauge com o último valor).
    - `port.RaftInfo` ganha `Snapshot`, `MemEntries`, `MemBytes`, `RetainedBytes`, `RetainedFiles`, `Floor`, `Pins`, `HardCeiling`, `HeldByApplied`, `BehindTail` e `Window map[uint64]bool` (só na líder), preenchidos pelo `Node.Status()` a partir do retrato do `Compactor` e da política.
@@ -661,7 +666,7 @@ Notas de modelagem (extensão conservadora do que existe):
    - Por que é seguro: o `boot-token` é gravado antes de a célula responder e o WAL é criado depois da decisão. Um volume com o token e sem WAL é de uma célula que nunca iniciou o Raft, então nunca votou nem confirmou nada; reusar o token não esconde nenhuma promessa perdida.
 1. O estado inicial da célula, no `bootstrap`, antes de iniciar os laços:
    - `P, _ := progress.LoadProgress()` e `R := node.FirstIndex()` (o primeiro retido em disco).
-   - Se `P + 1 < R` e `R > 2` (fora a partida do zero, em que o snapshot sintético é o índice 1), a célula começa em `reconstruindo`, com o log `"progresso %d atrás do disco retido %d: reconstrução automática"`. Isso substitui o "não sobe" do RT-09 (DC-04).
+   - Se `P + 1 < R` e `R > 2` (fora a partida do zero, em que o snapshot sintético é o índice 1), a célula começa em `reconstruindo`, com o log `"progresso %d atrás do disco retido %d: reconstrução automática"`. Isso substitui o "não sobe" do RT-09 (DC-04) e a recusa `ErrProgressBehind` do Incremento A (O-37, item 7).
    - Senão, a célula começa em `normal`.
 2. `StatusReporter` ganha os campos `Mode`, `Recovery` e `Rebuild` (o retrato do `Compactor` e os blocos `raft` e `wal` já vêm da O-37, item 6). `CellStatus` ganha:
    - `Raft *RaftLogStatus \`json:"raft"\``, com `Snapshot uint64 \`json:"snapshot"\`` e `Memoria struct{ Entradas uint64; Bytes int64 } \`json:"memoria"\``.
@@ -729,7 +734,7 @@ Notas de modelagem (extensão conservadora do que existe):
    - A follower pausada mantém `dr_raft_mem_entries ≤ 250`, o `CommitPump` lê do disco (`commitNaoEntregue` cai depois de despausar sem a RAM conter as entradas) e ela alcança o gate sem reiniciar.
    - O teto em bytes é coberto pelo teste de unidade da O-35.
 6. CA-28 (DC-12): `task clean`, `task start` (as três sobem, inclusive com o nascimento pelos tokens) e `task test-lost-volume CELL=<uma follower>`. Depois, `task clean` e `task start` de novo, e o `e2e` passa.
-7. CA-27: `task clean`, `task start` (padrões) e `task soak DURATION=1h`. "Carga do CF-06" passa a ser o `load` a 10 TPS (AP-14). A vazão de 3.000 TPS é medida na AWS, fora desta POC.
+7. CA-27: `task clean`, `task start` (padrões) e `task soak DURATION=1h`. "Carga do CF-06" passa a ser o `load` a 10 TPS (AP-14). A versão na AWS é o CF-06 da validação (`validation/CF-06-soak-longa-duracao.md`, 4 h com CRG-1); a vazão de 3.000 TPS é medida lá.
 8. Regressão: o `e2e` e as tasks de teste existentes (`test-follower-forwarding`, `test-follower-restart`, `test-follower-outage`, `test-leader-failover`, `test-no-quorum`, `test-slow-db` e `test-invalid-requests`) passam, com `task clean` antes por causa do RT-20.
 
 ## Norms

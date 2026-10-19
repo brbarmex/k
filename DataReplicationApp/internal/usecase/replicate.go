@@ -40,6 +40,22 @@ type CommitPump struct {
 // readBytes é o teto de cada leitura por faixa do log (RAM ou disco).
 const readBytes = 1 << 20
 
+// ErrProgressBehind: o progresso do applier está atrás do primeiro índice retido em disco
+// (O-37, item 7). Começar no primeiro retido pularia entradas que o banco da célula não tem.
+var ErrProgressBehind = errors.New("progresso do applier atrás do disco retido")
+
+// CheckResume confere a retomada da partida contra o disco retido. Progresso 0 (ausente ou
+// corrompido) é aceito: o disco só é liberado até o progresso com fsync (G1), então tudo
+// antes do primeiro retido já está no banco. Um progresso gravado e atrás do primeiro
+// retido só aparece com um arquivo de progresso antigo restaurado: a célula não sobe
+// (no Incremento B, ela parte em reconstrução, DC-04).
+func CheckResume(progressIdx, firstRetained domain.Index) error {
+	if progressIdx > 0 && progressIdx+1 < firstRetained {
+		return fmt.Errorf("%w: progresso %d atrás do disco retido %d: reconstrução necessária", ErrProgressBehind, progressIdx, firstRetained)
+	}
+	return nil
+}
+
 // ResumeFrom é o primeiro índice que a bomba entrega na partida (ADR-060, item 5): o
 // índice do progresso do applier, ou 1 sem progresso salvo. A entrada do progresso é
 // reentregue inteira: o applier pula os itens já gravados pela ordem salva, e o replay,

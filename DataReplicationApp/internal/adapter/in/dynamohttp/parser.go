@@ -119,7 +119,7 @@ func (p *Parser) parsePut(raw map[string]json.RawMessage, table domain.LogicalTa
 	if err != nil {
 		return Request{}, validation("One or more parameter values were invalid: " + err.Error())
 	}
-	if size > maxItemSize {
+	if size+versionReserve > maxItemSize { // o _dr_v do applier conta no limite do banco
 		return Request{}, validation("Item size has exceeded the maximum allowed size")
 	}
 	key, err := domain.CanonicalKey(ks, item)

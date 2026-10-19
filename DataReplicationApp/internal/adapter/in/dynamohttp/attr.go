@@ -11,6 +11,17 @@ import (
 // maxItemSize é o tamanho máximo de item do DynamoDB (400 KB).
 const maxItemSize = 400 * 1024
 
+// versionReserve são os bytes que o applier acrescenta ao item no banco: o nome `_dr_v` e o
+// maior número de versão (uint64). Sem essa reserva, um item no limite passaria pela borda e
+// o banco o recusaria no apply, depois do ACK, estacionando o applier (SG-07, FC-02).
+var versionReserve = func() int {
+	n, err := number(json.RawMessage(`"18446744073709551615"`))
+	if err != nil {
+		panic(err)
+	}
+	return len("_dr_v") + n
+}()
+
 // validateValue confere um valor de atributo em JSON do DynamoDB (exatamente um tipo
 // conhecido e bem formado) e devolve o tipo e o tamanho aproximado em bytes, pela regra
 // do DynamoDB (nomes e valores). Tudo o que o banco recusaria é recusado aqui (SG-07).
