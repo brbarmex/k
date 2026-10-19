@@ -71,21 +71,24 @@ flowchart TD
     PEERS -->|"resposta do AppendEntries: termo, índice e learner, por evento"| GATE["Gate<br/>min Raft, maioria Azure"]
     RAFT -->|"commit Raft"| GATE
     RAFT -->|"índice commitado, como sinal"| PUMP["CommitPump<br/>usecase replicate"]
-    PUMP -->|"entradas lidas por faixa da memória do Raft"| APP["Applier"]
+    LR["LogReader<br/>RAM ou segmentos .wal"] -->|"entradas commitadas por faixa"| PUMP
+    RLOG -.->|"abaixo da RAM"| LR
+    PUMP --> APP["Applier"]
     GATE -->|"libera o ACK"| WS
     GATE -->|"libera aplicar até o índice"| APP
     APP -->|"escrita condicional v menor que índice"| DB[("DynamoDB ou Cosmos<br/>da célula")]
     APP -->|"progresso (índice, ordem), CRC, sem fsync"| PROG[("progress<br/>volume do Raft")]
-    APP -.->|"aplicado local: limite da compactação (RaftCompactLimit)"| RLOG
+    CMP["Compactor, fora do laço<br/>snapshot-marcador, RAM e disco"] -->|"SaveSnapshot e liberação até min(aplicado com fsync, piso, pinos, snapshot)"| RLOG
+    PROG -.->|"aplicado com fsync"| CMP
 ```
 
 **Passo a passo de uma escrita:**
 1. `WriteService` chama `Propose` no `RaftNode` (única porta que fala com o Raft).
 2. O Raft envia a entrada aos pares (só o `MsgApp` da líder sai antes do fsync, F3) e o laço do `Ready` grava o lote no **log do Raft** com um fsync; nenhuma resposta (`MsgAppResp`, voto, auto-ACK da líder) sai antes do fsync ([ADR-056](../03_adr/ADR-056-group-commit-por-shard-e-nada-sai-antes-do-fsync.md)). Na replicação por gRPC, 2 de 3 votantes AWS decidem o commit, e os 3 learners da Azure recebem a mesma entrada.
 3. Cada learner informa o índice que já tornou durável **na resposta do `AppendEntries`**, com o termo e a identidade dele ([ADR-046](../03_adr/ADR-046-gate-so-conta-progresso-validado-pelo-raft.md)). Cada resposta alimenta o `Gate` na hora, sem esperar um commit novo; o gate só adota o termo atual e guarda `min(commit do Raft, maioria Azure)`. **Só aqui o ACK é liberado.**
-4. O índice commitado chega ao `CommitPump` como sinal; ele lê as entradas commitadas por faixa **da memória do Raft** e as entrega ao `Applier`, fora do caminho do ACK. O progresso dos learners e o gate correm em goroutines próprias do `CommitPump` ([ADR-060](../03_adr/ADR-060-laco-do-raft-nunca-espera-o-apply-e-admissao-por-atraso.md)): um applier lento não atrasa o gate.
+4. O índice commitado chega ao `CommitPump` como sinal; ele lê as entradas commitadas por faixa pelo **`LogReader`** (da RAM ou, abaixo dela, dos segmentos `.wal`, só as versões commitadas) e as entrega ao `Applier`, fora do caminho do ACK. O progresso dos learners e o gate correm em goroutines próprias do `CommitPump` ([ADR-060](../03_adr/ADR-060-laco-do-raft-nunca-espera-o-apply-e-admissao-por-atraso.md)): um applier lento não atrasa o gate.
 5. O `Applier` escreve no banco da célula com escrita condicional por versão, **sempre depois do gate** ([ADR-057](../03_adr/ADR-057-um-unico-modo-strong-consistency.md)) e **em paralelo por chave**, com a mesma chave na ordem do log ([ADR-058](../03_adr/ADR-058-apply-paralelo-por-chave-com-marca-dagua.md)); o `applied` é a marca d'água contígua, e o progresso salvo é ela `(índice, ordem)` ([ADR-048](../03_adr/ADR-048-skip-por-item.md)).
-6. O log do Raft só é compactado até `domain.RaftCompactLimit`, o menor entre o aplicado local, o índice durável da maioria Azure enquanto a Azure estiver dentro da janela e F − 1 de uma reconstrução em tabela sombra em curso, com uma folga até o menor `match` dos votantes AWS limitada por `RAFT_RETAIN_MAX` ([ADR-063](../03_adr/ADR-063-snapshot-e-compactacao-do-log-do-raft.md), pendente). O que ele retém serve a Azure atrasada pelo próprio Raft (`MsgApp`); acima do teto de 70% do volume do Raft ([ADR-041](../03_adr/ADR-041-disco-do-log-teto-de-70-por-cento-sem-s3-na-v1.md)), a Azure sai da janela e volta por reconstrução em tabela sombra ([ADR-047](../03_adr/ADR-047-delete-real-invariante-e-reconstrucao-em-tabela-sombra.md)).
+6. O `Compactor` grava um snapshot-marcador a cada 10.000 entradas ou 64 MiB (fsync do progresso, arquivo `snapshot`, `wal.SaveSnapshot`), compacta a RAM até `snapshot − RAFT_CATCHUP_ENTRIES` (até o snapshot acima de `RAFT_RAM_MAX`) e libera o disco até `min(aplicado com fsync, piso, pinos, snapshot)`; o piso é o menor `Match` das réplicas dentro da janela (`RETAIN_MAX_BYTES`). A réplica atrasada recebe o marcador e só o aceita com o aplicado ≥ índice; fora da janela, se reconstrói por sobrescrita no lugar ([especificação](../../spec/compactacao_do_log/especificacao.md); substitui o desenho dos ADRs 041, 047 e 063).
 
 **Quem grava o quê, por escrita lógica:**
 
@@ -207,7 +210,8 @@ flowchart TD
     B -->|inválida| X["processo sai com erro"]
     B --> C["abre o WAL e verifica CRC"]
     C -->|corrupção no meio| Y["recusa subir: rebuild manual"]
-    C --> D["RaftNode inicia em Applied = retomada − 1<br/>retomada = progresso do applier, ou 1"]
+    C -->|"WAL de outro grupo ou volume vazio num grupo existente"| Y
+    C --> D["RaftNode inicia do último snapshot: só a cauda volta à RAM<br/>Applied = retomada − 1, retomada = progresso do applier<br/>confirmado do marcador restaura o gate"]
     D --> E["Applier retoma até o high-water mark anterior"]
     E --> F["readyz fica verde"]
     F --> G["porta de API abre"]
@@ -270,6 +274,7 @@ stateDiagram-v2
     [*] --> Recuperando
     Recuperando --> Follower: WAL ok, applier alcançou
     Recuperando --> Recusando: corrupção no meio do WAL
+    Recuperando --> Recusando: WAL de outro grupo ou volume vazio num grupo existente
     Follower --> Candidato: timeout de eleição
     Candidato --> Lider: ganhou a eleição
     Candidato --> Follower: perdeu

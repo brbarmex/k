@@ -2,7 +2,7 @@
 
 [Início](../00_COMECE_AQUI.md) · [Documento principal](../DataReplication_Versao_1.md) · [Índice de diagramas](INDEX.md)
 
-Cada célula é um cluster (EKS ou AKS) em uma AZ. No namespace do cliente rodam as aplicações e **um** pod `DataReplication`, sem sidecar e sem HPA. O volume do log do Raft é dedicado (um por nó), e a imposição "só o `DataReplication` escreve no banco" é feita por IAM. Cada aplicação fala mTLS com o pod e só alcança as tabelas e operações da sua entrada na lista de permissões (`403` sem entrada).
+Cada célula é um cluster (EKS ou AKS) em uma AZ. No namespace do cliente rodam as aplicações e **um** pod `DataReplication`, sem sidecar e sem HPA. O volume do log do Raft é dedicado (um por nó) e guarda o WAL, o arquivo `snapshot` com o marcador e o `progress` do applier; e a imposição "só o `DataReplication` escreve no banco" é feita por IAM. Cada aplicação fala mTLS com o pod e só alcança as tabelas e operações da sua entrada na lista de permissões (`403` sem entrada).
 
 ## Dentro de uma célula
 
@@ -13,7 +13,7 @@ flowchart TD
         A2["App 2 a 10"] -->|"mTLS por aplicação"| SVC
         SVC --> POD["Pod DataReplication<br/>QoS Guaranteed, PDB maxUnavailable 1<br/>lista identidade para tabelas e operações"]
     end
-    POD --- VOL[("Volume do Raft, dedicado e provisionado<br/>wal do etcd por shard, fsync no caminho do ACK<br/>retenção para a Azure até 70%, progresso do applier por item")]
+    POD --- VOL[("Volume do Raft, dedicado e provisionado<br/>wal do etcd por shard, fsync no caminho do ACK<br/>segmentos retidos até o teto duro, marcador snapshot, progresso do applier por item")]
     POD -->|"identidade da carga de trabalho"| DB[("Banco da célula")]
     POD <-->|"mTLS, porta de replicação por balanceador interno"| PEERS["DataReplication das outras células"]
     POD --> ADM["Porta de administração<br/>livez, readyz, metrics"]

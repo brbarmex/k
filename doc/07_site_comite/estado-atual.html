@@ -10,7 +10,7 @@
 <!--
 Fonte(s) usada(s) nesta página (rastreabilidade), relativas à raiz do pacote:
   ESTADO_ATUAL.md
-Gerado em 17/10/2026 a partir do pacote DataReplication_Versao_1.
+Gerado em 18/10/2026 a partir do pacote DataReplication_Versao_1.
 -->
 <header class="topo">
 <button class="menu" type="button" aria-label="Abrir navegação" onclick="document.body.classList.toggle('nav-aberta')">☰</button>
@@ -92,7 +92,7 @@ Gerado em 17/10/2026 a partir do pacote DataReplication_Versao_1.
 </nav>
 <main>
 <div class="migalhas"><a href="index.html">Início</a> / Estado atual</div>
-<h1>Estado atual do DataReplication</h1><p><strong>Válido em 14/10/2026 · cobre ADR-001 a ADR-063 · rascunho, aguardando a validação do Bruno (seção 6).</strong></p>
+<h1>Estado atual do DataReplication</h1><p><strong>Válido em 14/10/2026, com a compactação do log revista em 18/10 (<a href="../../spec/compactacao_do_log/especificacao.md">especificação</a>) · cobre ADR-001 a ADR-063 · rascunho, aguardando a validação do Bruno (seção 6).</strong></p>
 <p>Este documento diz <strong>como o sistema é hoje</strong>, regra por regra, sem a história de como se chegou a cada uma. Quem chega lê este documento primeiro e abre um ADR só para saber o porquê de uma regra. Para o status de cada ADR, quem altera quem e as contradições encontradas, veja o <a href="inventario-adrs.html">inventário</a>.</p>
 <h2 id="como-ler">Como ler</h2>
 <div class="tabela"><table>
@@ -204,10 +204,10 @@ Gerado em 17/10/2026 a partir do pacote DataReplication_Versao_1.
 </tr>
 <tr>
 <td>I-08</td>
-<td>O log do Raft só é compactado até <code>RaftCompactLimit</code> = <code>min(aplicado local, índice durável da maioria Azure enquanto a Azure estiver na janela, F − 1 de uma reconstrução em curso)</code></td>
-<td><a href="../03_adr/ADR-041-disco-do-log-teto-de-70-por-cento-sem-s3-na-v1.md">041</a> <a href="../03_adr/ADR-063-snapshot-e-compactacao-do-log-do-raft.md">063</a></td>
+<td>O disco do log do Raft só é liberado até <code>min(aplicado local com fsync, piso, pinos, snapshot)</code>: o piso é o menor <code>Match</code> das réplicas dentro da janela, e os pinos seguram leituras do disco e reconstruções em curso. A RAM é compactada até <code>snapshot − RAFT_CATCHUP_ENTRIES</code>, ou até o snapshot acima de <code>RAFT_RAM_MAX</code></td>
+<td><a href="../../spec/compactacao_do_log/especificacao.md">especificação</a> (G1, G7), substitui <a href="../03_adr/ADR-041-disco-do-log-teto-de-70-por-cento-sem-s3-na-v1.md">041</a> e <a href="../03_adr/ADR-063-snapshot-e-compactacao-do-log-do-raft.md">063</a></td>
 <td>—</td>
-<td>Sim na regra (<code>RaftCompactLimit</code>); a compactação está desligada</td>
+<td>Sim (Incremento A, 18/10)</td>
 </tr>
 <tr>
 <td>I-09</td>
@@ -325,9 +325,12 @@ Gerado em 17/10/2026 a partir do pacote DataReplication_Versao_1.
 <h3 id="35-o-log-do-raft-o-fsync-e-a-retencao">3.5 O log do Raft, o fsync e a retenção</h3>
 <ul>
 <li><strong>Log do Raft:</strong> pacote <code>wal</code> do etcd, um por shard, fsync antes de responder; é o <strong>único log do nó</strong>, a única fonte das entradas commitadas e o <strong>único fsync no caminho do ACK</strong> <a href="../03_adr/ADR-019-wal-proprio-volume-dedicado.md">019</a>. Group commit por shard sem espera fixa (teto de 1 MiB por lote); modo síncrono com F3; <code>AsyncStorageWrites</code> só se o spike S1b mostrar ganho <a href="../03_adr/ADR-056-group-commit-por-shard-e-nada-sai-antes-do-fsync.md">056</a>. <strong>POC: Parcial</strong> (o lote vem só do <code>Ready</code>; o teto de 1 MiB entra junto com o <code>AsyncStorageWrites</code>, se o S1b aprovar).</li>
-<li><strong>Entrega ao applier:</strong> o <code>CommitPump</code> lê as entradas commitadas por faixa da memória do Raft e as entrega ao Applier; não há outro log nem escrita em dobro <a href="../03_adr/ADR-060-laco-do-raft-nunca-espera-o-apply-e-admissao-por-atraso.md">060</a>. <strong>POC: Sim</strong>.</li>
-<li><strong>Retenção:</strong> o log do Raft é compactado só até <code>RaftCompactLimit</code> (I-08), com uma folga até o menor <code>match</code> dos votantes AWS limitada por <code>RAFT_RETAIN_MAX</code>. A retenção para a Azure atrasada fica no próprio log do Raft (disco do WAL e memória do <code>MemoryStorage</code>), com teto de 70% do volume do Raft; passado o teto, a Azure sai da janela, deixa de segurar a compactação e volta por reconstrução em tabela sombra. A Azure e os pares atrasados se alcançam pelo próprio Raft (<code>MsgApp</code>). Sem S3 na v1 <a href="../03_adr/ADR-041-disco-do-log-teto-de-70-por-cento-sem-s3-na-v1.md">041</a> <a href="../03_adr/ADR-047-delete-real-invariante-e-reconstrucao-em-tabela-sombra.md">047</a>. <strong>POC: Fora</strong> (compactação desligada, RT-11). ⏳ <a href="../03_adr/ADR-063-snapshot-e-compactacao-do-log-do-raft.md">063</a>.</li>
-<li><strong>Partida:</strong> retoma no índice do progresso do applier (sem progresso, em 1); o Raft reinicia com <code>Applied = retomada − 1</code>, limitado entre o snapshot e o commit gravado, e o replay vem do WAL do Raft, sem reaplicar o log inteiro <a href="../03_adr/ADR-060-laco-do-raft-nunca-espera-o-apply-e-admissao-por-atraso.md">060</a>. <strong>POC: Sim</strong>.</li>
+<li><strong>Entrega ao applier:</strong> o <code>CommitPump</code> lê as entradas commitadas por faixa pelo <code>LogReader</code>, que lê da RAM (<code>MemoryStorage</code>) e, abaixo dela, dos segmentos <code>.wal</code> em modo leitura. Só sai entrada commitada e definitiva: uma versão reescrita por outra líder substitui a anterior, e uma entrada só é entregue depois de um <code>HardState</code> que a commite. Não há outro log nem escrita em dobro <a href="../03_adr/ADR-060-laco-do-raft-nunca-espera-o-apply-e-admissao-por-atraso.md">060</a> <a href="../../spec/compactacao_do_log/especificacao.md">especificação</a> (seção 5, G3). <strong>POC: Sim</strong>.</li>
+<li><strong>Snapshot-marcador:</strong> a cada <code>SNAPSHOT_EVERY_ENTRIES</code> (10.000) ou <code>SNAPSHOT_EVERY_BYTES</code> (64 MiB), um <code>Compactor</code> fora do laço do Raft grava um snapshot sem dados, no último índice avançado pelo laço. A ordem é fixa: fsync do progresso do applier, arquivo <code>snapshot</code> com o marcador (<code>cluster_id</code>, <code>epoch</code> e índice confirmado, com CRC e fsync), <code>wal.SaveSnapshot</code>, compactação da RAM e liberação do disco. Os dados ficam no banco da célula <a href="../../spec/compactacao_do_log/especificacao.md">especificação</a> (seção 3). <strong>POC: Sim</strong>.</li>
+<li><strong>Memória:</strong> <code>RAFT_RAM_MAX</code> (256 MiB) é um teto duro dos bytes no <code>MemoryStorage</code>; o processo roda com <code>GOMEMLIMIT</code> em ~80% do limite do container <a href="../../spec/compactacao_do_log/especificacao.md">especificação</a> (seção 4, G7). <strong>POC: Sim</strong> (<code>mem_limit</code> de 1 GiB e <code>GOMEMLIMIT</code> de 800 MiB no compose).</li>
+<li><strong>Retenção:</strong> o disco do log segue a regra da I-08. Uma réplica está na janela enquanto os bytes retidos desde o seu <code>Match</code> não passam de <code>RETAIN_MAX_BYTES</code> (orçamento de ~1 h de atraso); fora dela, deixa de segurar o disco e a RAM da líder, e as escritas continuam. Acima do teto duro (<code>RETAIN_DISK_HARD</code>, 85% do volume, ou <code>RETAIN_DISK_HARD_BYTES</code>), só os pinos de reconstrução são soltos; se quem segura é o aplicado local, nada dele é apagado e a célula sai do <code>/readyz</code>. Sem S3 na v1 <a href="../../spec/compactacao_do_log/especificacao.md">especificação</a> (seção 4). <strong>POC: Sim</strong> (Incremento A).</li>
+<li><strong>Réplica atrasada:</strong> a líder envia o marcador (<code>MsgSnap</code>) a quem ficou atrás da RAM dela. A réplica só o entrega ao Raft com o aplicado local ≥ índice do marcador; antes disso, descarta e se recupera por um canal separado (<code>Retained</code> e <code>CatchUp</code>, lendo o log de qualquer célula que o retenha, só até o gate da fonte). Fora da janela, a réplica se reconstrói: copia o banco de uma célula sã até F e sobrescreve no lugar a própria tabela, item a item, pela condição de versão, sem tabela sombra (DC-11) <a href="../../spec/compactacao_do_log/especificacao.md">especificação</a> (seções 5 e 6). <strong>POC: Parcial</strong> (o tratamento do <code>MsgSnap</code> está feito; a célula atrás da cauda fica parada e visível em <code>raft.atrasCauda</code> até o Incremento B, que traz a recuperação e a reconstrução).</li>
+<li><strong>Partida:</strong> o WAL é aberto a partir do último snapshot, e só a cauda depois dele volta para a RAM. A retomada é o índice do progresso do applier (sem progresso, o primeiro índice retido em disco); a marca d'água começa no progresso, e as entradas entre o progresso e o snapshot vêm do disco pelo <code>LogReader</code>. O confirmado do marcador restaura o gate (G6). O metadado do WAL guarda <code>node_id</code> e <code>cluster_id</code> (<code>CLUSTER_ID</code>): outro grupo ou o formato antigo não sobem <a href="../03_adr/ADR-060-laco-do-raft-nunca-espera-o-apply-e-admissao-por-atraso.md">060</a> <a href="../../spec/compactacao_do_log/especificacao.md">especificação</a> (seção 7). <strong>POC: Sim</strong>.</li>
 </ul>
 <h3 id="36-consenso-e-lideranca">3.6 Consenso e liderança</h3>
 <ul>
@@ -423,9 +426,10 @@ Gerado em 17/10/2026 a partir do pacote DataReplication_Versao_1.
 <h3 id="311-falhas-e-recuperacao">3.11 Falhas e recuperação</h3>
 <ul>
 <li>Corrupção no meio do log do Raft faz o nó recusar subir; cauda rasgada é truncada <a href="../03_adr/ADR-034-fsync-fatal-e-identidade-nova.md">034</a>. <strong>POC: Sim</strong>.</li>
-<li>Perda do volume do Raft é tratada como disco perdido: o nó volta com identidade nova <a href="../03_adr/ADR-034-fsync-fatal-e-identidade-nova.md">034</a>.</li>
-<li>Num modo degradado longo, a memória do nó cresce com o atraso da Azure até o teto, porque o <code>MemoryStorage</code> guarda em RAM tudo o que não foi compactado; mitigações em aberto e medição no spike S1.</li>
-<li>Reconstrução manual na v1 (<code>drctl rebuild</code>) <a href="../03_adr/ADR-034-fsync-fatal-e-identidade-nova.md">034</a> <a href="../03_adr/ADR-047-delete-real-invariante-e-reconstrucao-em-tabela-sombra.md">047</a>.</li>
+<li>Perda do volume do Raft é tratada como disco perdido: o nó volta com identidade nova <a href="../03_adr/ADR-034-fsync-fatal-e-identidade-nova.md">034</a>. Até a troca de membros por ConfChange existir (feature <code>troca-de-pvc-em-cell-ativa</code>, <a href="../../parklot/adr-troca-de-pvc-em-cell-ativa.md">parking lot</a>), uma célula com o volume vazio num grupo que já existe <strong>não sobe</strong> (fail-fast, DC-12). <strong>POC: Fora</strong> (vem no Incremento B).</li>
+<li>Backup e restauração do banco e do WAL ficam fora deste produto (P-04): são de outro escopo. Um backup do WAL nunca é restaurado numa célula de um grupo ativo.</li>
+<li>A memória do nó não cresce com o atraso de uma réplica: a RAM do log tem teto próprio (<code>RAFT_RAM_MAX</code>) e o que fica retido para a réplica atrasada está em disco <a href="../../spec/compactacao_do_log/especificacao.md">especificação</a> (G7). <strong>POC: Sim</strong>.</li>
+<li>Reconstrução automática para a réplica fora da janela e manual por <code>POST /admin/reconstruir</code> (<code>task rebuild</code>), com sobrescrita no lugar (DC-11); uma reconstrução que bate no teto duro de disco é abortada e tenta de novo depois, sem afetar as escritas <a href="../03_adr/ADR-034-fsync-fatal-e-identidade-nova.md">034</a> <a href="../../spec/compactacao_do_log/especificacao.md">especificação</a> (seção 6). <strong>POC: Fora</strong> (vem no Incremento B).</li>
 </ul>
 <h3 id="312-verificacao">3.12 Verificação</h3>
 <ul>
@@ -510,8 +514,23 @@ Gerado em 17/10/2026 a partir do pacote DataReplication_Versao_1.
 </tr>
 <tr>
 <td>Witness com manifesto, snapshots e WAL</td>
-<td>Sem uso; a recuperação vem do log do Raft e da tabela sombra</td>
+<td>Sem uso; a recuperação vem do log do Raft e da reconstrução</td>
 <td><a href="../03_adr/ADR-011-witness-manifesto-snapshots.md">011</a></td>
+</tr>
+<tr>
+<td>Compactação até <code>RaftCompactLimit</code>, teto de 70% do volume, retenção da Azure na RAM; compactação desligada na POC</td>
+<td>Snapshot-marcador, RAM com teto, disco até o aplicado com fsync, janela em bytes e teto duro; ligada na POC</td>
+<td><a href="../03_adr/ADR-041-disco-do-log-teto-de-70-por-cento-sem-s3-na-v1.md">041</a> <a href="../03_adr/ADR-063-snapshot-e-compactacao-do-log-do-raft.md">063</a> → <a href="../../spec/compactacao_do_log/especificacao.md">especificação</a></td>
+</tr>
+<tr>
+<td>Réplica atrasada alcança só pelo Raft (<code>MsgApp</code>)</td>
+<td>Canal de recuperação separado (<code>CatchUp</code>), fora do laço do Raft</td>
+<td><a href="../../spec/compactacao_do_log/especificacao.md">especificação</a></td>
+</tr>
+<tr>
+<td>Reconstrução em tabela sombra</td>
+<td>Sobrescrita no lugar, pela condição de versão (DC-11)</td>
+<td><a href="../03_adr/ADR-047-delete-real-invariante-e-reconstrucao-em-tabela-sombra.md">047</a> → <a href="../../spec/compactacao_do_log/decisoes.md">decisões</a></td>
 </tr>
 <tr>
 <td>Leitura com o applier parado esperando o prazo</td>
@@ -524,7 +543,8 @@ Gerado em 17/10/2026 a partir do pacote DataReplication_Versao_1.
 <p><strong>Decisões pendentes de ADR:</strong></p>
 <ul>
 <li><a href="../03_adr/ADR-062-banco-com-versao-de-outra-historia-do-log.md">062</a> Banco com versão de outra história do log: detector no apply e marcador conferido no boot.</li>
-<li><a href="../03_adr/ADR-063-snapshot-e-compactacao-do-log-do-raft.md">063</a> Snapshot e compactação do log do Raft, e o estado que hoje só existe como entrada do log (modo degradado, <code>SKIP</code>, dedupe).</li>
+<li><a href="../03_adr/ADR-063-snapshot-e-compactacao-do-log-do-raft.md">063</a> Snapshot e compactação do log do Raft: o desenho foi refeito na <a href="../../spec/compactacao_do_log/especificacao.md">especificação</a> e nas <a href="../../spec/compactacao_do_log/decisoes.md">decisões</a> de 18/10 (o Incremento A está na POC); os ADRs 041, 047 e 063 serão revistos à luz dela. Continua em aberto o estado que hoje só existe como entrada do log (modo degradado, <code>SKIP</code>, dedupe).</li>
+<li>DELETE com a reconstrução por sobrescrita exige lápide com <code>_dr_v</code> (<a href="../../parklot/adr-tombstone.md">parking lot</a>).</li>
 <li>As 8 perguntas do <a href="inventario-adrs.html#pontos-a-decidir-perguntas-para-o-bruno">inventário</a> foram respondidas em 14/10 (1a 2a 3a 4a 5a 6b 7a 8a) e já estão nas regras acima; o witness (<a href="../03_adr/ADR-011-witness-manifesto-snapshots.md">011</a>) ficou sem uso.</li>
 <li>Recusar escritas <strong>antes de propor</strong> enquanto o applier está parado, para não encher o log com escritas que só serão aplicadas depois do <code>SKIP</code> (<a href="fail-path/C26-entrada-venenosa.html">C26</a>).</li>
 </ul>
@@ -588,7 +608,7 @@ Gerado em 17/10/2026 a partir do pacote DataReplication_Versao_1.
 <li><code>task check-estado</code> (em <code>DataReplicationApp/taskfile.yaml</code>) falha se um ADR "Decidido" não estiver citado aqui ou se o "cobre até" não for o último ADR. Pega o esquecimento, não o conteúdo errado.</li>
 </ul>
 <footer class="rodape">
-Gerado em 17/10/2026 a partir de <code>DataReplication_Versao_1/</code>. O conteúdo vem dos arquivos .md citados no código-fonte desta página;
+Gerado em 18/10/2026 a partir de <code>DataReplication_Versao_1/</code>. O conteúdo vem dos arquivos .md citados no código-fonte desta página;
 textos marcados como <em>sugestão</em> são inferência do arquiteto e não decisões registradas.
 </footer>
 </main>

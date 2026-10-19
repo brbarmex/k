@@ -336,6 +336,6 @@ A definição de pronto vale **por instalação** (uma por cliente) e é uma lis
 | [`01_arquitetura/`](01_arquitetura/README.md) | Detalhe de arquitetura em 10 arquivos, mais o [glossário](01_arquitetura/00_glossario.md) |
 | [`02_cenarios/`](02_cenarios/INDEX.md) | `atualizados/` (C01–C35), `complexos/` (X01–X08), `a_rever/` (14 cenários ainda sem decisão completa), cada um com diagrama |
 | [`03_adr/`](03_adr/INDEX.md) | 58 decisões (ADR-001 a ADR-063), um arquivo cada, e o [inventário](03_adr/INVENTARIO.md) com o status efetivo de cada uma |
-| [`04_diagramas/`](04_diagramas/INDEX.md) | Diagramas de arquitetura e o catálogo de todos os 86 diagramas do pacote |
+| [`04_diagramas/`](04_diagramas/INDEX.md) | Diagramas de arquitetura e o catálogo de todos os 87 diagramas do pacote |
 | [`05_implementacao/`](05_implementacao/README.md) | Guia de código, exemplos compilados, structs, testes e spikes |
 | [`06_pendencias_e_riscos/`](06_pendencias_e_riscos/README.md) | Perguntas, pendências, riscos e revisão crítica |

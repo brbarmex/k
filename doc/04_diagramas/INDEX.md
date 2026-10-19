@@ -2,7 +2,7 @@
 
 [Início](../00_COMECE_AQUI.md) · [Documento principal](../DataReplication_Versao_1.md)
 
-Todos os 86 diagramas **Mermaid** do pacote, por pasta. Os diagramas de cada cenário ficam junto do cenário; os de arquitetura estão em `D01` a `D08` (este diretório).
+Todos os 87 diagramas **Mermaid** do pacote, por pasta. Os diagramas de cada cenário ficam junto do cenário; os de arquitetura estão em `D01` a `D08` (este diretório).
 
 ## Diagramas de arquitetura (este diretório)
 
@@ -11,9 +11,9 @@ Todos os 86 diagramas **Mermaid** do pacote, por pasta. Os diagramas de cada cen
 | [D01](D01-visao-do-sistema.md) | Contexto (mTLS por aplicação) e regra do ACK (gate por termo, `accept` com lease, `reject` com `503 PENDING`) |
 | [D02](D02-implantacao-da-celula.md) | Pod, namespace, volume, IAM e lista de permissões por aplicação |
 | [D03](D03-camadas-hexagonais.md) | Regra de dependência entre camadas |
-| [D04](D04-commitpump-e-log-do-raft.md) | Caminho do dado, o log do Raft, group commit por shard (nada sai antes do fsync), gate por evento e progresso do applier por item |
+| [D04](D04-commitpump-e-log-do-raft.md) | Caminho do dado, o log do Raft, group commit por shard (nada sai antes do fsync), gate por evento, progresso do applier por item, `LogReader` e `Compactor` (snapshot-marcador, RAM e disco) |
 | [D05](D05-gate-e-quorum.md) | Composição do gate: termo atual, evento, lease e barreira da leitura forte |
-| [D06](D06-estados-do-shard-e-do-no.md) | Modos do shard (lease expirado, sem gate com `reject`, promoção depois de D + M) e estados do nó |
+| [D06](D06-estados-do-shard-e-do-no.md) | Modos do shard (lease expirado, sem gate com `reject`, promoção depois de D + M), estados do nó e estados da célula diante do log (normal, recuperando, reconstruindo) |
 | [D07](D07-prazos-em-cascata.md) | Prazos dentro dos 30 s do SDK e o lease D fora da cascata |
 | [D08](D08-uma-escrita-seis-bancos.md) | Fan-out da escrita (seis bancos mantidos, ADR-054) e onde está o ACK |
 
@@ -31,6 +31,7 @@ Todos os 86 diagramas **Mermaid** do pacote, por pasta. Os diagramas de cada cen
 | [D05-gate-e-quorum.md](../04_diagramas/D05-gate-e-quorum.md) | Composição do gate | fluxo |
 | [D06-estados-do-shard-e-do-no.md](../04_diagramas/D06-estados-do-shard-e-do-no.md) | Estados do nó | estados |
 | [D06-estados-do-shard-e-do-no.md](../04_diagramas/D06-estados-do-shard-e-do-no.md) | Modos de operação do shard | estados |
+| [D06-estados-do-shard-e-do-no.md](../04_diagramas/D06-estados-do-shard-e-do-no.md) | Estados da célula diante do log | estados |
 | [D07-prazos-em-cascata.md](../04_diagramas/D07-prazos-em-cascata.md) | Cascata de prazos | fluxo |
 | [D08-uma-escrita-seis-bancos.md](../04_diagramas/D08-uma-escrita-seis-bancos.md) | Fan-out da escrita | fluxo |
 

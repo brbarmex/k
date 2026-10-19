@@ -11,7 +11,7 @@
 Fonte(s) usada(s) nesta página (rastreabilidade), relativas à raiz do pacote:
   02_cenarios/atualizados/C18-partida-e-recuperacao-do-no.md
   04_diagramas/D04-commitpump-e-log-do-raft.md
-Gerado em 17/10/2026 a partir do pacote DataReplication_Versao_1.
+Gerado em 18/10/2026 a partir do pacote DataReplication_Versao_1.
 -->
 <header class="topo">
 <button class="menu" type="button" aria-label="Abrir navegação" onclick="document.body.classList.toggle('nav-aberta')">☰</button>
@@ -137,12 +137,15 @@ Gerado em 17/10/2026 a partir do pacote DataReplication_Versao_1.
     W -.-&gt;|&quot;gate − aplicado &amp;gt; APPLY_LAG_MAX (ADR-060)&quot;| THR
     RAFT -.-&gt;|&quot;buffer cheio: 32 MiB por shard&quot;| THR[&quot;ThrottlingException, nada entra no log&quot;]
     RAFT --&gt;|&quot;lote do Ready&quot;| WR[&quot;Laço do Ready do shard&lt;br/&gt;grava os pendentes, sem espera fixa&quot;]
-    WR --&gt;|&quot;um Save, um fdatasync&quot;| RLOG[(&quot;log do Raft: wal do etcd por shard&lt;br/&gt;volume do Raft, retém para a Azure até 70%&quot;)]
+    WR --&gt;|&quot;um Save, um fdatasync&quot;| RLOG[(&quot;log do Raft: wal do etcd por shard&lt;br/&gt;segmentos .wal no volume do Raft&quot;)]
+    WR --&gt;|&quot;Append: só a cauda desde o snapshot&quot;| RAM[(&quot;MemoryStorage&lt;br/&gt;teto RAFT_RAM_MAX&quot;)]
     WR --&gt;|&quot;depois do fsync: MsgAppResp, votos, auto-ACK, Advance&quot;| RAFT
     RAFT --&gt;|&quot;MsgApp da líder antes do fsync, F3&quot;| PARES[&quot;Seguidores AWS e learners Azure&quot;]
     RAFT --&gt;|&quot;commit publicado como sinal: atômico + aviso, nunca espera (ADR-060)&quot;| SIG[&quot;Sinal de commit&quot;]
     SIG --&gt; PUMP[&quot;CommitPump&quot;]
-    RAFT -.-&gt;|&quot;entradas lidas por faixa da memória do Raft&quot;| PUMP
+    RAM -.-&gt;|&quot;cauda recente&quot;| LR[&quot;LogReader&lt;br/&gt;só entradas commitadas e definitivas&quot;]
+    RLOG -.-&gt;|&quot;abaixo da RAM, em modo leitura&quot;| LR
+    LR --&gt;|&quot;entradas por faixa&quot;| PUMP
     PARES --&gt;|&quot;respondem só depois do próprio fsync&quot;| AZ[&quot;Respostas do AppendEntries&lt;br/&gt;dos learners Azure: termo, índice, identidade&quot;]
     AZ --&gt;|&quot;por evento, só termo atual&quot;| GATE[&quot;Gate&quot;]
     PUMP --&gt;|&quot;índice de commit, goroutine própria&quot;| GATE
@@ -151,10 +154,14 @@ Gerado em 17/10/2026 a partir do pacote DataReplication_Versao_1.
     GATE --&gt;|&quot;libera o apply até o gate&quot;| APPL
     APPL --&gt;|&quot;escrita condicional por versão, paralelo por chave (ADR-058)&quot;| DB[(&quot;Banco da célula&quot;)]
     APPL --&gt;|&quot;marca d&#x27;água: índice e ordem, CRC, sem fsync&quot;| PROG[(&quot;progresso do applier&lt;br/&gt;arquivo progress no volume do Raft&quot;)]
-    CMP[&quot;Compactação: até RaftCompactLimit&lt;br/&gt;aplicado local, maioria Azure na janela, reconstrução em curso&quot;] -.-&gt;|&quot;produção; desligada na POC&quot;| RLOG
-    APPL -.-&gt;|&quot;aplicado local&quot;| CMP
-    AZ -.-&gt;|&quot;índice durável da maioria Azure&quot;| CMP
-    PROG -.-&gt;|&quot;na partida: retomada, replay a partir do WAL&quot;| PUMP</pre></div>
+    CMP[&quot;Compactor, fora do laço&lt;br/&gt;gatilho: 10.000 entradas ou 64 MiB&quot;] --&gt;|&quot;1. fsync do progresso&quot;| PROG
+    CMP --&gt;|&quot;2. marcador: cluster_id, epoch, confirmado&quot;| MARK[(&quot;arquivo snapshot&lt;br/&gt;CRC, fsync&quot;)]
+    CMP --&gt;|&quot;3. wal.SaveSnapshot; 5. ReleaseLockTo e remoção&lt;br/&gt;até min(aplicado com fsync, piso, pinos, snapshot)&quot;| RLOG
+    CMP --&gt;|&quot;4. Compact até snapshot − catchup&lt;br/&gt;ou até o snapshot no teto&quot;| RAM
+    GATE -.-&gt;|&quot;confirmado&quot;| CMP
+    CMP -.-&gt;|&quot;piso: menor Match na janela, vai no GateUpdate&quot;| PARES
+    MARK -.-&gt;|&quot;na partida: confirmado restaura o gate&quot;| GATE
+    PROG -.-&gt;|&quot;na partida: retomada; WAL relido só desde o snapshot&quot;| PUMP</pre></div>
 </section>
 <section id="etapas"><h2>3. Legenda e etapas</h2>
 <div class="etapas"><ol>
@@ -204,7 +211,7 @@ Gerado em 17/10/2026 a partir do pacote DataReplication_Versao_1.
 </ul></details>
 </section>
 <footer class="rodape">
-Gerado em 17/10/2026 a partir de <code>DataReplication_Versao_1/</code>. O conteúdo vem dos arquivos .md citados no código-fonte desta página;
+Gerado em 18/10/2026 a partir de <code>DataReplication_Versao_1/</code>. O conteúdo vem dos arquivos .md citados no código-fonte desta página;
 textos marcados como <em>sugestão</em> são inferência do arquiteto e não decisões registradas.
 </footer>
 </main>

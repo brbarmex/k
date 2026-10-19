@@ -167,18 +167,25 @@ No Raft comum, o snapshot é uma cópia da máquina de estados. Aqui o estado vi
 
 **Progresso do applier.** O índice e a ordem da marca d'água (ADR-048, ADR-058) ficam num registro pequeno com CRC, sem fsync, no arquivo `progress` ao lado do diretório do WAL (na POC, `/var/lib/dr/raft/progress`). Perdê-lo só alonga o replay, que é idempotente pela versão.
 
-**Regra de compactação** (`internal/domain/retention.go`)
+> **Revisão de 18/10:** a compactação foi refeita na [especificação](../../spec/compactacao_do_log/especificacao.md) e nas [decisões](../../spec/compactacao_do_log/decisoes.md) da thread "Compactação do log: grill". O texto abaixo das regras 1 a 3 é o desenho de 13/10, mantido para a revisão dos ADRs 041, 047 e 063. O que vale agora:
+> - **Snapshot-marcador** sem dados a cada 10.000 entradas ou 64 MiB, no índice avançado pelo laço; o marcador (`cluster_id`, `epoch`, confirmado) fica num arquivo `snapshot` com CRC e fsync, porque o snapshot do WAL do etcd não tem campo de dados.
+> - **RAM** compactada até `snapshot − RAFT_CATCHUP_ENTRIES`, com teto duro `RAFT_RAM_MAX` e `GOMEMLIMIT`; na líder, só as réplicas dentro da janela seguram a RAM.
+> - **Disco** liberado até `min(aplicado com fsync, piso, pinos, snapshot)`; janela por `RETAIN_MAX_BYTES` e teto duro `RETAIN_DISK_HARD`.
+> - **Leitura** pelo `LogReader` (RAM ou segmentos `.wal`, só a versão commitada); **réplica atrasada** pelo canal `CatchUp`; **fora da janela**, reconstrução por sobrescrita no lugar, sem tabela sombra.
+> - **POC:** o Incremento A (snapshot, RAM, disco, partida pela cauda, `MsgSnap` sem queda) está implementado desde 18/10; a recuperação e a reconstrução vêm no Incremento B.
+
+**Regra de compactação de 13/10** (substituída, ver a revisão acima)
 1. **Segurança:** compactar o log do Raft só até `domain.RaftCompactLimit = min(aplicado local, índice durável da maioria Azure enquanto a Azure estiver dentro da janela, F − 1 de uma reconstrução em tabela sombra em curso)`. O aplicado local já está no banco da célula, então compactar até ele é seguro.
 2. **Desempenho:** manter uma folga até o menor `match` dos votantes AWS, limitada por `RAFT_RETAIN_MAX` (proposta 64 MiB ou 30 s). Evita que um atraso curto de um seguidor o jogue no caminho de snapshot do `etcd-io/raft`, que pausa o envio para aquele par.
 3. **Teto:** o espaço retido no volume do Raft não passa de 70% (ADR-041), com tempo mínimo que cubra a janela de dedupe (5 min). Acima do teto, a Azure sai da janela, deixa de segurar a compactação e volta por **reconstrução em tabela sombra** (ADR-047, 6.6).
 
-Na POC a compactação está desligada (RT-11); o laço de compactação, o snapshot e o par que fica atrás dele estão no [ADR-063](../03_adr/ADR-063-snapshot-e-compactacao-do-log-do-raft.md), pendente.
+Na POC a compactação está ligada desde 18/10 (Incremento A), pelas regras da revisão acima, e não por estas.
 
 **Catch-up.** A Azure atrasada, os learners e os seguidores AWS atrasados se alcançam pelo próprio Raft (`MsgApp`) enquanto o log do Raft retém o que eles precisam; o par grava com fsync no seu WAL antes de responder (5.5.2), e só então o progresso conta para o gate. Além do que o log retém, a volta é por reconstrução em tabela sombra. Não há canal de catch-up separado.
 
 **Partida.** A retomada é o índice do progresso do applier (a entrada do progresso é reentregue inteira, e o applier pula os itens já gravados pela ordem salva); sem progresso, começa em 1. O Raft reinicia com `Applied = retomada − 1`, limitado entre o snapshot e o commit gravado, e o replay vem do WAL do Raft ([ADR-060](../03_adr/ADR-060-laco-do-raft-nunca-espera-o-apply-e-admissao-por-atraso.md), item 5). Se a retomada ficar antes do snapshot, o nó precisa de reconstrução.
 
-**Memória.** O `MemoryStorage` guarda em RAM tudo o que não foi compactado; num modo degradado longo a memória do nó cresce com o atraso da Azure até o teto (6.5). Mitigações em aberto e medição no spike S1.
+**Memória.** Com a revisão de 18/10, o `MemoryStorage` guarda só a cauda recente, com teto `RAFT_RAM_MAX`; o atraso de uma réplica fica em disco, não em RAM.
 
 **Recuperação e falhas.** O `wal` do etcd valida o CRC na abertura e trata a cauda rasgada; erro de escrita ou de fsync é fatal (ADR-034). Perder o volume do Raft é disco perdido: o nó volta com identidade nova (ADR-034).
 
