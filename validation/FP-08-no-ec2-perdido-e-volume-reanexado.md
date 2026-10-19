@@ -11,6 +11,7 @@
 
 ## Análise crítica
 
+- **Limite do Incremento A (`eec02c9`):** se, enquanto a célula está fora, a líder passar do teto de RAM (`RAFT_RAM_MAX`) ou mudar de líder, a célula volta atrás da cauda e fica parada em `raft.atrasCauda` (FL-02) até a recuperação do Incremento B. Com CRG-1 e quedas curtas isso não acontece; com CRG-2 por minutos, sim.
 - Ponto oculto importante: quando o nó morre sem desligamento gracioso, o volume EBS continua "anexado" ao nó morto. O controlador de attach/detach do Kubernetes espera um tempo de segurança (historicamente ~6 min) antes de forçar a desanexação, e o pod novo fica em `ContainerCreating` com erro de multi-attach. O MTTR da célula vira minutos. Mitigações (taint `node.kubernetes.io/out-of-service`, desligamento gracioso do nó) precisam ser configuradas e o cenário prova se estão.
 - Para a líder, o Delta-T de escrita é o de FP-03 (o resto continua); o que muda é o tempo em que o sistema roda com 2 células.
 - A volta da célula usa o **mesmo** volume (mesmo WAL e mesmo NODE_ID): correto, porque o disco não falhou.

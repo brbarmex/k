@@ -6,7 +6,7 @@
 | Origem | Complemento: é a troca de líder mais frequente em produção |
 | Requisitos | HA, RPO = 0 |
 | Suporte na POC hoje | **Parcial.** Cada célula reinicia sem perder dados; sem transferência planejada, reiniciar a líder custa uma eleição. O formato da entrada no log é JSON sem versão de esquema: duas versões com formatos diferentes no mesmo cluster não são tratadas. |
-| Injeção | trocar a imagem nas 3 células, uma de cada vez, followers primeiro, líder por último, esperando a anterior alcançar |
+| Injeção | trocar a imagem nas 3 células, uma de cada vez, followers primeiro, líder por último, esperando a anterior alcançar. **Entre o commit `c9f42af` e o atual não há rolagem:** o formato do WAL mudou (identidade `{node_id, cluster_id}`, RT-20) e a versão nova recusa volumes antigos (FL-06 variante c); essa troca exige PVCs novos. Rodar este cenário entre duas versões com o mesmo formato. |
 | Duração | toda a rolagem, com CF-03 |
 
 ## Critérios de aceite

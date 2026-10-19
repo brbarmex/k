@@ -12,6 +12,7 @@
 ## Análise crítica
 
 - Sem `PreVote`, a isolada incrementaria o termo a cada tentativa e, ao voltar, forçaria uma eleição desnecessária. A POC liga `PreVote`; o cenário prova que a volta **não** muda o termo.
+- Com o isolamento de 5 min e CRG-2, a líder pode passar do teto de RAM (`RAFT_RAM_MAX`) e a isolada volta atrás da cauda (FL-02): no Incremento A ela fica parada em `raft.atrasCauda`. Com 30 s, não.
 - Escritas que chegam à isolada não conseguem ser encaminhadas: a isolada fica sem líder e responde 503 após `WAIT_LEADER`. Leituras também.
 
 ## Critérios de aceite

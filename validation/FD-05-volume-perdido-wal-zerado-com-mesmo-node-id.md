@@ -31,13 +31,17 @@ Dois desfechos possíveis, ambos inaceitáveis no produto. O cenário existe par
 | A1 | Desfecho 1 observado | log de pânico; `kube_pod_container_status_restarts_total` subindo |
 | A2 | Desfecho 2 reproduzido | ORC-04 R1 com X ausente |
 | A3 | Detectabilidade | M-16: a identidade do WAL muda e o NODE_ID não; um alerta sobre isso teria apontado o risco antes do passo 4 |
-| A4 | Evidência indireta | `dr_boot_last_index` (M-05) = 1 com `dr_peer_match_index` alto na líder |
+| A4 | Evidência indireta | campo `ultimo` do log `partida: WAL relido` (M-05) ausente ou 1, com `dr_peer_match_index` alto na líder |
 
 ## Métricas
 
 - Latência (p90, p99, p99.9, max): L-ACK (só para caracterizar a carga do passo 2).
 - Golden signals: G-ERR-1..5, G-TRF-2.
 - Além: B-RAFT-1, B-RAFT-3, B-RAFT-4 (`vote` concedido pela célula zerada), B-INV-2, B-K8S, M-05, M-16, ORC-05.
+
+## Mudança esperada no Incremento B
+
+Com o fail-fast do volume vazio (DC-12, RT-21, CA-28 da trecho da compactação), a célula com o volume zerado **não sobe** num grupo que já existe: os dois desfechos acima deixam de acontecer, e o resultado esperado passa a ser "recusa com a mensagem que aponta para `parklot/adr-troca-de-pvc-em-cell-ativa.md`; as outras duas seguem". A devolução segura da célula é a feature `troca-de-pvc-em-cell-ativa`.
 
 ## Decisão que este cenário alimenta
 

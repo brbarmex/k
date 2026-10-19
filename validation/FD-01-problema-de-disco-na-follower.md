@@ -20,7 +20,7 @@
 - Na variante **a**, o comportamento depende do `nvme_core.io_timeout` do sistema do nó: no Amazon Linux ele é muito alto e a I/O só espera; em outras imagens, a I/O pode estourar o timeout e virar a variante b. Registrar a imagem e o valor.
 - Na variante **a**, a follower parada não é detectada pela sonda: `/livez` responde sempre e `/readyz` continua 200 (ela ainda "conhece a líder"). As **escritas** que chegam a ela continuam funcionando, porque o encaminhamento à líder usa o cliente gRPC, fora do laço preso (inferido do código). As **leituras fortes** não: o commit publicado e o apply local param junto com o laço, a barreira nunca é alcançada e a leitura volta `read_timeout` no prazo. É um problema de HA de leitura que a lista original não pega.
 - Na variante **b**, o `detach-volume --force` é uma operação que a própria AWS avisa que pode corromper o sistema de arquivos. É exatamente o que se quer testar, mas pode cair em FD-06 (WAL com cauda corrompida) e a célula não subir mais.
-- Nas variantes **b** e **c**, ao voltar com o mesmo volume, a célula reusa a identidade. O cenário precisa de uma **evidência indireta** de perda: comparar o último índice do WAL na partida (`dr_boot_last_index`, M-05) com o `dr_peer_match_index{par=<follower>}` que a líder tinha antes da falha. Se o WAL voltou **menor** que o que a follower já tinha confirmado à líder, ela confirmou algo que não guardou: violação de segurança, mesmo que o oráculo desta execução não acuse perda (porque a outra follower tinha o dado).
+- Nas variantes **b** e **c**, ao voltar com o mesmo volume, a célula reusa a identidade. O cenário precisa de uma **evidência indireta** de perda: comparar o último índice do WAL na partida (campo `ultimo` do log `partida: WAL relido`, M-05) com o `dr_peer_match_index{par=<follower>}` que a líder tinha antes da falha. Se o WAL voltou **menor** que o que a follower já tinha confirmado à líder, ela confirmou algo que não guardou: violação de segurança, mesmo que o oráculo desta execução não acuse perda (porque a outra follower tinha o dado).
 
 ## Passos
 
@@ -39,7 +39,7 @@
 | A3 | Sem impacto nas outras entradas | p99 de L-ACK via líder e outra follower ≤ 1,2 × baseline |
 | A4 | Variante a: duração do travamento visível **durante** o travamento | M-15 (`dr_wal_fsync_inflight_seconds`); sem M-15: **não comprovado** |
 | A5 | Variantes b e c: processo cai na primeira falha de fsync, sem repetir | log `etcdraft: wal.Save`; `kube_pod_container_status_last_terminated_reason` |
-| A6 | Variantes b e c: sem regressão do WAL | `dr_boot_last_index` ≥ último `dr_peer_match_index` visto pela líder; se menor: **FALHA de segurança** (ADR-034) |
+| A6 | Variantes b e c: sem regressão do WAL | `ultimo` do log `partida: WAL relido` (M-05) ≥ último `dr_peer_match_index` visto pela líder; se menor: **FALHA de segurança** (ADR-034) |
 | A7 | Requisições presas na follower medidas | contagem e max de L-ACK das que entraram por ela |
 
 ## Métricas

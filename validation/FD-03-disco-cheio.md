@@ -3,16 +3,16 @@
 | Campo | Valor |
 |---|---|
 | Categoria | Caminho de falha (complemento) |
-| Origem | Complemento: sem compactação (CF-06), o disco **vai** encher |
+| Origem | Complemento: o disco pode encher por uma follower com o apply parado (que segura o próprio WAL) ou por algo fora do WAL no mesmo volume |
 | Requisitos | FT, HA, RPO = 0 |
-| Suporte na POC hoje | **Parcial.** `ENOSPC` no `wal.Save` é fatal. Não há o teto de 70% nem alerta do ADR-041 na POC. Na volta, abrir o WAL e cortar um segmento novo (o WAL do etcd pré-aloca segmentos de 64 MiB) tende a falhar de novo: espera-se reinício em laço até liberar espaço (inferido). |
+| Suporte na POC hoje | **Parcial.** Desde o Incremento A (`eec02c9`) o WAL só retém o necessário e há teto duro (`RETAIN_DISK_HARD`, 85% do volume): acima dele, se quem segura o disco é o aplicado local, a célula sai do `/readyz` antes de encher (ver FL-04). Um enchimento **de fora** do WAL (este cenário) não é liberado pelo app: `ENOSPC` no `wal.Save` continua fatal, e na volta, cortar um segmento novo (pré-alocado com `WAL_SEGMENT_BYTES`) tende a falhar de novo: reinício em laço até liberar espaço (inferido). |
 | Injeção | encher o volume com `fallocate` a partir de um contêiner de depuração com o PVC montado, ou `aws:ssm:send-command` com `AWSFIS-Run-Disk-Fill` apontando para o ponto de montagem; numa follower e, noutra execução, na líder |
 | Duração | até a célula voltar após expandir o PVC (`allowVolumeExpansion`) ou apagar o arquivo de enchimento |
 
 ## Análise crítica
 
 - O arquivo de progresso do applier mora no mesmo volume: ele também falha com `ENOSPC`. O cenário verifica qual falha chega primeiro e se alguma delas é tratada de outro jeito.
-- Num cluster real, as 3 células enchem no mesmo ritmo (mesmo log). Encher uma de propósito é o caso leve.
+- Com a compactação, as 3 células não enchem mais no mesmo ritmo: o enchimento é de uma célula só (follower atrasada, FL-04) ou externo (este cenário).
 - A recuperação por expansão online do gp3 tem um tempo próprio (modificação do volume + `resize2fs`/`xfs_growfs` feito pelo driver): medir.
 
 ## Critérios de aceite
@@ -20,7 +20,7 @@
 | # | Critério | Como se comprova |
 |---|---|---|
 | A1 | RPO = 0 | ORC-04 |
-| A2 | Falha cedo e visível | alerta de disco ≥ 70% disparado **antes** da queda (`kubelet_volume_stats_used_bytes / capacity`); sem alerta configurado: registrar como lacuna |
+| A2 | Falha cedo e visível | `/status` `wal.tetoDuro == true` e alerta de disco ≥ `RETAIN_DISK_HARD` (`kubelet_volume_stats_used_bytes / capacity`) **antes** da queda; sem alerta configurado: registrar como lacuna |
 | A3 | Comportamento na volta | laço de reinício esperado; registrar a mensagem e o número de reinícios |
 | A4 | MTTR | T0 → expansão → célula pronta e alcançada |
 
@@ -32,4 +32,4 @@
 
 ## Lacunas
 
-M-05; teto e alerta do ADR-041.
+M-05; alerta de disco (a regra do teto existe; o alerta é de implantação).

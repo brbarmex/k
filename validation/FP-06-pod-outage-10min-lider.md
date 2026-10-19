@@ -11,6 +11,7 @@
 
 ## Análise crítica
 
+- **Limite do Incremento A (`eec02c9`):** se, enquanto a antiga líder está fora, a líder passar do teto de RAM (`RAFT_RAM_MAX`) ou mudar de líder, a antiga líder volta atrás da cauda e fica parada em `raft.atrasCauda` (FL-02) até a recuperação do Incremento B. Com CRG-1 e quedas curtas isso não acontece; com CRG-2 por minutos, sim.
 - Os primeiros segundos são FP-03. O que é próprio deste cenário: (1) por 10 min o sistema roda com **2 células**, sem margem para mais uma falha; (2) a antiga líder volta com uma cauda não confirmada que precisa ser descartada (CE-06) e com 10 min de apply para alcançar (FP-04).
 - A nova líder herda o atraso de apply que tinha como follower (CE-05): o Delta-T pode ser maior que o da eleição.
 

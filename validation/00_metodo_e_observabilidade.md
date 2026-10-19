@@ -2,7 +2,7 @@
 
 Este arquivo vale para **todos** os cenários desta pasta. Cada cenário cita os itens daqui pelo código (`AMB-`, `CRG-`, `ORC-`, `RTO-`, `L-`, `G-`, `B-`, `M-`) e só detalha o que é próprio dele.
 
-Base conferida no código local de `DataReplicationApp/` (commit `c9f42af`, 18/10/2026). Onde algo foi deduzido do código e não observado, o texto diz "inferido".
+Base conferida no código local de `DataReplicationApp/` (commit `c9f42af`, 18/10/2026), revista para o commit `eec02c9` (compactação do log, Incremento A). Onde algo foi deduzido do código e não observado, o texto diz "inferido".
 
 ---
 
@@ -11,13 +11,13 @@ Base conferida no código local de `DataReplicationApp/` (commit `c9f42af`, 18/1
 | Código | Item | Definição para a validação | Por que importa |
 |---|---|---|---|
 | AMB-01 | Células | 3 clusters EKS, um por AZ (`sa-east-1a/b/c`), mesma VPC. Em cada um, um StatefulSet `datareplication` com `replicas: 1`. | Domínio de falha = AZ. Um cluster único com 3 node groups é mais barato, mas o plano de controle compartilhado muda o cenário de perda de AZ (FP-12). Registrar qual foi usado. |
-| AMB-02 | Disco do WAL | PVC próprio, StorageClass `ebs.csi.aws.com`, `type: gp3`, `iops: 3000`, `throughput: 125`, `volumeBindingMode: WaitForFirstConsumer`, `reclaimPolicy: Retain`. Tamanho fixo e registrado. | gp3 não tem crédito de burst: o teto é o provisionado. `Retain` evita perder o WAL num `delete pvc` acidental (FD-05). |
+| AMB-02 | Disco do WAL | PVC próprio, StorageClass `ebs.csi.aws.com`, `type: gp3`, `iops: 3000`, `throughput: 125`, `volumeBindingMode: WaitForFirstConsumer`, `reclaimPolicy: Retain`. Tamanho fixo e registrado, **maior que `RETAIN_MAX_BYTES / RETAIN_DISK_HARD`** (com os padrões, 2 GiB / 0,85: mais de ~2,4 GiB, com folga para os segmentos pré-alocados de `WAL_SEGMENT_BYTES`). | gp3 não tem crédito de burst: o teto é o provisionado. `Retain` evita perder o WAL num `delete pvc` acidental (FD-05). A partida recusa um volume menor que a janela de retenção (FL-06 variante e). |
 | AMB-03 | Instâncias | Família Nitro (ex.: m6i/m7i), **mesmo tipo nas 3 AZs**. | `aws:ebs:pause-volume-io` do FIS só funciona em Nitro. Tipos diferentes distorcem a comparação de fsync. |
-| AMB-04 | Recursos do pod | `requests == limits` de CPU e memória (QoS Guaranteed). Limite de memória registrado. | Throttling de CPU atrasa o tick do Raft e provoca eleição falsa (CE-03). O limite de memória define quando o OOMKill chega (CF-06, FP-09). |
+| AMB-04 | Recursos do pod | `requests == limits` de CPU e memória (QoS Guaranteed). Limite de memória registrado e **acima do orçamento da AP-15**: `RAFT_RAM_MAX` + 32 MiB (não commitadas) + `PEER_QUEUE_BYTES` × 2 pares + 64 MiB (fila do applier) + folga; com os padrões, 1 GiB. `GOMEMLIMIT` em ~80% do limite. | Throttling de CPU atrasa o tick do Raft e provoca eleição falsa (CE-03). Um limite abaixo do orçamento traz o OOMKill de volta (FP-09); um `GOMEMLIMIT` mal escolhido aparece como pausas de GC (CF-06). |
 | AMB-05 | Sondas | `readinessProbe` em `/readyz`, `livenessProbe` em `/livez`, `periodSeconds` e `failureThreshold` registrados. `terminationGracePeriodSeconds` ≥ 30 (o app usa `fx.StopTimeout(25s)`). | O período da sonda entra no RTO de roteamento. `/livez` sempre responde `ok` (não detecta laço do Raft preso). |
 | AMB-06 | Endereços dos pares | `PEERS` com nomes estáveis (NLB interno por célula ou DNS privado no Route 53), nunca IP de pod. | Pod reiniciado troca de IP. O NLB acrescenta salto e latência: medir o RTT entre células no baseline (CF-01). |
 | AMB-07 | Banco | 3 tabelas DynamoDB na mesma região (`cadastro_cliente_cell_{1,2,3}`), modo **on-demand** (ou provisionado com WCU registrado), VPC gateway endpoint, credencial por IRSA ou Pod Identity. | O DynamoDB é **regional**: a perda de uma AZ não derruba a tabela da célula. On-demand evita throttling que não é do teste. |
-| AMB-08 | Configuração do app | `ELECTION_TICKS=10` (1 s; o compose local usa 30), `APPLY_WORKERS=16`, `APPLY_LAG_MAX` padrão (4096), `WAIT_LEADER=1s`, `FORWARD_TIMEOUT=3s`, `REQUEST_DEADLINE=7.5s`. Qualquer mudança é registrada no relatório do cenário. | Cada um desses valores entra direto no RTO medido. |
+| AMB-08 | Configuração do app | `ELECTION_TICKS=10` (1 s; o compose local usa 30), `APPLY_WORKERS=16`, `APPLY_LAG_MAX` padrão (4096), `WAIT_LEADER=1s`, `FORWARD_TIMEOUT=3s`, `REQUEST_DEADLINE=7.5s`. Compactação (S.6 da trecho): `CLUSTER_ID` igual nas 3 (obrigatória), `SNAPSHOT_EVERY_ENTRIES=10000`, `SNAPSHOT_EVERY_BYTES=64MiB`, `RAFT_CATCHUP_ENTRIES=5000`, `RAFT_RAM_MAX=256MiB`, `RAFT_COMPACT_INTERVAL=1s`, `RETAIN_MAX_BYTES=2GiB`, `RETAIN_DISK_HARD=0.85`, `RETAIN_DISK_HARD_BYTES` vazio, `WAL_SEGMENT_BYTES=64000000`, `PEER_QUEUE_BYTES=64MiB`, `GOMEMLIMIT` (AMB-04); `REBUILD_RETRY` e `REBUILD_PIN_TTL` só valem no Incremento B. Qualquer mudança é registrada no relatório do cenário. | Cada um desses valores entra direto no RTO medido. `RAFT_RAM_MAX` e `RETAIN_MAX_BYTES` decidem por quanto tempo uma follower fora consegue voltar só pelo `MsgApp` (FP-04, FL-02, FL-03). |
 | AMB-09 | Gerador de carga | k6 em nós próprios, **fora** dos nós das células, um gerador por AZ (ou um só numa 4ª subnet, registrado). | Gerador no mesmo nó da célula concorre por CPU e mascara falhas. |
 | AMB-10 | Observabilidade | Prometheus por cluster em modo agente com `remote_write` para um Amazon Managed Prometheus (ou um Prometheus central fora das 3 AZs da falha), `scrape_interval: 1s`; Grafana; node-exporter; kube-state-metrics; métricas de volume do kubelet; CloudWatch do EBS e do DynamoDB; logs centralizados (CloudWatch Logs ou Loki). | Num teste de partição, um Prometheus que mora numa das células perde justamente a célula isolada. A coleta não pode estar no mesmo domínio de falha que o teste derruba. |
 | AMB-11 | Relógios | Amazon Time Sync (chrony) em todos os nós e no gerador; registrar o desvio (`node_timex_offset_seconds`). | O RTO é decomposto comparando instantes de máquinas diferentes. |
@@ -161,8 +161,8 @@ Itens que os cenários pedem e o código de hoje não tem. É especificação pa
 | M-01 | Histogramas por etapa: propose → commit, commit → gate, gate → apply local na líder | todos os de latência |
 | M-02 | `dr_forward_duration_seconds{resultado}` e `dr_forwards_total{resultado}` | CF-02, CF-03, falhas da líder |
 | M-03 | Histogramas nativos do Prometheus (ou baldes mais finos entre 1 ms e 100 ms) e um max por janela (gauge zerado a cada coleta, ou o maior valor visto em log estruturado) | todos |
-| M-04 | `dr_raft_log_entries` e `dr_raft_log_bytes` em memória (último − primeiro índice do MemoryStorage) | CF-06, FP-04, FP-05 |
-| M-05 | `dr_boot_wal_replay_seconds`, `dr_boot_last_index`, `dr_boot_hardstate_term` na partida | FP-*, FD-* |
+| M-04 | Entradas e bytes do log na RAM e no disco. **Hoje no `/status`** (`raft.snapshot`, `raft.memoria.entradas`, `raft.memoria.bytes`, `raft.atrasCauda`, `wal.retido`, `wal.piso`, `wal.pinos`, `wal.tetoDuro`, `wal.janela`); as séries `dr_raft_mem_entries`, `dr_raft_mem_bytes`, `dr_raft_snapshot_index`, `dr_wal_retained_bytes`, `dr_wal_files`, `dr_retention_floor` e `dr_wal_pins` entram no Incremento B (O-42). Já existem `dr_raft_snapshot_duration_seconds` e `dr_raft_snapshot_deferred_total`. | CF-06, FP-04, FP-05, FL-* |
+| M-05 | Partida: **existe** `dr_startup_duration_seconds` (abertura do WAL e releitura da cauda) e o log `partida: WAL relido` com `snapshot`, `entradas`, `primeiro` e `ultimo`. **Falta** o último índice e o termo do `HardState` como série (`dr_boot_last_index`, `dr_boot_hardstate_term`). | FP-*, FD-*, FL-05 |
 | M-06 | Instante em que a célula ficou pronta (`dr_ready_since_timestamp_seconds`) | RTO-07 |
 | M-07 | `dr_apply_errors_total{classe, codigo}` (classe transitório ou permanente) | FB-* |
 | M-08 | Latência de leitura total por resultado (`dr_read_duration_seconds{op,resultado}`) | CF-04, FR-* |
@@ -177,7 +177,7 @@ Itens que os cenários pedem e o código de hoje não tem. É especificação pa
 
 ### 5.5 Logs que viram evidência
 
-`mudança de líder` (termo e líder), `gate parado`, `laço de fundo parou` (fatal), `etcdraft: wal.Save` (fatal de fsync), `erro transitório no apply, repetindo`, `escrita encaminhada à líder`. Atenção: este último é gravado em nível Info **a cada escrita encaminhada**; com milhares de TPS na follower, é volume de log que custa CPU e disco (medir em CF-02).
+`mudança de líder` (termo e líder), `gate parado`, `snapshot gravado` (índice, aplicado durável, confirmado, duração), `partida: WAL relido` (snapshot, entradas, primeiro, último, duração), `marcador enviado` e `marcador adiado` (com taxa limitada), `memória do Raft no teto`, `disco do log no teto duro`, `célula atrás da cauda`, `laço de fundo parou` (fatal), `etcdraft: wal.Save` (fatal de fsync), `erro transitório no apply, repetindo`, `escrita encaminhada à líder`. Atenção: este último é gravado em nível Info **a cada escrita encaminhada**; com milhares de TPS na follower, é volume de log que custa CPU e disco (medir em CF-02).
 
 ---
 

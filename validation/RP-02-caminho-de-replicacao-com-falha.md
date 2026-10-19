@@ -39,18 +39,18 @@ flowchart TD
 | P7 | 8 a 10 | líder cai depois do commit, antes do apply ou da resposta | PENDING ou timeout | **durável**: aparece nas 3 | FP-03, FB-02 |
 | P8 | 10 | banco da líder parado ou com erro permanente | PENDING, depois 400 `atraso_apply`; ou célula fora do Service | durável; aplicado na volta | FB-02, FB-03 |
 | P9 | 11 | cliente desiste e repete | PENDING, nova tentativa | durável; a nova tentativa vira **outra** entrada (sem dedupe na POC) | CE-04, FC-03 |
-| P10 | 12 e 13 | follower fora, lenta ou isolada | nada (o cliente já recebeu 200) | durável nas outras; alcança na volta, por MsgApp da memória da líder (sem snapshot na POC) | FP-01, FP-04, FB-01, FR-02 |
-| P11 | depois do ACK | disco de uma das duas que tinham a entrada é perdido e a célula volta com o mesmo NODE_ID | nada | **pode ser perdido** se outra falha vier em seguida | FD-05 |
+| P10 | 12 e 13 | follower fora, lenta ou isolada | nada (o cliente já recebeu 200) | durável nas outras; alcança na volta por `MsgApp` enquanto a líder segura a RAM para ela (janela e `RAFT_RAM_MAX`); além disso, volta atrás da cauda: no Incremento A fica parada em `raft.atrasCauda`, no B alcança pelo `CatchUp` | FP-01, FP-04, FB-01, FR-02, FL-02 |
+| P11 | depois do ACK | disco de uma das duas que tinham a entrada é perdido (ou restaurado de um backup antigo) e a célula volta com o mesmo NODE_ID | nada | **pode ser perdido** se outra falha vier em seguida; com o volume vazio, o fail-fast do Incremento B impede a volta | FD-05, FD-07 |
 | P12 | depois do ACK | WAL com cauda rasgada | nada | a cauda não confirmada é segura de cortar, mas a POC não sobe | FD-06 |
 | P13 | depois do ACK | perda simultânea de 2 células com disco | nada | fora da garantia de 3 votantes | FP-02 e FP-05 mostram a indisponibilidade, não perda |
 | P14 | qualquer | escrita direta no banco | — | fora da camada; divergência | FB-04 |
 
 ## Recuperação de cada célula (o que acontece na volta)
 
-1. **Reinício com o mesmo disco:** relê o WAL inteiro para a memória (tempo cresce com o histórico, CF-06), retoma o apply a partir do progresso salvo (sem fsync: pode voltar a um ponto anterior e reaplicar, de forma idempotente pela versão).
-2. **Atraso no log:** a líder reenvia por MsgApp a partir do que a follower tem. Na POC isso sempre funciona porque a líder nunca compacta; se compactasse, precisaria de snapshot, que a POC recusa como fatal.
-3. **Atraso no apply:** a follower aplica no ritmo de `APPLY_WORKERS / latência do PutItem`. Se esse ritmo for menor que a entrada, ela nunca alcança (B-DRENO).
-4. **Disco novo:** a POC sobe com WAL vazio e o mesmo NODE_ID. É inseguro (P11, FD-05).
+1. **Reinício com o mesmo disco:** relê só a cauda do WAL desde o último snapshot (o tempo não cresce com o histórico, FL-01) e retoma o apply a partir do progresso salvo; o que estiver entre o progresso e o snapshot vem do disco pelo `LogReader`. O progresso pode voltar a um ponto anterior (o fsync dele é feito pelo `Compactor`, a cada ciclo de `RAFT_COMPACT_INTERVAL` e antes de cada snapshot) e reaplicar, de forma idempotente pela versão. Um progresso gravado atrás do disco retido faz a célula recusar a partida (FL-07).
+2. **Atraso no log:** a líder reenvia por `MsgApp` enquanto segura a RAM para a follower (dentro da janela e até `RAFT_RAM_MAX`). Além disso, envia o snapshot-marcador; a follower só o aceita com o aplicado ≥ índice do marcador. No Incremento A ela fica parada; no B alcança pelo `CatchUp` e, fora da janela, se reconstrói (FL-02, FL-03).
+3. **Atraso no apply:** a follower aplica no ritmo de `APPLY_WORKERS / latência do PutItem`. Se esse ritmo for menor que a entrada, ela nunca alcança (B-DRENO); o atraso fica no disco dela, até o teto duro (FL-04).
+4. **Disco novo:** a POC sobe com WAL vazio e o mesmo NODE_ID. É inseguro (P11, FD-05); o fail-fast do Incremento B recusa a partida.
 
 ## O que precisa ser medido em toda falha
 

@@ -12,7 +12,7 @@
 ## Análise crítica
 
 - É o teste mais direto do fsync: se o WAL perdeu algo confirmado em duas células, aparece aqui.
-- O tempo de volta é o **maior** tempo de partida entre as duas primeiras células a ficarem prontas, e cresce com o tamanho do WAL (CF-06). Medir com WAL pequeno e com WAL depois de 1 h de carga.
+- O tempo de volta é o **maior** tempo de partida entre as duas primeiras células a ficarem prontas. Desde o Incremento A, a partida relê só a cauda desde o último snapshot e não cresce com o histórico (CA-22): medir com WAL pequeno e depois de 1 h de carga, e os dois devem ficar próximos.
 
 ## Critérios de aceite
 

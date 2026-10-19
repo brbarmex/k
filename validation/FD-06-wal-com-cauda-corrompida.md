@@ -5,7 +5,7 @@
 | Categoria | Caminho de falha (complemento) |
 | Origem | Complemento |
 | Requisitos | FT, HA (a célula volta sozinha?) |
-| Suporte na POC hoje | **Provavelmente não (inferido).** O `openStorage` chama `w.ReadAll()` e, em erro, não sobe; ele não chama `wal.Repair`, que é o que o servidor do etcd usa para cortar uma cauda rasgada. Uma cauda incompleta tende a deixar a célula em reinício em laço até intervenção manual. Confirmar na execução. |
+| Suporte na POC hoje | **Não (conferido no código, `eec02c9`).** O `openStorage` chama `w.ReadAll()` e, em erro, não sobe; ele não chama `wal.Repair`. No modo escrita, o `ReadAll` do etcd v3.7.2 aceita uma cauda **zerada** (a pré-alocação) e a limpa, mas devolve `io.ErrUnexpectedEOF` para uma cauda rasgada **com dados**: a célula fica em reinício em laço até intervenção manual. O `ESTADO_ATUAL.md` (3.11) foi corrigido para dizer isso. |
 | Injeção | **a** natural: `aws:ec2:stop-instances` com força durante CRG-2 (repetir até ocorrer); **b** construída: com o pod parado, truncar alguns bytes do fim do último segmento do WAL (`truncate -s -N`) e subir; **c** corromper um registro no meio (inverter um byte) para ver o erro de CRC |
 | Duração | até o desfecho |
 
@@ -18,7 +18,7 @@
 
 | # | Critério | Como se comprova |
 |---|---|---|
-| A1 | Variante b: célula volta sozinha, cortando só a cauda | `dr_ready`; `dr_boot_last_index` = último índice íntegro; sem isso: registrar como lacuna |
+| A1 | Variante b: célula volta sozinha, cortando só a cauda | `dr_ready`; campo `ultimo` do log `partida: WAL relido` = último índice íntegro; hoje esperado **FALHAR** (sem `wal.Repair`) |
 | A2 | Variante c: célula não sobe com o mesmo ID | log de erro de CRC; `CrashLoopBackOff` |
 | A3 | RPO = 0 | ORC-04 |
 

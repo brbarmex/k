@@ -11,6 +11,7 @@
 
 ## Análise crítica
 
+- **Limite do Incremento A (`eec02c9`):** se, enquanto a follower que estava alcançando está fora, a líder passar do teto de RAM (`RAFT_RAM_MAX`) ou mudar de líder, a follower que estava alcançando volta atrás da cauda e fica parada em `raft.atrasCauda` (FL-02) até a recuperação do Incremento B. Com CRG-1 e quedas curtas isso não acontece; com CRG-2 por minutos, sim.
 - Diferente de FP-10: aqui as duas que restam estão vivas, mas uma tem o **log** incompleto (não só o apply). O Raft só elege a de log mais completo, que é a follower que nunca saiu; a que estava alcançando passa a alcançar dela.
 - Se a que estava alcançando tem o log completo mas o **apply** atrasado e for eleita, cai em CE-05.
 

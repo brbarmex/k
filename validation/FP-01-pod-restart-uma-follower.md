@@ -5,7 +5,7 @@
 | Categoria | Caminho de falha |
 | Origem | Lista do Bruno |
 | Requisitos | FT (a maioria segue), HA (sem interrupção), RPO = 0 |
-| Suporte na POC hoje | **Sim.** Duas células formam maioria; a follower volta, relê o WAL e retoma o apply a partir do progresso salvo (`ResumeFrom`). Teste local equivalente: `task test-follower-restart`. |
+| Suporte na POC hoje | **Sim.** Duas células formam maioria; a follower volta, relê só a cauda do WAL desde o último snapshot e retoma o apply a partir do progresso salvo (`ResumeFrom`); o que estiver entre o progresso e o snapshot vem do disco pelo `LogReader`. Teste local equivalente: `task test-follower-restart`. |
 | Injeção | três variantes: **a** gracioso (`aws:eks:pod-delete` / `kubectl delete pod`, SIGTERM), **b** abrupto (`kubectl delete pod --grace-period=0 --force` ou `kill -9` no processo), **c** queda do container sem troca de pod (`kill 1` no container: reinício pelo kubelet no mesmo nó, mesmo volume) |
 | Duração | 10 min de CF-03 antes, falha, 10 min depois |
 
