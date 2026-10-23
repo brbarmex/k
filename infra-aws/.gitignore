@@ -8,3 +8,4 @@
 # Saídas da sessão
 resultados/
 ponte.log
+__pycache__/
