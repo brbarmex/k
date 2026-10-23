@@ -1,0 +1,10 @@
+# Estado e dados locais do Terraform (estado local por decisão: uma pessoa só)
+**/.terraform/
+**/.terraform.lock.hcl
+**/*.tfstate
+**/*.tfstate.*
+**/terraform.tfvars
+**/.build/
+# Saídas da sessão
+resultados/
+ponte.log

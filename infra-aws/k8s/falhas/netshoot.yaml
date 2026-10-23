@@ -1,0 +1,27 @@
+# Pod de injeção de falha num nó (tc, iptables, fsfreeze), sem custo de FIS.
+# Uso: task falha:shell CLUSTER=2. Apague ao fim do cenário (task falha:fim CLUSTER=2).
+# Privilegiado e na rede do nó: o que ele muda vale para o nó inteiro.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: falha
+  namespace: default
+spec:
+  nodeSelector:
+    dr/role: cell
+  hostNetwork: true
+  hostPID: true
+  restartPolicy: Never
+  containers:
+    - name: netshoot
+      image: nicolaka/netshoot:v0.14
+      command: ["sleep", "infinity"]
+      securityContext:
+        privileged: true
+      volumeMounts:
+        - name: host
+          mountPath: /host
+  volumes:
+    - name: host
+      hostPath:
+        path: /

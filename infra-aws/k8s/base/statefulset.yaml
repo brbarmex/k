@@ -1,0 +1,90 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: cell
+  namespace: dr
+spec:
+  replicas: 1
+  serviceName: cell
+  podManagementPolicy: Parallel
+  selector:
+    matchLabels:
+      app: datareplication
+  template:
+    metadata:
+      labels:
+        app: datareplication
+    spec:
+      serviceAccountName: datareplication
+      nodeSelector:
+        dr/role: cell
+      terminationGracePeriodSeconds: 30 # o app usa fx.StopTimeout(25s)
+      securityContext:
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001 # o volume EBS nasce do root; sem isso o WAL não grava
+      containers:
+        - name: datareplication
+          image: IMAGEM_DA_POC # trocada pelo task k8s:up (IMAGE=ghcr.io/...@sha256:...)
+          ports:
+            - name: api
+              containerPort: 8000
+            - name: grpc
+              containerPort: 7000
+            - name: admin
+              containerPort: 9090
+          env:
+            # Obrigatórias (conferidas na main 127c7e8). NÃO copiar do compose
+            # AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY nem DYNAMODB_ENDPOINT.
+            - name: CELL_ID
+              value: "N"
+            - name: NODE_ID
+              value: "N"
+            - name: PEERS
+              value: "1=cell-1-0.cell-1.dr.internal:7000,2=cell-2-0.cell-2.dr.internal:7000,3=cell-3-0.cell-3.dr.internal:7000"
+            - name: TABLES
+              value: "cadastro_cliente_cell_{cell}"
+            - name: AWS_REGION
+              value: "sa-east-1"
+            - name: CLUSTER_ID
+              value: "dr-poc-aws"
+            - name: RAFT_DIR
+              value: "/var/lib/dr/raft/wal"
+            # AMB-08 da validação: ELECTION_TICKS=30 do compose esconderia o RTO real.
+            - name: ELECTION_TICKS
+              value: "10"
+            - name: APPLY_WORKERS
+              value: "16"
+            - name: GOMEMLIMIT
+              value: "800MiB"
+          resources:
+            requests:
+              cpu: 1500m
+              memory: 1Gi
+            limits:
+              cpu: 1500m
+              memory: 1Gi
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: admin
+            periodSeconds: 2
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /livez
+              port: admin
+            periodSeconds: 5
+            failureThreshold: 6
+          volumeMounts:
+            - name: wal
+              mountPath: /var/lib/dr/raft
+  volumeClaimTemplates:
+    - metadata:
+        name: wal
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        storageClassName: gp3-wal
+        resources:
+          requests:
+            storage: 10Gi

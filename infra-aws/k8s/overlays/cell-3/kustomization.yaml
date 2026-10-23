@@ -1,0 +1,51 @@
+# Célula 3: cluster dr-poc-cell-3 (contexto cluster-3). Pod cell-3-0, DNS
+# cell-3-0.cell-3.dr.internal. Namespace, ServiceAccount e StorageClass não mudam de
+# nome: o Pod Identity (terraform/sessao/iam.tf) espera dr/datareplication.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../../base
+  - ../../external-dns
+patches:
+  - target:
+      kind: Service
+      name: cell
+    patch: |-
+      - op: replace
+        path: /metadata/name
+        value: cell-3
+      - op: replace
+        path: /metadata/annotations/external-dns.alpha.kubernetes.io~1hostname
+        value: cell-3.dr.internal
+      - op: add
+        path: /spec/selector/cell
+        value: "3"
+  - target:
+      kind: StatefulSet
+      name: cell
+    patch: |-
+      - op: replace
+        path: /metadata/name
+        value: cell-3
+      - op: replace
+        path: /spec/serviceName
+        value: cell-3
+      - op: add
+        path: /spec/selector/matchLabels/cell
+        value: "3"
+      - op: add
+        path: /spec/template/metadata/labels/cell
+        value: "3"
+      - op: replace
+        path: /spec/template/spec/containers/0/env/0/value
+        value: "3"
+      - op: replace
+        path: /spec/template/spec/containers/0/env/1/value
+        value: "3"
+  - target:
+      kind: Deployment
+      name: external-dns
+    patch: |-
+      - op: add
+        path: /spec/template/spec/containers/0/args/-
+        value: --txt-owner-id=dr-poc-cell-3

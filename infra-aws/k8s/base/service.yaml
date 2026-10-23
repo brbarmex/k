@@ -1,0 +1,23 @@
+# Headless da célula. publishNotReadyAddresses: o /readyz só fica verdadeiro quando a célula
+# conhece a líder; sem publicar o pod não pronto, na partida a frio ninguém acha ninguém e a
+# eleição nunca acontece. O ExternalDNS publica cell-N-0.cell-N.dr.internal na zona privada.
+apiVersion: v1
+kind: Service
+metadata:
+  name: cell
+  namespace: dr
+  annotations:
+    external-dns.alpha.kubernetes.io/hostname: cell-N.dr.internal # trocado no overlay
+    external-dns.alpha.kubernetes.io/ttl: "5"
+spec:
+  clusterIP: None
+  publishNotReadyAddresses: true
+  selector:
+    app: datareplication
+  ports:
+    - name: grpc
+      port: 7000
+    - name: api
+      port: 8000
+    - name: admin
+      port: 9090

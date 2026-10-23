@@ -1,0 +1,13 @@
+# Pod do k6, só no cluster 1 e só no nó spot do k6 (taint dr/role=k6). Fica ocioso; os
+# testes rodam com kubectl exec (task k6:rodar) e o ledger fica em /out até o kubectl cp.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: teste
+resources:
+  - k6.yaml
+configMapGenerator:
+  - name: k6-script
+    files:
+      - carga.js
+generatorOptions:
+  disableNameSuffixHash: true

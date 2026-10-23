@@ -1,0 +1,17 @@
+# Coleta das 3 células na AWS pelos port-forwards (scripts/ponte.sh). O rótulo celula já
+# vem do próprio app; o rótulo cluster ajuda a filtrar.
+global:
+  scrape_interval: 1s
+  scrape_timeout: 900ms
+  evaluation_interval: 1s
+
+scrape_configs:
+  - job_name: datareplication
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["host.docker.internal:19091"]
+        labels: { cluster: dr-poc-cell-1 }
+      - targets: ["host.docker.internal:19092"]
+        labels: { cluster: dr-poc-cell-2 }
+      - targets: ["host.docker.internal:19093"]
+        labels: { cluster: dr-poc-cell-3 }
