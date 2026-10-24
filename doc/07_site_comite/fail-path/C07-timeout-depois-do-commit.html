@@ -11,7 +11,7 @@
 Fonte(s) usada(s) nesta página (rastreabilidade), relativas à raiz do pacote:
   02_cenarios/atualizados/C07-timeout-depois-do-commit.md
   04_diagramas/D07-prazos-em-cascata.md
-Gerado em 18/10/2026 a partir do pacote DataReplication_Versao_1.
+Gerado em 24/10/2026 a partir do pacote DataReplication_Versao_1.
 -->
 <header class="topo">
 <button class="menu" type="button" aria-label="Abrir navegação" onclick="document.body.classList.toggle('nav-aberta')">☰</button>
@@ -223,7 +223,7 @@ Gerado em 18/10/2026 a partir do pacote DataReplication_Versao_1.
 <div class="tabela"><table><thead><tr><th>ADR</th><th>Título</th><th>Status efetivo</th><th>Decisão resumida</th><th>Arquivo</th></tr></thead><tbody>
 <tr><td class="nw"><a href="../../03_adr/ADR-026-dedupe-de-retry-id-estavel.md">ADR-026</a></td><td>Dedupe de retry na líder por identificador estável</td><td><span class="ef ef-ok">Vigente, complementado</span></td><td>Dedupe de retry na líder por identificador estável do SDK, hash como último recurso, janela de 5 min.</td><td><a href="../../03_adr/ADR-026-dedupe-de-retry-id-estavel.md">ADR-026-dedupe-de-retry-id-estavel.md</a></td></tr>
 <tr><td class="nw"><a href="../../03_adr/ADR-028-timeouts-em-cascata.md">ADR-028</a></td><td>Prazos em cascata dentro do timeout do SDK</td><td><span class="ef ef-ok">Vigente (valores a validar)</span></td><td>Prazos em cascata: REQUEST_DEADLINE 7,5 s, DEGRADE_AFTER 2 s, forward até 3 s; valores a validar.</td><td><a href="../../03_adr/ADR-028-timeouts-em-cascata.md">ADR-028-timeouts-em-cascata.md</a></td></tr>
-<tr><td class="nw"><a href="../../03_adr/ADR-045-politica-de-degradacao-por-instalacao.md">ADR-045</a></td><td><code>DEGRADED_POLICY</code> obrigatória por instalação</td><td><span class="ef ef-ok">Vigente</span></td><td>DEGRADED_POLICY obrigatória por instalação: accept (degradado com lease) ou reject (RPO 0 sempre).</td><td><a href="../../03_adr/ADR-045-politica-de-degradacao-por-instalacao.md">ADR-045-politica-de-degradacao-por-instalacao.md</a></td></tr>
+<tr><td class="nw"><a href="../../03_adr/ADR-045-politica-de-degradacao-por-instalacao.md">ADR-045</a></td><td><code>DEGRADED_POLICY</code> obrigatória por instalação</td><td><span class="ef ef-hist">Substituído</span></td><td>Substituído pelo <a href="../../03_adr/ADR-064-topologia-3-aws-2-azure-confirmacao-k1-e-promocao-por-comando.md">ADR-064</a>: não existe mais DEGRADED_POLICY; o comportamento com a Azure fora é um só.</td><td><a href="../../03_adr/ADR-045-politica-de-degradacao-por-instalacao.md">ADR-045-politica-de-degradacao-por-instalacao.md</a></td></tr>
 <tr><td class="nw"><a href="../../03_adr/ADR-051-compatibilidade-dynamodb-inventario-conformidade-e-idempotencia.md">ADR-051</a></td><td>Compatibilidade com o DynamoDB: inventário, conformidade e limite da idempotência</td><td><span class="ef ef-ok">Vigente</span></td><td>Compatibilidade com o DynamoDB por inventário de chamadas, suíte de conformidade e limite de idempotência documentado.</td><td><a href="../../03_adr/ADR-051-compatibilidade-dynamodb-inventario-conformidade-e-idempotencia.md">ADR-051-compatibilidade-dynamodb-inventario-conformidade-e-idempotencia.md</a></td></tr>
 </tbody></table></div>
 <p class="nota">Lista extraída do cabeçalho “ADRs” do arquivo fonte. A decisão resumida condensa a seção “Decisão” de cada ADR. <b>Status efetivo</b> vem do <a href="../inventario-adrs.html">inventário dos ADRs</a>: <b>Vigente</b> vale como está escrito; <b>Vigente, complementado</b> vale, mas outros ADRs acrescentam regras; <b>Vigente em parte</b> tem item revertido ou em conflito; <b>Sem uso</b>, <b>Substituído</b> e <b>Descartado</b> são só registro; <b>Pendente</b> aguarda decisão. A regra consolidada está no <a href="../estado-atual.html">Estado atual</a>.</p>
@@ -243,7 +243,7 @@ Gerado em 18/10/2026 a partir do pacote DataReplication_Versao_1.
 </ul></details>
 </section>
 <footer class="rodape">
-Gerado em 18/10/2026 a partir de <code>DataReplication_Versao_1/</code>. O conteúdo vem dos arquivos .md citados no código-fonte desta página;
+Gerado em 24/10/2026 a partir de <code>DataReplication_Versao_1/</code>. O conteúdo vem dos arquivos .md citados no código-fonte desta página;
 textos marcados como <em>sugestão</em> são inferência do arquiteto e não decisões registradas.
 </footer>
 </main>

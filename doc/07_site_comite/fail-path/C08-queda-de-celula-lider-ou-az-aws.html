@@ -11,7 +11,7 @@
 Fonte(s) usada(s) nesta página (rastreabilidade), relativas à raiz do pacote:
   02_cenarios/atualizados/C08-queda-de-celula-lider-ou-az-aws.md
   04_diagramas/D05-gate-e-quorum.md
-Gerado em 18/10/2026 a partir do pacote DataReplication_Versao_1.
+Gerado em 24/10/2026 a partir do pacote DataReplication_Versao_1.
 -->
 <header class="topo">
 <button class="menu" type="button" aria-label="Abrir navegação" onclick="document.body.classList.toggle('nav-aberta')">☰</button>
@@ -188,11 +188,11 @@ Gerado em 18/10/2026 a partir do pacote DataReplication_Versao_1.
 </section>
 <section id="adrs"><h2>5. ADRs relacionados</h2>
 <div class="tabela"><table><thead><tr><th>ADR</th><th>Título</th><th>Status efetivo</th><th>Decisão resumida</th><th>Arquivo</th></tr></thead><tbody>
-<tr><td class="nw"><a href="../../03_adr/ADR-006-consenso-por-shard-eleicao-na-aws.md">ADR-006</a></td><td>Consenso por shard; eleição só na AWS</td><td><span class="ef ef-ok">Vigente</span></td><td>Raft por shard com 3 votantes na AWS; a Azure é learner e entra no ACK só pelo gate.</td><td><a href="../../03_adr/ADR-006-consenso-por-shard-eleicao-na-aws.md">ADR-006-consenso-por-shard-eleicao-na-aws.md</a></td></tr>
-<tr><td class="nw"><a href="../../03_adr/ADR-029-gate-monotonico-na-troca-de-lider.md">ADR-029</a></td><td>O gate nunca recua; líder nova reconstrói antes de ACKar</td><td><span class="ef ef-ok">Vigente, complementado</span></td><td>O gate nunca recua: a líder nova reconstrói o gate com os learners antes de ACKar.</td><td><a href="../../03_adr/ADR-029-gate-monotonico-na-troca-de-lider.md">ADR-029-gate-monotonico-na-troca-de-lider.md</a></td></tr>
+<tr><td class="nw"><a href="../../03_adr/ADR-006-consenso-por-shard-eleicao-na-aws.md">ADR-006</a></td><td>Consenso por shard; eleição só na AWS</td><td><span class="ef ef-ok">Vigente, alterado</span></td><td>Raft por shard; desde o <a href="../../03_adr/ADR-064-topologia-3-aws-2-azure-confirmacao-k1-e-promocao-por-comando.md">ADR-064</a> as 2 células Azure votam, mas não se candidatam: só viram líder por comando de promoção.</td><td><a href="../../03_adr/ADR-006-consenso-por-shard-eleicao-na-aws.md">ADR-006-consenso-por-shard-eleicao-na-aws.md</a></td></tr>
+<tr><td class="nw"><a href="../../03_adr/ADR-029-gate-monotonico-na-troca-de-lider.md">ADR-029</a></td><td>O gate nunca recua; líder nova reconstrói antes de ACKar</td><td><span class="ef ef-ok">Vigente, complementado</span></td><td>O gate nunca recua: o confirmado vai no snapshot-marcador e a líder nova o reconstrói no termo novo antes de ACKar.</td><td><a href="../../03_adr/ADR-029-gate-monotonico-na-troca-de-lider.md">ADR-029-gate-monotonico-na-troca-de-lider.md</a></td></tr>
 <tr><td class="nw"><a href="../../03_adr/ADR-046-gate-so-conta-progresso-validado-pelo-raft.md">ADR-046</a></td><td>O gate só conta progresso validado pelo Raft no termo atual</td><td><span class="ef ef-ok">Vigente</span></td><td>O gate só conta progresso da Azure confirmado pelo AppendEntries no termo atual.</td><td><a href="../../03_adr/ADR-046-gate-so-conta-progresso-validado-pelo-raft.md">ADR-046-gate-so-conta-progresso-validado-pelo-raft.md</a></td></tr>
 <tr><td class="nw"><a href="../../03_adr/ADR-049-barreira-da-leitura-forte-e-o-gate.md">ADR-049</a></td><td>A leitura forte espera <code>min(ReadIndex, gate)</code></td><td><span class="ef ef-ok">Vigente</span></td><td>A leitura forte espera min(ReadIndex, gate), obtidos da líder na mesma resposta; com o applier parado responde 503 APPLIER_STOPPED na hora.</td><td><a href="../../03_adr/ADR-049-barreira-da-leitura-forte-e-o-gate.md">ADR-049-barreira-da-leitura-forte-e-o-gate.md</a></td></tr>
-<tr><td class="nw"><a href="../../03_adr/ADR-017-azure-learners-e-gate.md">ADR-017</a></td><td>Azure como learners, com gate</td><td><span class="ef ef-ok">Vigente, complementado</span></td><td>Azure como learners; gateIndex = min(commit Raft, índice durável em 2 de 3 learners) controla ACK e applier.</td><td><a href="../../03_adr/ADR-017-azure-learners-e-gate.md">ADR-017-azure-learners-e-gate.md</a></td></tr>
+<tr><td class="nw"><a href="../../03_adr/ADR-017-azure-learners-e-gate.md">ADR-017</a></td><td>Azure como learners, com gate</td><td><span class="ef ef-hist">Substituído</span></td><td>Substituído pelo <a href="../../03_adr/ADR-064-topologia-3-aws-2-azure-confirmacao-k1-e-promocao-por-comando.md">ADR-064</a>: a Azure tem 2 células votantes sem candidatura, e o gate exige K = 1 célula Azure com fsync.</td><td><a href="../../03_adr/ADR-017-azure-learners-e-gate.md">ADR-017-azure-learners-e-gate.md</a></td></tr>
 </tbody></table></div>
 <p class="nota">Lista extraída do cabeçalho “ADRs” do arquivo fonte. A decisão resumida condensa a seção “Decisão” de cada ADR. <b>Status efetivo</b> vem do <a href="../inventario-adrs.html">inventário dos ADRs</a>: <b>Vigente</b> vale como está escrito; <b>Vigente, complementado</b> vale, mas outros ADRs acrescentam regras; <b>Vigente em parte</b> tem item revertido ou em conflito; <b>Sem uso</b>, <b>Substituído</b> e <b>Descartado</b> são só registro; <b>Pendente</b> aguarda decisão. A regra consolidada está no <a href="../estado-atual.html">Estado atual</a>.</p>
 </section>
@@ -205,7 +205,7 @@ Gerado em 18/10/2026 a partir do pacote DataReplication_Versao_1.
 </ul></details>
 </section>
 <footer class="rodape">
-Gerado em 18/10/2026 a partir de <code>DataReplication_Versao_1/</code>. O conteúdo vem dos arquivos .md citados no código-fonte desta página;
+Gerado em 24/10/2026 a partir de <code>DataReplication_Versao_1/</code>. O conteúdo vem dos arquivos .md citados no código-fonte desta página;
 textos marcados como <em>sugestão</em> são inferência do arquiteto e não decisões registradas.
 </footer>
 </main>

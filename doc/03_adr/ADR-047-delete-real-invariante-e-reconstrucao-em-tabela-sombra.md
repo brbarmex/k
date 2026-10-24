@@ -1,6 +1,6 @@
 # ADR-047 — DELETE real com invariante formal; reconstrução em tabela sombra
 
-**Status:** Decidido (Bruno, revisão crítica de 13/10/2026) · **Data:** 13/10/2026
+**Status:** Decidido (Bruno); vigente em parte: a tabela sombra foi substituída pelo ADR-066 (24/10/2026) · **Data:** 13/10/2026
 
 ## Contexto
 
@@ -30,6 +30,12 @@ O DELETE real sem tombstone ([ADR-024](ADR-024-delete-real-ttl-local-gsi.md)) é
 - O log precisa estar retido desde F. Se a varredura demorar mais que a retenção do teto de 70% ([ADR-041](ADR-041-disco-do-log-teto-de-70-por-cento-sem-s3-na-v1.md)), o rebuild falha e recomeça.
 - Custo de WCU/RU durante a varredura, no DynamoDB e no Cosmos. O Cosmos precisa do mesmo protocolo pelo Cloud-Adapter.
 - A anti-entropia por checksum detecta divergência, não a previne.
+
+## Atualização de 24/10/2026 (redesenho de 18/10 e código da POC)
+
+O DELETE real e a invariante I-DEL continuam. O item 3 (tabela sombra, cutover por geração) foi substituído pela **sobrescrita no lugar** ([ADR-066](ADR-066-recuperacao-por-canal-separado-e-reconstrucao-por-sobrescrita.md), DC-11). Com ela, o DELETE real exige lápide com `_dr_v` (parking lot `parklot/adr-tombstone.md`), e a tombstone do item 5 deixa de ser contingência.
+
+**Na POC:** não há `DeleteItem`.
 
 ## Onde está o detalhe
 

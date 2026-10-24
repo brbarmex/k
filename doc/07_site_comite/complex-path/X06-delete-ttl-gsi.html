@@ -11,7 +11,7 @@
 Fonte(s) usada(s) nesta página (rastreabilidade), relativas à raiz do pacote:
   02_cenarios/complexos/X06-delete-ttl-gsi.md
   04_diagramas/D08-uma-escrita-seis-bancos.md
-Gerado em 18/10/2026 a partir do pacote DataReplication_Versao_1.
+Gerado em 24/10/2026 a partir do pacote DataReplication_Versao_1.
 -->
 <header class="topo">
 <button class="menu" type="button" aria-label="Abrir navegação" onclick="document.body.classList.toggle('nav-aberta')">☰</button>
@@ -182,7 +182,7 @@ Gerado em 18/10/2026 a partir do pacote DataReplication_Versao_1.
 <section id="adrs"><h2>5. ADRs relacionados</h2>
 <div class="tabela"><table><thead><tr><th>ADR</th><th>Título</th><th>Status efetivo</th><th>Decisão resumida</th><th>Arquivo</th></tr></thead><tbody>
 <tr><td class="nw"><a href="../../03_adr/ADR-024-delete-real-ttl-local-gsi.md">ADR-024</a></td><td>DELETE real com ordem por chave; TTL local; GSI</td><td><span class="ef ef-ok">Vigente, complementado</span></td><td>DELETE real com ordem por chave; TTL expira local em cada célula; Query em GSI recusada (<a href="../../03_adr/ADR-050-query-em-gsi-recusada.md">ADR-050</a>).</td><td><a href="../../03_adr/ADR-024-delete-real-ttl-local-gsi.md">ADR-024-delete-real-ttl-local-gsi.md</a></td></tr>
-<tr><td class="nw"><a href="../../03_adr/ADR-047-delete-real-invariante-e-reconstrucao-em-tabela-sombra.md">ADR-047</a></td><td>DELETE real com invariante formal; reconstrução em tabela sombra</td><td><span class="ef ef-ok">Vigente</span></td><td>DELETE real com invariante I-DEL e reconstrução do banco em tabela sombra (cópia difusa mais replay).</td><td><a href="../../03_adr/ADR-047-delete-real-invariante-e-reconstrucao-em-tabela-sombra.md">ADR-047-delete-real-invariante-e-reconstrucao-em-tabela-sombra.md</a></td></tr>
+<tr><td class="nw"><a href="../../03_adr/ADR-047-delete-real-invariante-e-reconstrucao-em-tabela-sombra.md">ADR-047</a></td><td>DELETE real com invariante formal; reconstrução em tabela sombra</td><td><span class="ef ef-parte">Vigente em parte</span></td><td>DELETE real com a invariante I-DEL; a tabela sombra foi substituída pela sobrescrita no lugar (<a href="../../03_adr/ADR-066-recuperacao-por-canal-separado-e-reconstrucao-por-sobrescrita.md">ADR-066</a>), e o DELETE passa a exigir lápide.</td><td><a href="../../03_adr/ADR-047-delete-real-invariante-e-reconstrucao-em-tabela-sombra.md">ADR-047-delete-real-invariante-e-reconstrucao-em-tabela-sombra.md</a></td></tr>
 <tr><td class="nw"><a href="../../03_adr/ADR-050-query-em-gsi-recusada.md">ADR-050</a></td><td><code>Query</code> em GSI é recusada</td><td><span class="ef ef-ok">Vigente</span></td><td>Toda Query ou Scan em GSI é recusada com 400 (ValidationException); a tabela sombra nasce sem GSI.</td><td><a href="../../03_adr/ADR-050-query-em-gsi-recusada.md">ADR-050-query-em-gsi-recusada.md</a></td></tr>
 <tr><td class="nw"><a href="../../03_adr/ADR-015-wal-post-image-e-versao.md">ADR-015</a></td><td>O log guarda a post-image e a versão do item</td><td><span class="ef ef-ok">Vigente, complementado</span></td><td>Cada entrada guarda a post-image e a versão (= índice Raft); o applier grava com condição v &lt; índice.</td><td><a href="../../03_adr/ADR-015-wal-post-image-e-versao.md">ADR-015-wal-post-image-e-versao.md</a></td></tr>
 </tbody></table></div>
@@ -200,7 +200,7 @@ Gerado em 18/10/2026 a partir do pacote DataReplication_Versao_1.
 </ul></details>
 </section>
 <footer class="rodape">
-Gerado em 18/10/2026 a partir de <code>DataReplication_Versao_1/</code>. O conteúdo vem dos arquivos .md citados no código-fonte desta página;
+Gerado em 24/10/2026 a partir de <code>DataReplication_Versao_1/</code>. O conteúdo vem dos arquivos .md citados no código-fonte desta página;
 textos marcados como <em>sugestão</em> são inferência do arquiteto e não decisões registradas.
 </footer>
 </main>

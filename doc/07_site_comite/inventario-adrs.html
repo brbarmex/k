@@ -10,7 +10,7 @@
 <!--
 Fonte(s) usada(s) nesta página (rastreabilidade), relativas à raiz do pacote:
   03_adr/INVENTARIO.md
-Gerado em 18/10/2026 a partir do pacote DataReplication_Versao_1.
+Gerado em 24/10/2026 a partir do pacote DataReplication_Versao_1.
 -->
 <header class="topo">
 <button class="menu" type="button" aria-label="Abrir navegação" onclick="document.body.classList.toggle('nav-aberta')">☰</button>
@@ -92,7 +92,7 @@ Gerado em 18/10/2026 a partir do pacote DataReplication_Versao_1.
 </nav>
 <main>
 <div class="migalhas"><a href="index.html">Início</a> / Inventário dos ADRs</div>
-<h1>Inventário dos ADRs: status efetivo, cadeias e pontos a decidir</h1><p><strong>Feito em:</strong> 14/10/2026; perguntas respondidas pelo Bruno no mesmo dia (1a 2a 3a 4a 5a 6b 7a 8a) · <strong>Cobre:</strong> ADR-001 a ADR-063 (55 arquivos) · <strong>Para que serve:</strong> base do <a href="estado-atual.html">ESTADO_ATUAL.md</a>. Cada ADR foi lido inteiro, e a coluna "Na POC" foi conferida no código de <code>DataReplicationApp</code> e no escopo da <a href="../../spec/SPEC_POC_LOCAL.md">spec da POC</a> (R.3 e R.4).</p>
+<h1>Inventário dos ADRs: status efetivo, cadeias e pontos a decidir</h1><p><strong>Feito em:</strong> 14/10/2026, revisto em 24/10/2026 contra o código da POC e o redesenho de 18/10; perguntas respondidas pelo Bruno no mesmo dia (1a 2a 3a 4a 5a 6b 7a 8a) · <strong>Cobre:</strong> ADR-001 a ADR-067 (59 arquivos) · <strong>Para que serve:</strong> base do <a href="estado-atual.html">ESTADO_ATUAL.md</a>. Cada ADR foi lido inteiro, e a coluna "Na POC" foi conferida no código de <code>DataReplicationApp</code> e no escopo da <a href="../../spec/SPEC_POC_LOCAL.md">spec da POC</a> (R.3 e R.4).</p>
 <p>Os números 009, 012, 023, 040 e 053 não existem: eram ADRs do antigo modo Eventual, removidos pelo <a href="../03_adr/ADR-057-um-unico-modo-strong-consistency.md">ADR-057</a>.</p>
 <h2 id="legenda">Legenda</h2>
 <p><strong>Status efetivo</strong>, que nem sempre é o que está escrito no cabeçalho do ADR:</p>
@@ -132,6 +132,14 @@ Gerado em 18/10/2026 a partir do pacote DataReplication_Versao_1.
 <td><strong>Pendente</strong></td>
 <td>Proposta aguardando decisão do Bruno</td>
 </tr>
+<tr>
+<td><strong>Em conflito</strong></td>
+<td>Contradiz um ADR posterior decidido e precisa de decisão nova; ver "Revisão de 24/10/2026"</td>
+</tr>
+<tr>
+<td><strong>Vigente, alterado</strong></td>
+<td>Vale, mas um ADR posterior mudou parte da regra; a atualização de 24/10 no próprio arquivo diz o quê</td>
+</tr>
 </tbody>
 </table></div>
 <p><strong>Na POC:</strong> <strong>Sim</strong> (implementado) · <strong>Parcial</strong> (parte implementada; o que falta está na observação) · <strong>Fora</strong> (fora do escopo da POC, R.4) · <strong>Divergente</strong> (a POC faz diferente do ADR) · <strong>—</strong> (não se aplica a código).</p>
@@ -159,10 +167,10 @@ Gerado em 18/10/2026 a partir do pacote DataReplication_Versao_1.
 <tr>
 <td><a href="../03_adr/ADR-002-shards-logicos-celulas-ativo-passivo.md">002</a></td>
 <td>Estrutura</td>
-<td>Requisito</td>
-<td>—</td>
+<td>Requisito, alterado</td>
+<td>composição pelo 064 (3 AWS + 2 Azure votantes; só AWS 3 ou 5)</td>
 <td>Parcial</td>
-<td>3 votantes; sem learners; um shard só. Divisão de shard aberta (H11), relevante para o <a href="../03_adr/ADR-062-banco-com-versao-de-outra-historia-do-log.md">ADR-062</a></td>
+<td>3 votantes AWS; um shard só. Divisão de shard aberta (H11)</td>
 </tr>
 <tr>
 <td><a href="../03_adr/ADR-003-aws-primaria-azure-failover.md">003</a></td>
@@ -184,17 +192,17 @@ Gerado em 18/10/2026 a partir do pacote DataReplication_Versao_1.
 <td><a href="../03_adr/ADR-005-ack-exige-gate.md">005</a></td>
 <td>Escrita e gate</td>
 <td>Vigente, complementado</td>
-<td>017, 029, 046; 057 (o ACK também espera o apply)</td>
+<td>064 (gate = commit e K = 1 Azure), 029, 046; 057 (o ACK também espera o apply)</td>
 <td>Parcial</td>
 <td>Sem Azure, gate = commit</td>
 </tr>
 <tr>
 <td><a href="../03_adr/ADR-006-consenso-por-shard-eleicao-na-aws.md">006</a></td>
 <td>Consenso</td>
-<td>Vigente</td>
-<td>—</td>
-<td>Sim</td>
-<td></td>
+<td>Vigente, alterado</td>
+<td>064 (a Azure vota, mas não se candidata)</td>
+<td>Parcial</td>
+<td>Só os 3 votantes AWS</td>
 </tr>
 <tr>
 <td><a href="../03_adr/ADR-007-sidecar-e-coordenacao-compartilhada.md">007</a></td>
@@ -232,17 +240,17 @@ Gerado em 18/10/2026 a partir do pacote DataReplication_Versao_1.
 <td><a href="../03_adr/ADR-013-transferencia-planejada-de-lideranca.md">013</a></td>
 <td>Operação</td>
 <td>Vigente, complementado</td>
-<td>fases 2 e 3 alinhadas a 015, 029, 042, 046, 049, 057 (respostas 1a 2a)</td>
-<td>Parcial</td>
-<td>Só <code>TransferLeadership</code> exposto; o protocolo de 5 fases não existe</td>
+<td>fases 2 e 3 alinhadas a 015, 029, 042, 046, 049, 057 (respostas 1a 2a); pré-checagem pelo 064</td>
+<td>Fora</td>
+<td><code>TransferLeadership</code> removido em 17/10 (<code>9710fc3</code>)</td>
 </tr>
 <tr>
 <td><a href="../03_adr/ADR-014-modo-degradado-opcao-b.md">014</a></td>
 <td>Modo degradado</td>
-<td>Vigente, complementado</td>
-<td>044 (lease), 045 (política), 027</td>
+<td>Substituído</td>
+<td>por 064 (AWS segue sem a Azure, automático, sem lease nem política)</td>
 <td>Fora</td>
-<td>A POC não tem modo degradado</td>
+<td></td>
 </tr>
 <tr>
 <td><a href="../03_adr/ADR-015-wal-post-image-e-versao.md">015</a></td>
@@ -263,18 +271,18 @@ Gerado em 18/10/2026 a partir do pacote DataReplication_Versao_1.
 <tr>
 <td><a href="../03_adr/ADR-017-azure-learners-e-gate.md">017</a></td>
 <td>Escrita e gate</td>
-<td>Vigente, complementado</td>
-<td>046</td>
-<td>Parcial</td>
-<td>Gate com learners só em teste de unidade</td>
+<td>Substituído</td>
+<td>por 064 (2 Azure votantes, K = 1)</td>
+<td>Fora</td>
+<td>O gate com learners em teste de unidade saiu em 17/10</td>
 </tr>
 <tr>
 <td><a href="../03_adr/ADR-019-wal-proprio-volume-dedicado.md">019</a></td>
 <td>Log do Raft</td>
 <td>Vigente, complementado</td>
-<td>056 (IOPS)</td>
+<td>056 (IOPS); 065 (retenção por janela em bytes e teto duro, no lugar dos 70%)</td>
 <td>Sim</td>
-<td>Um volume por célula</td>
+<td>Um volume por célula; progresso e arquivo <code>snapshot</code> no mesmo volume</td>
 </tr>
 <tr>
 <td><a href="../03_adr/ADR-020-raft-etcd-io-camada-multigrupo.md">020</a></td>
@@ -327,8 +335,8 @@ Gerado em 18/10/2026 a partir do pacote DataReplication_Versao_1.
 <tr>
 <td><a href="../03_adr/ADR-027-sinalizacao-do-modo-degradado.md">027</a></td>
 <td>Modo degradado</td>
-<td>Vigente, complementado</td>
-<td>044, 045 (o header não é aceite de risco)</td>
+<td>Vigente, alterado</td>
+<td>064 (o header sinaliza o RPO &gt; 0; sem <code>LEASE_EXPIRED</code> nem <code>DEGRADED_POLICY</code>)</td>
 <td>Fora</td>
 <td></td>
 </tr>
@@ -344,17 +352,17 @@ Gerado em 18/10/2026 a partir do pacote DataReplication_Versao_1.
 <td><a href="../03_adr/ADR-029-gate-monotonico-na-troca-de-lider.md">029</a></td>
 <td>Escrita e gate</td>
 <td>Vigente, complementado</td>
-<td>046, 049</td>
-<td>Fora</td>
-<td>Sem Azure</td>
+<td>046, 049; 064 (K = 1); 065 (confirmado no marcador, G6)</td>
+<td>Parcial</td>
+<td><code>Gate.Restore</code> com o confirmado do marcador; sem Azure</td>
 </tr>
 <tr>
 <td><a href="../03_adr/ADR-030-verificacao-formal-tla.md">030</a></td>
 <td>Verificação</td>
 <td>Vigente, complementado</td>
-<td>escopo ampliado por 044, 046, 047, 049, 056</td>
+<td>escopo: 064 a 067 no lugar do lease</td>
 <td>Fora</td>
-<td>O modelo não existe no repositório. Pela resposta 8a, a regra vale para o gate com learners reais; o gate da POC (= commit) não conta</td>
+<td>O modelo não existe no repositório. Pela resposta 8a, vale para o gate com Azure real</td>
 </tr>
 <tr>
 <td><a href="../03_adr/ADR-031-hexagonal-e-bibliotecas.md">031</a></td>
@@ -375,18 +383,18 @@ Gerado em 18/10/2026 a partir do pacote DataReplication_Versao_1.
 <tr>
 <td><a href="../03_adr/ADR-033-promocao-da-azure-humana.md">033</a></td>
 <td>Promoção</td>
-<td>Vigente, complementado</td>
-<td>044</td>
+<td>Substituído</td>
+<td>por 064 (promoção por comando via API, automação ou operador; risco Lb aceito)</td>
 <td>Fora</td>
 <td></td>
 </tr>
 <tr>
 <td><a href="../03_adr/ADR-034-fsync-fatal-e-identidade-nova.md">034</a></td>
 <td>Falhas</td>
-<td>Vigente, complementado</td>
-<td>056</td>
+<td>Vigente em parte</td>
+<td>056; 066 (reconstrução automática e <code>/admin/reconstruir</code>); 067 (fail-fast do volume perdido)</td>
 <td>Parcial</td>
-<td>Fsync fatal sim; identidade nova e <code>drctl rebuild</code> não</td>
+<td>Fsync fatal sim; fail-fast na árvore local sem commit; identidade nova só com a ConfChange (parking lot)</td>
 </tr>
 <tr>
 <td><a href="../03_adr/ADR-035-lote-batchwriteitem-uma-entrada-e-apply-condicional.md">035</a></td>
@@ -407,8 +415,8 @@ Gerado em 18/10/2026 a partir do pacote DataReplication_Versao_1.
 <tr>
 <td><a href="../03_adr/ADR-037-faixa-cinzenta-do-link-so-alerta.md">037</a></td>
 <td>Modo degradado</td>
-<td>Vigente</td>
-<td>—</td>
+<td>Vigente, alterado</td>
+<td>064 (o limite decide a entrada no automático)</td>
 <td>Fora</td>
 <td></td>
 </tr>
@@ -431,58 +439,58 @@ Gerado em 18/10/2026 a partir do pacote DataReplication_Versao_1.
 <tr>
 <td><a href="../03_adr/ADR-041-disco-do-log-teto-de-70-por-cento-sem-s3-na-v1.md">041</a></td>
 <td>Log do Raft</td>
-<td>Vigente</td>
-<td>063 (pendente)</td>
-<td>Fora</td>
-<td>Compactação fora da POC</td>
+<td>Substituído</td>
+<td>por 065</td>
+<td>—</td>
+<td></td>
 </tr>
 <tr>
 <td><a href="../03_adr/ADR-042-aws-que-volta-boot-cercado-e-recriacao-da-celula.md">042</a></td>
 <td>Promoção</td>
-<td>Vigente, complementado</td>
-<td>044 (gatilho); 062 propõe o mecanismo (pendente)</td>
+<td><strong>Em conflito</strong></td>
+<td>064 (gatilho por comando); 066 (DC-11 recusa outra história e nunca recria); 067 (P-05: volta pela ConfChange)</td>
 <td>Fora</td>
-<td></td>
+<td>Ver ponto 9 de 24/10</td>
 </tr>
 <tr>
 <td><a href="../03_adr/ADR-043-uma-instalacao-por-cliente-identidade-por-configuracao.md">043</a></td>
 <td>Implantação</td>
 <td>Vigente, complementado</td>
-<td>052 reverte a alternativa "mTLS por aplicação" (nota da resposta 4a)</td>
+<td>052 reverte a alternativa "mTLS por aplicação"; 067 (a configuração só cria o grupo)</td>
 <td>—</td>
 <td></td>
 </tr>
 <tr>
 <td><a href="../03_adr/ADR-044-lease-do-modo-degradado-e-promocao-da-azure.md">044</a></td>
 <td>Modo degradado</td>
-<td>Vigente (D depende da PEND-02; prova no TLA+)</td>
-<td>—</td>
+<td>Substituído</td>
+<td>por 064 (sem lease D nem D + M)</td>
 <td>Fora</td>
-<td><code>domain/lease.go</code> com testes, não ligado</td>
+<td><code>domain/lease.go</code> saiu da POC em 17/10</td>
 </tr>
 <tr>
 <td><a href="../03_adr/ADR-045-politica-de-degradacao-por-instalacao.md">045</a></td>
 <td>Modo degradado</td>
-<td>Vigente</td>
-<td>—</td>
-<td>Parcial</td>
-<td>Política fixa <code>reject</code></td>
+<td>Substituído</td>
+<td>por 064 (sem <code>reject</code>)</td>
+<td>Fora</td>
+<td>Ver ponto 10 de 24/10</td>
 </tr>
 <tr>
 <td><a href="../03_adr/ADR-046-gate-so-conta-progresso-validado-pelo-raft.md">046</a></td>
 <td>Escrita e gate</td>
 <td>Vigente</td>
-<td>—</td>
-<td>Parcial</td>
-<td><code>SetAzureDurable(termo, índice, learner)</code> no domínio, com teste; sem learners reais</td>
+<td>termos pelo 064 (células Azure votantes)</td>
+<td>Fora</td>
+<td><code>SetAzureDurable</code> saiu em 17/10</td>
 </tr>
 <tr>
 <td><a href="../03_adr/ADR-047-delete-real-invariante-e-reconstrucao-em-tabela-sombra.md">047</a></td>
 <td>Dados</td>
-<td>Vigente</td>
-<td>058 (I-DEL por chave)</td>
+<td>Vigente em parte</td>
+<td>058 (I-DEL por chave); 066 (sobrescrita no lugar no lugar da tabela sombra); DELETE exige lápide (parking lot)</td>
 <td>Fora</td>
-<td></td>
+<td>Sem <code>DeleteItem</code></td>
 </tr>
 <tr>
 <td><a href="../03_adr/ADR-048-skip-por-item.md">048</a></td>
@@ -560,7 +568,7 @@ Gerado em 18/10/2026 a partir do pacote DataReplication_Versao_1.
 <td><a href="../03_adr/ADR-060-laco-do-raft-nunca-espera-o-apply-e-admissao-por-atraso.md">060</a></td>
 <td>Raft e apply</td>
 <td>Vigente</td>
-<td>atualiza 056</td>
+<td>atualiza 056; partida pelo 065</td>
 <td>Sim</td>
 <td></td>
 </tr>
@@ -576,21 +584,53 @@ Gerado em 18/10/2026 a partir do pacote DataReplication_Versao_1.
 <td><a href="../03_adr/ADR-062-banco-com-versao-de-outra-historia-do-log.md">062</a></td>
 <td>Dados</td>
 <td>Pendente</td>
-<td>complementaria 042 e 015</td>
-<td>—</td>
-<td></td>
+<td>complementaria 042 e 015; mitigado em parte por 066 e 067</td>
+<td>Parcial</td>
+<td>Fail-fast com tabela local com itens e recusa de outra história; <code>epoch</code> fixa em 1</td>
 </tr>
 <tr>
 <td><a href="../03_adr/ADR-063-snapshot-e-compactacao-do-log-do-raft.md">063</a></td>
 <td>Raft</td>
-<td>Pendente</td>
-<td>fecharia o RT-11</td>
+<td>Substituído</td>
+<td>por 065 e 066</td>
 <td>—</td>
-<td>Hoje <code>Compact</code> não faz nada</td>
+<td>Implementado como 065 (Incremento A)</td>
+</tr>
+<tr>
+<td><a href="../03_adr/ADR-064-topologia-3-aws-2-azure-confirmacao-k1-e-promocao-por-comando.md">064</a></td>
+<td>Escrita e gate</td>
+<td>Vigente</td>
+<td>substitui 014, 017, 033, 044, 045; altera 002, 005, 006, 027, 029, 037, 042</td>
+<td>Parcial</td>
+<td>Só AWS; sem Azure, K, supressão de candidatura nem promoção; <code>epoch</code> fixa em 1</td>
+</tr>
+<tr>
+<td><a href="../03_adr/ADR-065-log-do-raft-limitado-snapshot-marcador-ram-e-disco.md">065</a></td>
+<td>Log do Raft</td>
+<td>Vigente</td>
+<td>substitui 041 e 063; altera 019 e 060</td>
+<td>Sim</td>
+<td>Incremento A (<code>2ba474d</code>, <code>38ae207</code>)</td>
+</tr>
+<tr>
+<td><a href="../03_adr/ADR-066-recuperacao-por-canal-separado-e-reconstrucao-por-sobrescrita.md">066</a></td>
+<td>Recuperação</td>
+<td>Vigente</td>
+<td>substitui o item 3 do 047; altera 034 e 042</td>
+<td>Sim (sem commit)</td>
+<td>Incremento B na árvore local de 24/10; pontos C3, C5 a C8 abertos</td>
+</tr>
+<tr>
+<td><a href="../03_adr/ADR-067-membros-pelo-log-do-raft-e-fail-fast-do-volume-perdido.md">067</a></td>
+<td>Operação</td>
+<td>Vigente</td>
+<td>altera 034 e 043</td>
+<td>Parcial</td>
+<td>Fail-fast (DC-12) na árvore local sem commit; ConfChange não existe (<code>ErrMembership</code> pelo <code>PEERS</code>)</td>
 </tr>
 </tbody>
 </table></div>
-<p><strong>Contagem:</strong> 4 requisitos · 23 vigentes · 25 vigentes e complementados · 0 vigentes em parte · 1 sem uso · 1 substituído · 2 descartados · 2 pendentes.</p>
+<p><strong>Contagem (24/10/2026):</strong> 4 requisitos (um alterado pelo 064) · 21 vigentes (dos quais 4 são os novos 064 a 067) · 19 vigentes e complementados ou alterados · 2 vigentes em parte · 1 em conflito (042) · 1 sem uso · 8 substituídos · 2 descartados · 1 pendente (062).</p>
 <h2 id="cadeias-onde-a-regra-exige-ler-mais-de-um-adr">Cadeias: onde a regra exige ler mais de um ADR</h2>
 <p>A regra vigente de cada linha está consolidada no <a href="estado-atual.html">ESTADO_ATUAL.md</a>.</p>
 <div class="tabela"><table>
@@ -604,8 +644,8 @@ Gerado em 18/10/2026 a partir do pacote DataReplication_Versao_1.
 <tbody>
 <tr>
 <td>Quando sai o ACK</td>
-<td>005 → 017 → 029 → 046 → 057 → 058</td>
-<td>Commit 2/3 AWS, gate com 2/3 Azure no termo atual, apply na líder (marca d'água contígua), lease conferido</td>
+<td>005 → 064 → 029 → 046 → 057 → 058</td>
+<td>Commit do Raft (maioria) e, no multicloud, K = 1 célula Azure com fsync no termo atual; apply na líder (marca d'água contígua)</td>
 </tr>
 <tr>
 <td>O log do Raft e o fsync</td>
@@ -614,8 +654,8 @@ Gerado em 18/10/2026 a partir do pacote DataReplication_Versao_1.
 </tr>
 <tr>
 <td>Retenção e compactação</td>
-<td>019 → 041 → 047 → 063 (pendente)</td>
-<td>Raft só até <code>RaftCompactLimit</code>; a retenção para a Azure fica no log do Raft, com teto de 70% do volume e saída por reconstrução</td>
+<td>019 → 065 → 066</td>
+<td>Snapshot-marcador a cada 10.000 entradas ou 64 MiB; RAM com teto; disco até <code>min(aplicado com fsync, piso, pinos, S)</code>; janela em bytes por réplica e teto duro; fora da janela, reconstrução por sobrescrita</td>
 </tr>
 <tr>
 <td>Apply</td>
@@ -628,14 +668,14 @@ Gerado em 18/10/2026 a partir do pacote DataReplication_Versao_1.
 <td>Espera <code>applied ≥ min(ReadIndex, gate)</code>; sem GSI; sem leitura eventual</td>
 </tr>
 <tr>
-<td>Modo degradado</td>
-<td>014 → 027 → 037 → 044 → 045</td>
-<td>Política por instalação; com <code>accept</code>, lease D desde <code>t_c</code>; com <code>reject</code>, nunca degrada</td>
+<td>Azure fora (antigo modo degradado)</td>
+<td>064 → 027 → 037</td>
+<td>A AWS segue sozinha, automático, com RPO &gt; 0 sinalizado; sem lease e sem <code>reject</code>; o limiar de entrada está em aberto</td>
 </tr>
 <tr>
 <td>Promoção e retorno da AWS</td>
-<td>033 → 044 → 042 → 062 (pendente)</td>
-<td>Humana, só depois de D + M; a AWS volta cercada e com o banco recriado</td>
+<td>064 → 042 (em conflito) → 066 → 067 → 062 (pendente)</td>
+<td>Comando via API, por automação ou operador; risco aceito de duas líderes; como a AWS volta está em aberto</td>
 </tr>
 <tr>
 <td>DELETE, TTL e GSI</td>
@@ -649,8 +689,8 @@ Gerado em 18/10/2026 a partir do pacote DataReplication_Versao_1.
 </tr>
 <tr>
 <td>Identidade e segurança</td>
-<td>043 → 052 → 021</td>
-<td>Uma instalação por cliente; mTLS por aplicação com lista de permissões; mTLS entre células</td>
+<td>043 → 067 → 052 → 021</td>
+<td>Uma instalação por cliente; a configuração só cria o grupo; mTLS por aplicação com lista de permissões; mTLS entre células</td>
 </tr>
 <tr>
 <td>Compatibilidade da API</td>
@@ -677,8 +717,21 @@ Gerado em 18/10/2026 a partir do pacote DataReplication_Versao_1.
 <li>O cabeçalho do <code>INDEX.md</code> dizia "ADR-016 a 060"; vai até o 063.</li>
 <li><code>07_site_comite/_gerador/adr_resumo.py</code> não tinha os ADRs 061 a 063.</li>
 </ul>
+<h2 id="revisao-de-24102026-codigo-da-poc-e-redesenho-de-1810">Revisão de 24/10/2026: código da POC e redesenho de 18/10</h2>
+<p>Feita a pedido do Bruno ("atualize as ADRs com base no estado e comportamento atual do código"). Fontes: a árvore local da <code>main</code> em 24/10 (<code>0b95c5e</code> mais o Incremento B sem commit), a <a href="../../spec/compactacao_do_log/especificacao.md">especificação</a> e as <a href="../../spec/compactacao_do_log/decisoes.md">decisões</a> de 18/10, cuja seção 9 já listava os ADRs que mudavam.</p>
+<p><strong>Como foi feito:</strong> o que o Bruno decidiu em 18/10 virou quatro ADRs novos (064 a 067). Os ADRs antigos não foram apagados: cada um ganhou o status novo e uma seção "Atualização de 24/10/2026" dizendo o que mudou e o que a POC faz. A coluna "Na POC" foi conferida de novo no código.</p>
+<p><strong>Pontos que precisam de decisão do Bruno</strong> (nenhum foi decidido nesta revisão):</p>
+<ol start="9">
+<li><strong>ADR-042 em conflito.</strong> O retorno da AWS depois da promoção diz "banco recriado"; a DC-11 (<a href="../03_adr/ADR-066-recuperacao-por-canal-separado-e-reconstrucao-por-sobrescrita.md">066</a>) nunca recria e recusa fonte de outra história; a P-05 (<a href="../03_adr/ADR-067-membros-pelo-log-do-raft-e-fail-fast-do-volume-perdido.md">067</a>) diz que a volta usa a ConfChange. Falta escolher o caminho.</li>
+<li><strong>Fim do <code>reject</code> (<a href="../03_adr/ADR-045-politica-de-degradacao-por-instalacao.md">045</a>).</strong> Um cliente que exige RPO 0 sempre perde a opção de parar as escritas no corte do link. Manter assim, ou reabrir a política por instalação?</li>
+<li><strong>Uma AZ AWS fora no 3 + 2 (<a href="../03_adr/ADR-064-topologia-3-aws-2-azure-confirmacao-k1-e-promocao-por-comando.md">064</a>).</strong> Cada commit passa a depender de um voto Azure; com o link também fora, a AWS para. Aceitar e documentar, ou mudar a composição?</li>
+<li><strong>Entrada no automático sem a Azure.</strong> Qual limiar declara a Azure fora (o <code>DEGRADE_AFTER</code> de 2 s?) e se o modo vira entrada do log, que o marcador precisa carregar (<a href="../03_adr/ADR-065-log-do-raft-limitado-snapshot-marcador-ram-e-disco.md">065</a>).</li>
+<li><strong>Estado que só existe no log.</strong> <code>SKIP</code>, dedupe e o modo de RPO &gt; 0 não estão no marcador; precisam entrar antes de essas funções existirem.</li>
+<li><strong>Pontos abertos da crítica do prompt SPDD</strong> (C1, C3 a C8): em especial, uma célula em recuperação ou reconstrução pode ser eleita líder (C5), porque o código não impede a candidatura.</li>
+</ol>
+<p><strong>Divergências entre o código e os ADRs vigentes</strong> (esperadas, mas registradas): gRPC entre células sem TLS e com codec JSON (<a href="../03_adr/ADR-021-grpc-entre-celulas.md">021</a>); membros pelo <code>PEERS</code> em vez de ConfChange (<a href="../03_adr/ADR-067-membros-pelo-log-do-raft-e-fail-fast-do-volume-perdido.md">067</a>); <code>epoch</code> fixa em 1 (<a href="../03_adr/ADR-064-topologia-3-aws-2-azure-confirmacao-k1-e-promocao-por-comando.md">064</a>); o Incremento B está implementado mas <strong>sem commit</strong> na <code>main</code> local.</p>
 <footer class="rodape">
-Gerado em 18/10/2026 a partir de <code>DataReplication_Versao_1/</code>. O conteúdo vem dos arquivos .md citados no código-fonte desta página;
+Gerado em 24/10/2026 a partir de <code>DataReplication_Versao_1/</code>. O conteúdo vem dos arquivos .md citados no código-fonte desta página;
 textos marcados como <em>sugestão</em> são inferência do arquiteto e não decisões registradas.
 </footer>
 </main>

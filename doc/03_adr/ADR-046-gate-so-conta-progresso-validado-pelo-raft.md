@@ -1,6 +1,6 @@
 # ADR-046 — O gate só conta progresso validado pelo Raft no termo atual
 
-**Status:** Decidido (Bruno, revisão crítica de 13/10/2026) · **Data:** 13/10/2026
+**Status:** Decidido (Bruno); vigente, termos atualizados pelo ADR-064 (24/10/2026) · **Data:** 13/10/2026
 
 ## Contexto
 
@@ -24,6 +24,12 @@ A revisão crítica pediu prova de que "índice N durável na Azure" significa "
 
 - O esboço de código muda: `SetAzureDurable` recebe termo e identidade; o gate deixa de depender do ritmo dos commits.
 - Janela curta sem ACK logo depois de uma eleição, já aceita no ADR-029.
+
+## Atualização de 24/10/2026 (redesenho de 18/10 e código da POC)
+
+A regra vale para as 2 células Azure votantes ([ADR-064](ADR-064-topologia-3-aws-2-azure-confirmacao-k1-e-promocao-por-comando.md)): o progresso delas só conta pelo `AppendEntries` no termo atual. A janela sem ACK depois da eleição continua.
+
+**Na POC:** sem Azure; `SetAzureDurable` foi removido em 17/10.
 
 ## Onde está o detalhe
 

@@ -1,6 +1,6 @@
 # ADR-045 — `DEGRADED_POLICY` obrigatória por instalação
 
-**Status:** Decidido (Bruno, revisão crítica de 13/10/2026) · **Data:** 13/10/2026
+**Status:** **Substituído pelo ADR-064** (24/10/2026); era Decidido (Bruno) · **Data:** 13/10/2026
 
 ## Contexto
 
@@ -23,6 +23,10 @@ O header `x-dr-mode: degraded` ([ADR-027](ADR-027-sinalizacao-do-modo-degradado.
 - Com `reject`, uma queda da Azure ou do link para as escritas do cliente (disponibilidade menor, RPO 0).
 - A PEND-02 e o dimensionamento do log ([C29](../02_cenarios/atualizados/C29-disco-do-log-em-degradacao-longa.md)) só valem para instalações `accept`.
 - A política é testada nos dois valores na suíte de falhas.
+
+## Atualização de 24/10/2026 (redesenho de 18/10 e código da POC)
+
+Substituído por [ADR-064](ADR-064-topologia-3-aws-2-azure-confirmacao-k1-e-promocao-por-comando.md): o comportamento com a Azure fora é **um só** (a AWS segue, RPO > 0 sinalizado). Não existe mais `reject`. Consequência a registrar: um cliente que exige RPO 0 sempre perde a opção de parar as escritas no corte do link; se algum exigir, este ADR precisa voltar.
 
 ## Onde está o detalhe
 

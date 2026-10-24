@@ -11,7 +11,7 @@
 Fonte(s) usada(s) nesta página (rastreabilidade), relativas à raiz do pacote:
   02_cenarios/complexos/X08-leitura-forte-com-exemplos.md
   04_diagramas/D05-gate-e-quorum.md
-Gerado em 18/10/2026 a partir do pacote DataReplication_Versao_1.
+Gerado em 24/10/2026 a partir do pacote DataReplication_Versao_1.
 -->
 <header class="topo">
 <button class="menu" type="button" aria-label="Abrir navegação" onclick="document.body.classList.toggle('nav-aberta')">☰</button>
@@ -400,7 +400,7 @@ Gerado em 18/10/2026 a partir do pacote DataReplication_Versao_1.
 <tr><td class="nw"><a href="../../03_adr/ADR-049-barreira-da-leitura-forte-e-o-gate.md">ADR-049</a></td><td>A leitura forte espera <code>min(ReadIndex, gate)</code></td><td><span class="ef ef-ok">Vigente</span></td><td>A leitura forte espera min(ReadIndex, gate), obtidos da líder na mesma resposta; com o applier parado responde 503 APPLIER_STOPPED na hora.</td><td><a href="../../03_adr/ADR-049-barreira-da-leitura-forte-e-o-gate.md">ADR-049-barreira-da-leitura-forte-e-o-gate.md</a></td></tr>
 <tr><td class="nw"><a href="../../03_adr/ADR-057-um-unico-modo-strong-consistency.md">ADR-057</a></td><td>Um único modo: strong consistency</td><td><span class="ef ef-ok">Vigente, complementado</span></td><td>Um único modo, strong consistency, na escrita, na replicação e no Raft; leitura sempre forte; sem variável de modo.</td><td><a href="../../03_adr/ADR-057-um-unico-modo-strong-consistency.md">ADR-057-um-unico-modo-strong-consistency.md</a></td></tr>
 <tr><td class="nw"><a href="../../03_adr/ADR-039-sem-lider-conhecida-espera-ate-1s-e-503.md">ADR-039</a></td><td>Sem líder conhecida: esperar até 1 s no servidor e então 503</td><td><span class="ef ef-ok">Vigente</span></td><td>Encaminhamento com um salto só e termo; sem líder conhecida espera até 1 s e responde 503.</td><td><a href="../../03_adr/ADR-039-sem-lider-conhecida-espera-ate-1s-e-503.md">ADR-039-sem-lider-conhecida-espera-ate-1s-e-503.md</a></td></tr>
-<tr><td class="nw"><a href="../../03_adr/ADR-029-gate-monotonico-na-troca-de-lider.md">ADR-029</a></td><td>O gate nunca recua; líder nova reconstrói antes de ACKar</td><td><span class="ef ef-ok">Vigente, complementado</span></td><td>O gate nunca recua: a líder nova reconstrói o gate com os learners antes de ACKar.</td><td><a href="../../03_adr/ADR-029-gate-monotonico-na-troca-de-lider.md">ADR-029-gate-monotonico-na-troca-de-lider.md</a></td></tr>
+<tr><td class="nw"><a href="../../03_adr/ADR-029-gate-monotonico-na-troca-de-lider.md">ADR-029</a></td><td>O gate nunca recua; líder nova reconstrói antes de ACKar</td><td><span class="ef ef-ok">Vigente, complementado</span></td><td>O gate nunca recua: o confirmado vai no snapshot-marcador e a líder nova o reconstrói no termo novo antes de ACKar.</td><td><a href="../../03_adr/ADR-029-gate-monotonico-na-troca-de-lider.md">ADR-029-gate-monotonico-na-troca-de-lider.md</a></td></tr>
 <tr><td class="nw"><a href="../../03_adr/ADR-046-gate-so-conta-progresso-validado-pelo-raft.md">ADR-046</a></td><td>O gate só conta progresso validado pelo Raft no termo atual</td><td><span class="ef ef-ok">Vigente</span></td><td>O gate só conta progresso da Azure confirmado pelo AppendEntries no termo atual.</td><td><a href="../../03_adr/ADR-046-gate-so-conta-progresso-validado-pelo-raft.md">ADR-046-gate-so-conta-progresso-validado-pelo-raft.md</a></td></tr>
 </tbody></table></div>
 <p class="nota">Lista extraída do cabeçalho “ADRs” do arquivo fonte. A decisão resumida condensa a seção “Decisão” de cada ADR. <b>Status efetivo</b> vem do <a href="../inventario-adrs.html">inventário dos ADRs</a>: <b>Vigente</b> vale como está escrito; <b>Vigente, complementado</b> vale, mas outros ADRs acrescentam regras; <b>Vigente em parte</b> tem item revertido ou em conflito; <b>Sem uso</b>, <b>Substituído</b> e <b>Descartado</b> são só registro; <b>Pendente</b> aguarda decisão. A regra consolidada está no <a href="../estado-atual.html">Estado atual</a>.</p>
@@ -487,7 +487,7 @@ Gerado em 18/10/2026 a partir do pacote DataReplication_Versao_1.
 - <strong>b)</strong> Fazer a líder só ACKar depois que o gate novo chegar a 2 de 3 células AWS (vai junto do próximo AppendEntries). Assim a líder nova sempre conhece um gate que cobre todo ACK e pode servir leitura com ele. Custa cerca de um RTT dentro da AWS a mais por escrita e muda a G-06/G-07; precisaria entrar no modelo TLA+.</p></details>
 </section>
 <footer class="rodape">
-Gerado em 18/10/2026 a partir de <code>DataReplication_Versao_1/</code>. O conteúdo vem dos arquivos .md citados no código-fonte desta página;
+Gerado em 24/10/2026 a partir de <code>DataReplication_Versao_1/</code>. O conteúdo vem dos arquivos .md citados no código-fonte desta página;
 textos marcados como <em>sugestão</em> são inferência do arquiteto e não decisões registradas.
 </footer>
 </main>

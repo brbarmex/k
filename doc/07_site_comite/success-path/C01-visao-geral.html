@@ -11,7 +11,7 @@
 Fonte(s) usada(s) nesta página (rastreabilidade), relativas à raiz do pacote:
   02_cenarios/atualizados/C01-visao-geral.md
   04_diagramas/D01-visao-do-sistema.md
-Gerado em 18/10/2026 a partir do pacote DataReplication_Versao_1.
+Gerado em 24/10/2026 a partir do pacote DataReplication_Versao_1.
 -->
 <header class="topo">
 <button class="menu" type="button" aria-label="Abrir navegação" onclick="document.body.classList.toggle('nav-aberta')">☰</button>
@@ -188,7 +188,7 @@ Gerado em 18/10/2026 a partir do pacote DataReplication_Versao_1.
 <section id="adrs"><h2>5. ADRs relacionados</h2>
 <div class="tabela"><table><thead><tr><th>ADR</th><th>Título</th><th>Status efetivo</th><th>Decisão resumida</th><th>Arquivo</th></tr></thead><tbody>
 <tr><td class="nw"><a href="../../03_adr/ADR-016-app-unico-por-celula-monolito-modular.md">ADR-016</a></td><td>Um único app DataReplication por célula, monolito modular</td><td><span class="ef ef-ok">Vigente</span></td><td>Um único app DataReplication por célula (API, Raft, log, applier), sem sidecar e sem HPA.</td><td><a href="../../03_adr/ADR-016-app-unico-por-celula-monolito-modular.md">ADR-016-app-unico-por-celula-monolito-modular.md</a></td></tr>
-<tr><td class="nw"><a href="../../03_adr/ADR-017-azure-learners-e-gate.md">ADR-017</a></td><td>Azure como learners, com gate</td><td><span class="ef ef-ok">Vigente, complementado</span></td><td>Azure como learners; gateIndex = min(commit Raft, índice durável em 2 de 3 learners) controla ACK e applier.</td><td><a href="../../03_adr/ADR-017-azure-learners-e-gate.md">ADR-017-azure-learners-e-gate.md</a></td></tr>
+<tr><td class="nw"><a href="../../03_adr/ADR-017-azure-learners-e-gate.md">ADR-017</a></td><td>Azure como learners, com gate</td><td><span class="ef ef-hist">Substituído</span></td><td>Substituído pelo <a href="../../03_adr/ADR-064-topologia-3-aws-2-azure-confirmacao-k1-e-promocao-por-comando.md">ADR-064</a>: a Azure tem 2 células votantes sem candidatura, e o gate exige K = 1 célula Azure com fsync.</td><td><a href="../../03_adr/ADR-017-azure-learners-e-gate.md">ADR-017-azure-learners-e-gate.md</a></td></tr>
 <tr><td class="nw"><a href="../../03_adr/ADR-003-aws-primaria-azure-failover.md">ADR-003</a></td><td>AWS primária e Azure como failover, ambas só em São Paulo</td><td><span class="ef ef-ok">Requisito</span></td><td>AWS sa-east-1 é a primária com DynamoDB; Azure Brazil South é o failover com Cosmos; sem terceira nuvem ou região.</td><td><a href="../../03_adr/ADR-003-aws-primaria-azure-failover.md">ADR-003-aws-primaria-azure-failover.md</a></td></tr>
 <tr><td class="nw"><a href="../../03_adr/ADR-054-banco-por-celula-mantido.md">ADR-054</a></td><td>Um banco por célula mantido, com o trade-off registrado</td><td><span class="ef ef-ok">Vigente</span></td><td>Mantido um banco por célula (seis bancos) pelo isolamento lógico; o custo por cliente segue a estimar (<a href="../parking-lot/R20-custo-6x.html">R20</a>).</td><td><a href="../../03_adr/ADR-054-banco-por-celula-mantido.md">ADR-054-banco-por-celula-mantido.md</a></td></tr>
 </tbody></table></div>
@@ -204,7 +204,7 @@ Gerado em 18/10/2026 a partir do pacote DataReplication_Versao_1.
 </ul></details>
 </section>
 <footer class="rodape">
-Gerado em 18/10/2026 a partir de <code>DataReplication_Versao_1/</code>. O conteúdo vem dos arquivos .md citados no código-fonte desta página;
+Gerado em 24/10/2026 a partir de <code>DataReplication_Versao_1/</code>. O conteúdo vem dos arquivos .md citados no código-fonte desta página;
 textos marcados como <em>sugestão</em> são inferência do arquiteto e não decisões registradas.
 </footer>
 </main>

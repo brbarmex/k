@@ -38,6 +38,10 @@ O item 3 (NetworkPolicy como fronteira) é completado pela **autorização por a
 
 A alternativa "mTLS por aplicação: custo de certificados sem ganho, já que o namespace pertence ao cliente" foi **revertida** pelo [ADR-052](ADR-052-autorizacao-por-aplicacao-com-mtls.md): sem ela, qualquer pod do namespace escreveria em qualquer tabela. Deste ADR continua valendo a identificação do cliente pela configuração do deploy; quem pode escrever o quê é do [ADR-052](ADR-052-autorizacao-por-aplicacao-com-mtls.md).
 
+## Atualização de 24/10/2026 (redesenho de 18/10 e código da POC)
+
+A configuração do deploy define o cliente e **cria** o grupo; depois, os membros mudam só pelo log do Raft ([ADR-067](ADR-067-membros-pelo-log-do-raft-e-fail-fast-do-volume-perdido.md)).
+
 ## Onde está o detalhe
 
 - [C31-implantacao-por-cliente-e-identidade.md](../02_cenarios/atualizados/C31-implantacao-por-cliente-e-identidade.md)

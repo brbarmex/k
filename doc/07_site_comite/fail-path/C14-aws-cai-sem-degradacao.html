@@ -11,7 +11,7 @@
 Fonte(s) usada(s) nesta página (rastreabilidade), relativas à raiz do pacote:
   02_cenarios/atualizados/C14-aws-cai-sem-degradacao.md
   04_diagramas/D01-visao-do-sistema.md
-Gerado em 18/10/2026 a partir do pacote DataReplication_Versao_1.
+Gerado em 24/10/2026 a partir do pacote DataReplication_Versao_1.
 -->
 <header class="topo">
 <button class="menu" type="button" aria-label="Abrir navegação" onclick="document.body.classList.toggle('nav-aberta')">☰</button>
@@ -173,10 +173,10 @@ Gerado em 18/10/2026 a partir do pacote DataReplication_Versao_1.
 </section>
 <section id="adrs"><h2>5. ADRs relacionados</h2>
 <div class="tabela"><table><thead><tr><th>ADR</th><th>Título</th><th>Status efetivo</th><th>Decisão resumida</th><th>Arquivo</th></tr></thead><tbody>
-<tr><td class="nw"><a href="../../03_adr/ADR-033-promocao-da-azure-humana.md">ADR-033</a></td><td>Promoção da Azure sempre humana, só depois de D + M</td><td><span class="ef ef-ok">Vigente, complementado</span></td><td>Promoção da Azure (ForcePromote) sempre humana, com checklist e só depois de D + M.</td><td><a href="../../03_adr/ADR-033-promocao-da-azure-humana.md">ADR-033-promocao-da-azure-humana.md</a></td></tr>
-<tr><td class="nw"><a href="../../03_adr/ADR-044-lease-do-modo-degradado-e-promocao-da-azure.md">ADR-044</a></td><td>Modo degradado com lease: a AWS para sozinha e a Azure só promove depois de D mais margem</td><td><span class="ef ef-ok">Vigente (D depende da PEND-02; prova no TLA+)</span></td><td>Modo degradado com lease D contado desde t_c; a AWS para sozinha e a Azure só promove depois de D + M.</td><td><a href="../../03_adr/ADR-044-lease-do-modo-degradado-e-promocao-da-azure.md">ADR-044-lease-do-modo-degradado-e-promocao-da-azure.md</a></td></tr>
-<tr><td class="nw"><a href="../../03_adr/ADR-045-politica-de-degradacao-por-instalacao.md">ADR-045</a></td><td><code>DEGRADED_POLICY</code> obrigatória por instalação</td><td><span class="ef ef-ok">Vigente</span></td><td>DEGRADED_POLICY obrigatória por instalação: accept (degradado com lease) ou reject (RPO 0 sempre).</td><td><a href="../../03_adr/ADR-045-politica-de-degradacao-por-instalacao.md">ADR-045-politica-de-degradacao-por-instalacao.md</a></td></tr>
-<tr><td class="nw"><a href="../../03_adr/ADR-017-azure-learners-e-gate.md">ADR-017</a></td><td>Azure como learners, com gate</td><td><span class="ef ef-ok">Vigente, complementado</span></td><td>Azure como learners; gateIndex = min(commit Raft, índice durável em 2 de 3 learners) controla ACK e applier.</td><td><a href="../../03_adr/ADR-017-azure-learners-e-gate.md">ADR-017-azure-learners-e-gate.md</a></td></tr>
+<tr><td class="nw"><a href="../../03_adr/ADR-033-promocao-da-azure-humana.md">ADR-033</a></td><td>Promoção da Azure sempre humana, só depois de D + M</td><td><span class="ef ef-hist">Substituído</span></td><td>Substituído pelo <a href="../../03_adr/ADR-064-topologia-3-aws-2-azure-confirmacao-k1-e-promocao-por-comando.md">ADR-064</a>: promoção por comando via API, por automação ou operador; risco aceito de duas líderes com a AWS viva.</td><td><a href="../../03_adr/ADR-033-promocao-da-azure-humana.md">ADR-033-promocao-da-azure-humana.md</a></td></tr>
+<tr><td class="nw"><a href="../../03_adr/ADR-044-lease-do-modo-degradado-e-promocao-da-azure.md">ADR-044</a></td><td>Modo degradado com lease: a AWS para sozinha e a Azure só promove depois de D mais margem</td><td><span class="ef ef-hist">Substituído</span></td><td>Substituído pelo <a href="../../03_adr/ADR-064-topologia-3-aws-2-azure-confirmacao-k1-e-promocao-por-comando.md">ADR-064</a>: sem lease D nem espera D + M; a AWS segue sem a Azure e a promoção é por comando.</td><td><a href="../../03_adr/ADR-044-lease-do-modo-degradado-e-promocao-da-azure.md">ADR-044-lease-do-modo-degradado-e-promocao-da-azure.md</a></td></tr>
+<tr><td class="nw"><a href="../../03_adr/ADR-045-politica-de-degradacao-por-instalacao.md">ADR-045</a></td><td><code>DEGRADED_POLICY</code> obrigatória por instalação</td><td><span class="ef ef-hist">Substituído</span></td><td>Substituído pelo <a href="../../03_adr/ADR-064-topologia-3-aws-2-azure-confirmacao-k1-e-promocao-por-comando.md">ADR-064</a>: não existe mais DEGRADED_POLICY; o comportamento com a Azure fora é um só.</td><td><a href="../../03_adr/ADR-045-politica-de-degradacao-por-instalacao.md">ADR-045-politica-de-degradacao-por-instalacao.md</a></td></tr>
+<tr><td class="nw"><a href="../../03_adr/ADR-017-azure-learners-e-gate.md">ADR-017</a></td><td>Azure como learners, com gate</td><td><span class="ef ef-hist">Substituído</span></td><td>Substituído pelo <a href="../../03_adr/ADR-064-topologia-3-aws-2-azure-confirmacao-k1-e-promocao-por-comando.md">ADR-064</a>: a Azure tem 2 células votantes sem candidatura, e o gate exige K = 1 célula Azure com fsync.</td><td><a href="../../03_adr/ADR-017-azure-learners-e-gate.md">ADR-017-azure-learners-e-gate.md</a></td></tr>
 </tbody></table></div>
 <p class="nota">Lista extraída do cabeçalho “ADRs” do arquivo fonte. A decisão resumida condensa a seção “Decisão” de cada ADR. <b>Status efetivo</b> vem do <a href="../inventario-adrs.html">inventário dos ADRs</a>: <b>Vigente</b> vale como está escrito; <b>Vigente, complementado</b> vale, mas outros ADRs acrescentam regras; <b>Vigente em parte</b> tem item revertido ou em conflito; <b>Sem uso</b>, <b>Substituído</b> e <b>Descartado</b> são só registro; <b>Pendente</b> aguarda decisão. A regra consolidada está no <a href="../estado-atual.html">Estado atual</a>.</p>
 </section>
@@ -188,7 +188,7 @@ Gerado em 18/10/2026 a partir do pacote DataReplication_Versao_1.
 </ul></details>
 </section>
 <footer class="rodape">
-Gerado em 18/10/2026 a partir de <code>DataReplication_Versao_1/</code>. O conteúdo vem dos arquivos .md citados no código-fonte desta página;
+Gerado em 24/10/2026 a partir de <code>DataReplication_Versao_1/</code>. O conteúdo vem dos arquivos .md citados no código-fonte desta página;
 textos marcados como <em>sugestão</em> são inferência do arquiteto e não decisões registradas.
 </footer>
 </main>

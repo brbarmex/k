@@ -1,6 +1,6 @@
 # ADR-041 — Disco do log em degradação longa: teto de 70% e reconstrução completa; sem S3 na v1
 
-**Status:** Decidido (Bruno) · **Data:** 13/10/2026
+**Status:** **Substituído pelo ADR-065** (24/10/2026); era Decidido (Bruno) · **Data:** 13/10/2026
 
 ## Contexto
 
@@ -23,6 +23,10 @@ No modo degradado a AWS retém todas as entradas desde `fromIndex` para a Azure 
 - Passado o teto, a Azure não tem como alcançar a AWS pelo log; se a AWS cair nessa janela, a perda é tudo o que foi escrito desde `fromIndex` (órfãs, [R13](../02_cenarios/a_rever/R13-escritas-orfas-reconciliacao.md)). Por isso o tempo máximo de degradação aceito pelo negócio (PEND-02) dimensiona o volume.
 - **Memória.** O `MemoryStorage` do etcd-raft guarda em RAM tudo o que não foi compactado; num modo degradado longo a memória do nó cresce com o atraso da Azure até o teto. Mitigações em aberto: teto da janela também por bytes retidos em memória, ou um `raft.Storage` que lê as entradas antigas do WAL em disco. Medir no spike S1.
 - O custo e o tempo da reconstrução completa não têm número ([R09](../02_cenarios/a_rever/R09-resincronizacao-lenta-ou-bloqueada.md), [R18](../02_cenarios/a_rever/R18-rto-nao-quantificado.md)).
+
+## Atualização de 24/10/2026 (redesenho de 18/10 e código da POC)
+
+Substituído por [ADR-065](ADR-065-log-do-raft-limitado-snapshot-marcador-ram-e-disco.md): janela por réplica em bytes (`RETAIN_MAX_BYTES`, orçamento de ~1 h) com teto duro (`RETAIN_DISK_HARD`), RAM com teto próprio (`RAFT_RAM_MAX`) e reconstrução por sobrescrita no lugar ([ADR-066](ADR-066-recuperacao-por-canal-separado-e-reconstrucao-por-sobrescrita.md)), e não mais em tabela sombra. Continua sem S3 na v1.
 
 ## Onde está o detalhe
 

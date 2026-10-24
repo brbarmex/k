@@ -75,6 +75,10 @@ O ponto central não é da POC. Em produção, um DynamoDB lento ou com throttli
 - Testes: laço do Raft com consumidores parados (3.000 propostas de 64 clientes, sem eleição), causa `nao_lider`, gate da POC acompanhando o commit com o applier parado, retomada, admissão, configuração e métricas.
 - Spec da POC: RT-04, RT-06, RT-07, RT-09, RT-13, AP-01, AP-12, AP-13, AP-15, O-15, CA-17 e CA-18, SG-17, risco 3 fechado, em [SPEC_POC_LOCAL.md](../../spec/SPEC_POC_LOCAL.md). Prompt do SPDD: passos O-27 (laço, admissão, retomada) e O-28 (métricas HTTP, dashboard e tasks).
 
+## Atualização de 24/10/2026 (redesenho de 18/10 e código da POC)
+
+A partida descrita no item 5 passou a sair do último snapshot-marcador, e não do log inteiro ([ADR-065](ADR-065-log-do-raft-limitado-snapshot-marcador-ram-e-disco.md)): só a cauda volta para a RAM, e as entradas entre o progresso e o snapshot vêm do disco pelo `LogReader`. Progresso atrás do disco retido leva a célula a `reconstruindo` ([ADR-066](ADR-066-recuperacao-por-canal-separado-e-reconstrucao-por-sobrescrita.md), DC-04).
+
 ## Onde está o detalhe
 
 - [Análise do teste de carga de 14/10](../06_pendencias_e_riscos/analise_teste_de_carga_14_10.md)

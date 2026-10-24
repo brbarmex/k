@@ -1,6 +1,6 @@
 # ADR-044 — Modo degradado com lease: a AWS para sozinha e a Azure só promove depois de D mais margem
 
-**Status:** Decidido (Bruno, revisão crítica de 13/10/2026); o valor de D depende da PEND-02 e a regra precisa ser provada no TLA+ ([ADR-030](ADR-030-verificacao-formal-tla.md)) · **Data:** 13/10/2026
+**Status:** **Substituído pelo ADR-064** (24/10/2026); era Decidido (Bruno) · **Data:** 13/10/2026
 
 ## Contexto
 
@@ -30,6 +30,10 @@ A revisão crítica apontou o risco de duas pontas aceitando escrita. O problema
 - **Sem contorno de emergência (break-glass) na v1** (Bruno, 13/10, 15b): a recusa do `ForcePromote` antes de D + M vale sempre, mesmo que uma pessoa comprove que a AWS foi destruída; o RTO no pior caso é D + M. Um contorno, exigindo fencing comprovado fora do software e duas pessoas, pode ser reavaliado depois do modelo TLA+ (PEND-21).
 - **A prorrogação interage com a promoção:** prorrogar depois que a Azure já pode ser promovida reabre o risco. A regra (por exemplo, marcar a Azure como `promotion_blocked` antes de prorrogar) fica para o modelo TLA+ (hipótese H-DR13).
 - A PEND-01 passa de "sem proposta" para "desenho decidido"; ela fecha quando D e M forem aprovados e o modelo provar a ausência de escrita nas duas pontas.
+
+## Atualização de 24/10/2026 (redesenho de 18/10 e código da POC)
+
+Substituído por [ADR-064](ADR-064-topologia-3-aws-2-azure-confirmacao-k1-e-promocao-por-comando.md) (rodada 3c, pergunta K): **não há lease D nem espera D + M**. A AWS segue sem a Azure enquanto o corte durar, e a promoção é por comando. O argumento das maiorias que se cruzam deixou de valer: com 2 células Azure e K = 1 ele já não fechava. O RTO deixa de ter o piso D + M.
 
 ## Onde está o detalhe
 

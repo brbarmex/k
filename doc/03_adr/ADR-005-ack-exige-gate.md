@@ -1,6 +1,6 @@
 # ADR-005 — ACK só depois do gate (Raft AWS e maioria durável Azure)
 
-**Status:** Aceito (reformulado na v1) · **Data:** 12/10/2026
+**Status:** Aceito; regra do gate alterada pelo ADR-064 (24/10/2026) · **Data:** 12/10/2026
 
 ## Contexto
 
@@ -17,6 +17,12 @@ ACK com quórum em memória: rejeitado pelo Bruno (risco de falha de software co
 ## Consequências
 
 A latência de escrita inclui o RTT AWS↔Azure e o fsync nas duas pontas.
+
+## Atualização de 24/10/2026 (redesenho de 18/10 e código da POC)
+
+O gate passou a ser `min(commit do Raft, maior índice durável entre as células Azure)`, com **K = 1** célula Azure com fsync ([ADR-064](ADR-064-topologia-3-aws-2-azure-confirmacao-k1-e-promocao-por-comando.md)), e não mais a maioria de 3 learners. Com a Azure fora, a AWS segue sozinha com RPO > 0 sinalizado.
+
+**Na POC:** sem Azure, o gate é o commit do Raft na líder.
 
 ## Onde está o detalhe
 

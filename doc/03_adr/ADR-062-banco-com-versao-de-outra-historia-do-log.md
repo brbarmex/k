@@ -1,6 +1,6 @@
 # ADR-062 — Banco com versão de outra história do log: o apply não pode confirmar o que não gravou
 
-**Status:** Pendente (aguarda o Bruno: decisões 1 a 4) · **Data:** 14/10/2026 · **Origem:** revisão geral do projeto de 14/10 · **Complementa:** [ADR-042](ADR-042-aws-que-volta-boot-cercado-e-recriacao-da-celula.md) · **Precisa:** [ADR-015](ADR-015-wal-post-image-e-versao.md), [ADR-035](ADR-035-lote-batchwriteitem-uma-entrada-e-apply-condicional.md), [ADR-038](ADR-038-skip-de-entrada-venenosa-sempre-humano.md), [ADR-048](ADR-048-skip-por-item.md), [ADR-057](ADR-057-um-unico-modo-strong-consistency.md) · **Afeta o estado atual:** seção 2 (nova invariante) e 3.4, quando decidido · **Relacionado:** [ADR-063](ADR-063-snapshot-e-compactacao-do-log-do-raft.md)
+**Status:** Pendente (aguarda o Bruno: decisões 1 a 4); mitigado em parte pelo código (24/10/2026) · **Data:** 14/10/2026 · **Origem:** revisão geral do projeto de 14/10 · **Complementa:** [ADR-042](ADR-042-aws-que-volta-boot-cercado-e-recriacao-da-celula.md) · **Precisa:** [ADR-015](ADR-015-wal-post-image-e-versao.md), [ADR-035](ADR-035-lote-batchwriteitem-uma-entrada-e-apply-condicional.md), [ADR-038](ADR-038-skip-de-entrada-venenosa-sempre-humano.md), [ADR-048](ADR-048-skip-por-item.md), [ADR-057](ADR-057-um-unico-modo-strong-consistency.md) · **Afeta o estado atual:** seção 2 (nova invariante) e 3.4, quando decidido · **Relacionado:** [ADR-063](ADR-063-snapshot-e-compactacao-do-log-do-raft.md)
 
 ## Contexto
 
@@ -68,6 +68,10 @@ Num cluster saudável, **o `_dr_v` gravado nunca passa do gate**, porque nada é
 
 - Com a POC rodando e dados gravados, apagar só os volumes do Raft, mantendo o LocalStack, e subir de novo. Uma escrita numa chave existente precisa estacionar o applier (decisão 1a), em vez de responder 200.
 - Teste de unidade do detector: versão gravada <= gate segue como "já aplicado"; versão gravada > gate estaciona.
+
+## Atualização de 24/10/2026 (redesenho de 18/10 e código da POC)
+
+O código da árvore local de 24/10 cobre parte dos cenários, sem fechar este ADR: (1) uma célula com o volume do Raft vazio e a tabela local com itens **não sobe** ([ADR-067](ADR-067-membros-pelo-log-do-raft-e-fail-fast-do-volume-perdido.md), DC-12), o que cobre o "cluster recriado com as tabelas mantidas" quando o volume da própria célula é perdido; (2) a reconstrução recusa fonte com outro `cluster_id` ou `epoch` ([ADR-066](ADR-066-recuperacao-por-canal-separado-e-reconstrucao-por-sobrescrita.md)). Continuam descobertos: o detector no apply, o PITR para um ponto anterior e a `epoch`, que é fixa em 1 até a promoção existir.
 
 ## Onde está o detalhe
 

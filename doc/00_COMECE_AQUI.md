@@ -28,7 +28,7 @@
 | [`01_arquitetura/`](01_arquitetura/README.md) | Detalhe de arquitetura por assunto e o [glossário](01_arquitetura/00_glossario.md) |
 | [`02_cenarios/`](02_cenarios/INDEX.md) | `atualizados/` (C01–C35), `complexos/` (X01–X08) e `a_rever/` (14 cenários ainda sem decisão completa, R03 a R23) |
 | [`ESTADO_ATUAL.md`](ESTADO_ATUAL.md) | As regras vigentes, consolidadas a partir dos ADRs |
-| [`03_adr/`](03_adr/INDEX.md) | 58 decisões de arquitetura (ADR-001 a ADR-063), um arquivo por decisão, e o [inventário](03_adr/INVENTARIO.md) |
+| [`03_adr/`](03_adr/INDEX.md) | 59 decisões de arquitetura (ADR-001 a ADR-067; 064 a 067 registram o redesenho de 18/10), um arquivo por decisão, e o [inventário](03_adr/INVENTARIO.md) |
 | [`04_diagramas/`](04_diagramas/INDEX.md) | Diagramas de arquitetura (D01–D08) e catálogo de todos os diagramas |
 | [`05_implementacao/`](05_implementacao/README.md) | Guia de código, exemplos compilados, structs, testes e spikes |
 | [`06_pendencias_e_riscos/`](06_pendencias_e_riscos/README.md) | Perguntas, pendências, riscos e as revisões críticas de 12 e 13/10 |

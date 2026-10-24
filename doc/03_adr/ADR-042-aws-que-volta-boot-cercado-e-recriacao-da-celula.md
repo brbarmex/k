@@ -1,6 +1,6 @@
 # ADR-042 — AWS que volta depois da promoção: boot cercado, credenciais revogadas e célula recriada
 
-**Status:** Decidido (Bruno); depende da PEND-01 para o gatilho da promoção · **Data:** 13/10/2026
+**Status:** Decidido (Bruno); **em conflito com os ADRs 064 e 066** desde 24/10/2026, aguarda decisão · **Data:** 13/10/2026
 
 ## Contexto
 
@@ -27,6 +27,12 @@ Depois da promoção da Azure (epoch E+1), os DynamoDBs da AWS guardam o estado 
 ## Atualização de 13/10/2026 (revisão crítica)
 
 O gatilho da promoção agora é o do [ADR-044](ADR-044-lease-do-modo-degradado-e-promocao-da-azure.md): a Azure só é promovida depois de D + M, então a AWS antiga já parou de aceitar escrita (lease expirado) antes de a Azure aceitar a primeira. O fencing por boot e credenciais continua necessário para o retorno da célula.
+
+## Atualização de 24/10/2026 (redesenho de 18/10 e código da POC)
+
+O gatilho mudou: não há D + M, a promoção é por comando ([ADR-064](ADR-064-topologia-3-aws-2-azure-confirmacao-k1-e-promocao-por-comando.md)). E o item 3 ("o DynamoDB da célula é recriado") conflita com a reconstrução por sobrescrita, que **nunca recria** e **recusa** uma fonte de outra história ([ADR-066](ADR-066-recuperacao-por-canal-separado-e-reconstrucao-por-sobrescrita.md), DC-11). A P-05 diz que a volta da AWS usa a ConfChange ([ADR-067](ADR-067-membros-pelo-log-do-raft-e-fail-fast-do-volume-perdido.md)). Como a AWS volta depois de uma promoção é ponto em aberto.
+
+**Na POC:** não existe promoção nem retorno.
 
 ## Onde está o detalhe
 

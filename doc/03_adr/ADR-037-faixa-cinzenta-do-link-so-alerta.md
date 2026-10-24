@@ -1,6 +1,6 @@
 # ADR-037 — Link lento na faixa cinzenta: só alertar, RPO continua 0
 
-**Status:** Decidido (Bruno) · **Data:** 13/10/2026
+**Status:** Decidido (Bruno); alterado pelo ADR-064 (24/10/2026) · **Data:** 13/10/2026
 
 ## Contexto
 
@@ -20,6 +20,10 @@ Na faixa cinzenta o sistema **segue em modo normal, com RPO = 0, e apenas alerta
 - É preciso limitar as requisições em voo e rejeitar rápido quando o limite é atingido, para a lentidão não virar fila e memória sem fim (a definir no spike S1).
 - O tráfego de replicação não pode competir com o encaminhamento entre clouds: QoS ou banda reservada.
 - Reavaliar depois do PEND-02 e das medições reais.
+
+## Atualização de 24/10/2026 (redesenho de 18/10 e código da POC)
+
+A faixa cinzenta continua só alertando. O limite que separa "lento" de "fora" agora decide a entrada no comportamento automático de seguir sem a Azure ([ADR-064](ADR-064-topologia-3-aws-2-azure-confirmacao-k1-e-promocao-por-comando.md)), e não o `DEGRADE` com lease. Esse limite não foi redecidido; o valor de referência continua o `DEGRADE_AFTER` de 2 s.
 
 ## Onde está o detalhe
 

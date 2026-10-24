@@ -10,7 +10,7 @@
 <!--
 Fonte(s) usada(s) nesta página (rastreabilidade), relativas à raiz do pacote:
   ESTADO_ATUAL.md
-Gerado em 18/10/2026 a partir do pacote DataReplication_Versao_1.
+Gerado em 24/10/2026 a partir do pacote DataReplication_Versao_1.
 -->
 <header class="topo">
 <button class="menu" type="button" aria-label="Abrir navegação" onclick="document.body.classList.toggle('nav-aberta')">☰</button>
@@ -92,7 +92,7 @@ Gerado em 18/10/2026 a partir do pacote DataReplication_Versao_1.
 </nav>
 <main>
 <div class="migalhas"><a href="index.html">Início</a> / Estado atual</div>
-<h1>Estado atual do DataReplication</h1><p><strong>Válido em 14/10/2026, com a compactação do log revista em 18/10 (<a href="../../spec/compactacao_do_log/especificacao.md">especificação</a>) · cobre ADR-001 a ADR-063 · rascunho, aguardando a validação do Bruno (seção 6).</strong></p>
+<h1>Estado atual do DataReplication</h1><p><strong>Válido em 24/10/2026: redesenho de 18/10 registrado nos ADRs 064 a 067 e conferido no código da POC (árvore local da <code>main</code>, com o Incremento B sem commit) · cobre ADR-001 a ADR-067 · rascunho, aguardando a validação do Bruno (seção 6).</strong></p>
 <p>Este documento diz <strong>como o sistema é hoje</strong>, regra por regra, sem a história de como se chegou a cada uma. Quem chega lê este documento primeiro e abre um ADR só para saber o porquê de uma regra. Para o status de cada ADR, quem altera quem e as contradições encontradas, veja o <a href="inventario-adrs.html">inventário</a>.</p>
 <h2 id="como-ler">Como ler</h2>
 <div class="tabela"><table>
@@ -132,13 +132,14 @@ Gerado em 18/10/2026 a partir do pacote DataReplication_Versao_1.
 <p>Sem marca de POC, a regra não se traduz em código (processo, custo, contrato).</p>
 <h2 id="1-o-sistema-em-dez-linhas">1. O sistema em dez linhas</h2>
 <ol>
-<li>O <code>DataReplication</code> fica entre as aplicações e o banco, fala o protocolo do DynamoDB e só confirma uma escrita quando ela está durável <strong>na AWS e na Azure</strong>: RPO 0 em operação normal <a href="../03_adr/ADR-001-camada-intermediaria-agnostica.md">001</a> <a href="../03_adr/ADR-003-aws-primaria-azure-failover.md">003</a> <a href="../03_adr/ADR-004-dynamodb-primeiro-adaptador.md">004</a> <a href="../03_adr/ADR-005-ack-exige-gate.md">005</a>.</li>
+<li>O <code>DataReplication</code> fica entre as aplicações e o banco, fala o protocolo do DynamoDB e só confirma uma escrita quando ela está durável <strong>na AWS e em pelo menos uma célula da Azure</strong>: RPO 0 em operação normal, inclusive na perda da AWS inteira <a href="../03_adr/ADR-064-topologia-3-aws-2-azure-confirmacao-k1-e-promocao-por-comando.md">064</a> <a href="../03_adr/ADR-001-camada-intermediaria-agnostica.md">001</a> <a href="../03_adr/ADR-003-aws-primaria-azure-failover.md">003</a> <a href="../03_adr/ADR-004-dynamodb-primeiro-adaptador.md">004</a> <a href="../03_adr/ADR-005-ack-exige-gate.md">005</a>.</li>
 <li>Só AWS (sa-east-1, DynamoDB) e Azure (Brazil South, Cosmos DB, pelo Cloud-Adapter); sem terceiro domínio <a href="../03_adr/ADR-003-aws-primaria-azure-failover.md">003</a> <a href="../03_adr/ADR-008-terceiro-dominio.md">008</a>.</li>
-<li>Cada cliente tem a sua instalação. Cada shard tem 3 células AWS (votantes do Raft) e 3 células Azure (learners); cada célula é um cluster numa AZ, com <strong>um</strong> <code>DataReplication</code> e <strong>um</strong> banco <a href="../03_adr/ADR-002-shards-logicos-celulas-ativo-passivo.md">002</a> <a href="../03_adr/ADR-016-app-unico-por-celula-monolito-modular.md">016</a> <a href="../03_adr/ADR-022-banco-por-celula-nome-logico.md">022</a> <a href="../03_adr/ADR-043-uma-instalacao-por-cliente-identidade-por-configuracao.md">043</a> <a href="../03_adr/ADR-054-banco-por-celula-mantido.md">054</a>.</li>
-<li>A escrita passa pelo Raft (2 de 3 da AWS com fsync), pelo <strong>gate</strong> (2 de 3 da Azure com fsync) e pelo apply no banco da líder. Só então o cliente recebe o ACK <a href="../03_adr/ADR-005-ack-exige-gate.md">005</a> <a href="../03_adr/ADR-017-azure-learners-e-gate.md">017</a> <a href="../03_adr/ADR-057-um-unico-modo-strong-consistency.md">057</a>.</li>
+<li>Cada cliente tem a sua instalação. Cada shard tem 3 ou 5 células só na AWS, ou <strong>3 AWS + 2 Azure, todas votantes</strong>, com a maioria sempre na AWS <a href="../03_adr/ADR-064-topologia-3-aws-2-azure-confirmacao-k1-e-promocao-por-comando.md">064</a>; cada célula é um cluster numa AZ, com <strong>um</strong> <code>DataReplication</code> e <strong>um</strong> banco <a href="../03_adr/ADR-002-shards-logicos-celulas-ativo-passivo.md">002</a> <a href="../03_adr/ADR-016-app-unico-por-celula-monolito-modular.md">016</a> <a href="../03_adr/ADR-022-banco-por-celula-nome-logico.md">022</a> <a href="../03_adr/ADR-043-uma-instalacao-por-cliente-identidade-por-configuracao.md">043</a> <a href="../03_adr/ADR-054-banco-por-celula-mantido.md">054</a>.</li>
+<li>A escrita passa pelo Raft (maioria com fsync), pelo <strong>gate</strong> (no multicloud, K = 1 célula Azure com fsync) e pelo apply no banco da líder. Só então o cliente recebe o ACK <a href="../03_adr/ADR-005-ack-exige-gate.md">005</a> <a href="../03_adr/ADR-064-topologia-3-aws-2-azure-confirmacao-k1-e-promocao-por-comando.md">064</a> <a href="../03_adr/ADR-057-um-unico-modo-strong-consistency.md">057</a>.</li>
 <li>Toda leitura é forte; não há leitura eventual nem consulta por GSI <a href="../03_adr/ADR-049-barreira-da-leitura-forte-e-o-gate.md">049</a> <a href="../03_adr/ADR-050-query-em-gsi-recusada.md">050</a> <a href="../03_adr/ADR-057-um-unico-modo-strong-consistency.md">057</a>.</li>
-<li>Se a Azure ou o link caem, a política da instalação decide: <code>reject</code> para as escritas (RPO 0 sempre) e <code>accept</code> segue só com a AWS por um prazo D (RPO &gt; 0) <a href="../03_adr/ADR-045-politica-de-degradacao-por-instalacao.md">045</a> <a href="../03_adr/ADR-044-lease-do-modo-degradado-e-promocao-da-azure.md">044</a>.</li>
-<li>A Azure nunca se promove sozinha: a promoção é humana e só é aceita depois de D + M <a href="../03_adr/ADR-033-promocao-da-azure-humana.md">033</a> <a href="../03_adr/ADR-044-lease-do-modo-degradado-e-promocao-da-azure.md">044</a>.</li>
+<li>Se a Azure ou o link caem, a AWS segue escrevendo sozinha, automaticamente, com RPO &gt; 0 sinalizado ao cliente; não há lease nem política por instalação <a href="../03_adr/ADR-064-topologia-3-aws-2-azure-confirmacao-k1-e-promocao-por-comando.md">064</a> <a href="../03_adr/ADR-027-sinalizacao-do-modo-degradado.md">027</a>.</li>
+<li>A Azure vota, mas nunca se elege: vira líder só por comando de promoção via API, por automação ou operador. <strong>Risco aceito:</strong> o comando com a AWS viva gera duas líderes, e uma história é descartada <a href="../03_adr/ADR-064-topologia-3-aws-2-azure-confirmacao-k1-e-promocao-por-comando.md">064</a>.</li>
+<li>O log do Raft tem RAM, disco e partida limitados (snapshot-marcador); uma célula atrasada alcança por um canal de recuperação ou se reconstrói copiando o banco de uma célula sã <a href="../03_adr/ADR-065-log-do-raft-limitado-snapshot-marcador-ram-e-disco.md">065</a> <a href="../03_adr/ADR-066-recuperacao-por-canal-separado-e-reconstrucao-por-sobrescrita.md">066</a>. A configuração só cria o grupo; uma célula que perdeu o volume do Raft não sobe <a href="../03_adr/ADR-067-membros-pelo-log-do-raft-e-fail-fast-do-volume-perdido.md">067</a>.</li>
 </ol>
 <h2 id="2-invariantes-de-seguranca">2. Invariantes de segurança</h2>
 <p>As regras que nunca podem ser quebradas. A coluna "Prova" aponta a propriedade do modelo TLA+ (<a href="complex-path/X01-gate-e-troca-de-lider.html">X01</a>, P1 a P18) e, quando existe, o teste da POC.</p>
@@ -155,8 +156,8 @@ Gerado em 18/10/2026 a partir do pacote DataReplication_Versao_1.
 <tbody>
 <tr>
 <td>I-01</td>
-<td>O ACK só sai depois de: commit em 2 de 3 votantes AWS com fsync, gate com 2 de 3 learners Azure com fsync no termo atual, e apply no banco da líder</td>
-<td><a href="../03_adr/ADR-005-ack-exige-gate.md">005</a> <a href="../03_adr/ADR-017-azure-learners-e-gate.md">017</a> <a href="../03_adr/ADR-046-gate-so-conta-progresso-validado-pelo-raft.md">046</a> <a href="../03_adr/ADR-057-um-unico-modo-strong-consistency.md">057</a></td>
+<td>O ACK só sai depois de: commit na maioria do Raft com fsync, no multicloud K = 1 célula Azure com fsync no termo atual, e apply no banco da líder</td>
+<td><a href="../03_adr/ADR-005-ack-exige-gate.md">005</a> <a href="../03_adr/ADR-064-topologia-3-aws-2-azure-confirmacao-k1-e-promocao-por-comando.md">064</a> <a href="../03_adr/ADR-046-gate-so-conta-progresso-validado-pelo-raft.md">046</a> <a href="../03_adr/ADR-057-um-unico-modo-strong-consistency.md">057</a></td>
 <td>P1, P2</td>
 <td>Parcial: sem Azure, gate = commit</td>
 </tr>
@@ -169,17 +170,17 @@ Gerado em 18/10/2026 a partir do pacote DataReplication_Versao_1.
 </tr>
 <tr>
 <td>I-03</td>
-<td>O gate nunca recua. A líder nova reconstrói o gate antes de ACKar ou de servir leitura forte</td>
-<td><a href="../03_adr/ADR-029-gate-monotonico-na-troca-de-lider.md">029</a> <a href="../03_adr/ADR-046-gate-so-conta-progresso-validado-pelo-raft.md">046</a> <a href="../03_adr/ADR-049-barreira-da-leitura-forte-e-o-gate.md">049</a></td>
+<td>O gate nunca recua, nem na troca de líder nem depois de um reinício (o confirmado vai no snapshot-marcador). A líder nova reconstrói o gate antes de ACKar ou de servir leitura forte</td>
+<td><a href="../03_adr/ADR-029-gate-monotonico-na-troca-de-lider.md">029</a> <a href="../03_adr/ADR-046-gate-so-conta-progresso-validado-pelo-raft.md">046</a> <a href="../03_adr/ADR-049-barreira-da-leitura-forte-e-o-gate.md">049</a> <a href="../03_adr/ADR-065-log-do-raft-limitado-snapshot-marcador-ram-e-disco.md">065</a></td>
 <td>P3</td>
-<td>Fora</td>
+<td>Parcial: <code>Gate.Restore</code> na partida; sem Azure</td>
 </tr>
 <tr>
 <td>I-04</td>
 <td>O gate só conta progresso da Azure que chegou pelo <code>AppendEntries</code> no termo atual da líder</td>
 <td><a href="../03_adr/ADR-046-gate-so-conta-progresso-validado-pelo-raft.md">046</a></td>
 <td>P9</td>
-<td>Fora (a POC não tem learners)</td>
+<td>Fora (a POC não tem Azure)</td>
 </tr>
 <tr>
 <td>I-05</td>
@@ -205,9 +206,9 @@ Gerado em 18/10/2026 a partir do pacote DataReplication_Versao_1.
 <tr>
 <td>I-08</td>
 <td>O disco do log do Raft só é liberado até <code>min(aplicado local com fsync, piso, pinos, snapshot)</code>: o piso é o menor <code>Match</code> das réplicas dentro da janela, e os pinos seguram leituras do disco e reconstruções em curso. A RAM é compactada até <code>snapshot − RAFT_CATCHUP_ENTRIES</code>, ou até o snapshot acima de <code>RAFT_RAM_MAX</code></td>
-<td><a href="../../spec/compactacao_do_log/especificacao.md">especificação</a> (G1, G7), substitui <a href="../03_adr/ADR-041-disco-do-log-teto-de-70-por-cento-sem-s3-na-v1.md">041</a> e <a href="../03_adr/ADR-063-snapshot-e-compactacao-do-log-do-raft.md">063</a></td>
+<td><a href="../03_adr/ADR-065-log-do-raft-limitado-snapshot-marcador-ram-e-disco.md">065</a> (G1, G7), substitui <a href="../03_adr/ADR-041-disco-do-log-teto-de-70-por-cento-sem-s3-na-v1.md">041</a> e <a href="../03_adr/ADR-063-snapshot-e-compactacao-do-log-do-raft.md">063</a></td>
 <td>—</td>
-<td>Sim (Incremento A, 18/10)</td>
+<td>Sim (Incremento A)</td>
 </tr>
 <tr>
 <td>I-09</td>
@@ -218,23 +219,23 @@ Gerado em 18/10/2026 a partir do pacote DataReplication_Versao_1.
 </tr>
 <tr>
 <td>I-10</td>
-<td>Com <code>reject</code>, nenhuma escrita é ACKada sem o gate da Azure, e <code>DEGRADE</code> nunca é proposto</td>
-<td><a href="../03_adr/ADR-045-politica-de-degradacao-por-instalacao.md">045</a></td>
-<td>P18</td>
-<td>Fora (a POC não tem modo degradado nem Azure)</td>
+<td>~~Com <code>reject</code>, nenhuma escrita é ACKada sem o gate da Azure~~ <strong>Retirada em 24/10:</strong> não existe mais <code>reject</code></td>
+<td><a href="../03_adr/ADR-045-politica-de-degradacao-por-instalacao.md">045</a> → <a href="../03_adr/ADR-064-topologia-3-aws-2-azure-confirmacao-k1-e-promocao-por-comando.md">064</a></td>
+<td>—</td>
+<td>—</td>
 </tr>
 <tr>
 <td>I-11</td>
-<td>Com <code>accept</code>, nenhuma escrita é ACKada depois do lease D sem <code>RENEW</code>; a validade é conferida a cada ACK</td>
-<td><a href="../03_adr/ADR-044-lease-do-modo-degradado-e-promocao-da-azure.md">044</a></td>
-<td>P10</td>
-<td>Fora</td>
+<td>~~Lease D conferido a cada ACK~~ <strong>Retirada em 24/10:</strong> não existe mais lease</td>
+<td><a href="../03_adr/ADR-044-lease-do-modo-degradado-e-promocao-da-azure.md">044</a> → <a href="../03_adr/ADR-064-topologia-3-aws-2-azure-confirmacao-k1-e-promocao-por-comando.md">064</a></td>
+<td>—</td>
+<td>—</td>
 </tr>
 <tr>
 <td>I-12</td>
-<td>Nunca dois lados aceitam escrita confirmada: <code>ForcePromote</code> é recusada antes de D + M</td>
-<td><a href="../03_adr/ADR-033-promocao-da-azure-humana.md">033</a> <a href="../03_adr/ADR-044-lease-do-modo-degradado-e-promocao-da-azure.md">044</a></td>
-<td>P11</td>
+<td>Uma célula Azure nunca se elege por conta própria; só vira líder por comando de promoção. <strong>Não é mais garantido</strong> que dois lados nunca aceitam escrita: o comando com a AWS viva gera duas líderes (risco aceito Lb)</td>
+<td><a href="../03_adr/ADR-033-promocao-da-azure-humana.md">033</a> → <a href="../03_adr/ADR-064-topologia-3-aws-2-azure-confirmacao-k1-e-promocao-por-comando.md">064</a></td>
+<td>P11 (refazer)</td>
 <td>Fora</td>
 </tr>
 <tr>
@@ -246,10 +247,10 @@ Gerado em 18/10/2026 a partir do pacote DataReplication_Versao_1.
 </tr>
 <tr>
 <td>I-14</td>
-<td>Um nó que perde o disco volta com identidade nova; nunca reusa o ID antigo com log vazio</td>
-<td><a href="../03_adr/ADR-034-fsync-fatal-e-identidade-nova.md">034</a></td>
+<td>Um nó que perde o disco nunca reusa o ID antigo com log vazio: com o grupo já existente, não sobe (fail-fast); volta com identidade nova só pela ConfChange</td>
+<td><a href="../03_adr/ADR-034-fsync-fatal-e-identidade-nova.md">034</a> <a href="../03_adr/ADR-067-membros-pelo-log-do-raft-e-fail-fast-do-volume-perdido.md">067</a></td>
 <td>P13</td>
-<td>Fora</td>
+<td>Parcial: fail-fast na árvore local, sem commit; sem ConfChange</td>
 </tr>
 <tr>
 <td>I-15</td>
@@ -260,13 +261,14 @@ Gerado em 18/10/2026 a partir do pacote DataReplication_Versao_1.
 </tr>
 </tbody>
 </table></div>
-<p>⏳ <strong>Em aberto:</strong> hoje um banco com <code>_dr_v</code> de outra história do log pode fazer o apply contar como "já aplicado" uma escrita que não gravou <a href="../03_adr/ADR-062-banco-com-versao-de-outra-historia-do-log.md">062</a>.</p>
+<p>⏳ <strong>Em aberto:</strong> hoje um banco com <code>_dr_v</code> de outra história do log pode fazer o apply contar como "já aplicado" uma escrita que não gravou <a href="../03_adr/ADR-062-banco-com-versao-de-outra-historia-do-log.md">062</a>. O fail-fast do volume perdido <a href="../03_adr/ADR-067-membros-pelo-log-do-raft-e-fail-fast-do-volume-perdido.md">067</a> e a recusa de outra história na reconstrução <a href="../03_adr/ADR-066-recuperacao-por-canal-separado-e-reconstrucao-por-sobrescrita.md">066</a> cobrem parte dos cenários.</p>
 <h2 id="3-regras-vigentes-por-tema">3. Regras vigentes por tema</h2>
 <h3 id="31-topologia-e-implantacao">3.1 Topologia e implantação</h3>
 <ul>
 <li>Uma instalação por cliente, com células, bancos e contas próprios na AWS e na Azure. O cliente é conhecido pela configuração do deploy, não por credencial <a href="../03_adr/ADR-043-uma-instalacao-por-cliente-identidade-por-configuracao.md">043</a>.</li>
 <li>Por célula: um único <code>DataReplication</code> (API, Raft e o seu log, applier), sem sidecar e sem HPA. O número de réplicas é o quórum <a href="../03_adr/ADR-016-app-unico-por-celula-monolito-modular.md">016</a>. <strong>POC: Sim</strong> (três células).</li>
 <li>Um banco por célula, seis por shard: o ganho é isolamento lógico, não durabilidade; a durabilidade vem do log do Raft, replicado nos seis nós <a href="../03_adr/ADR-022-banco-por-celula-nome-logico.md">022</a> <a href="../03_adr/ADR-054-banco-por-celula-mantido.md">054</a>. O nome lógico da tabela troca o id da célula por <code>{cell}</code> <a href="../03_adr/ADR-022-banco-por-celula-nome-logico.md">022</a>. <strong>POC: Sim</strong> (um LocalStack por célula).</li>
+<li>A configuração do deploy só <strong>cria</strong> o grupo; depois, os membros mudam só pela ConfChange, uma célula por vez, entrando sem voto <a href="../03_adr/ADR-067-membros-pelo-log-do-raft-e-fail-fast-do-volume-perdido.md">067</a>. <strong>POC: Divergente</strong> (membros fixos pelo <code>PEERS</code>, conferidos contra o WAL; a ConfChange está no parking lot).</li>
 <li>Cada nó tem um volume de bloco dedicado para o log do Raft, nas duas nuvens; o progresso do applier fica no mesmo volume <a href="../03_adr/ADR-019-wal-proprio-volume-dedicado.md">019</a>. <strong>POC: Sim</strong>.</li>
 <li>Raft por shard com <code>etcd-io/raft</code> e uma camada multi-grupo nossa <a href="../03_adr/ADR-006-consenso-por-shard-eleicao-na-aws.md">006</a> <a href="../03_adr/ADR-020-raft-etcd-io-camada-multigrupo.md">020</a>. <strong>POC: Parcial</strong> (um shard).</li>
 <li>Entre células, gRPC com streams e mTLS <a href="../03_adr/ADR-021-grpc-entre-celulas.md">021</a>. <strong>POC: Parcial</strong> (sem mTLS).</li>
@@ -280,7 +282,7 @@ Gerado em 18/10/2026 a partir do pacote DataReplication_Versao_1.
     E --&gt;|&quot;sim&quot;| AD{&quot;Admissão&lt;br/&gt;apply e buffer em dia?&quot;}
     AD --&gt;|&quot;não&quot;| THR[&quot;400 Throttling&lt;br/&gt;nada entrou no log&quot;]
     AD --&gt;|&quot;sim&quot;| R[&quot;Raft: commit&lt;br/&gt;2 de 3 AWS com fsync&lt;br/&gt;I-02&quot;]
-    R --&gt; G[&quot;Gate&lt;br/&gt;2 de 3 Azure com fsync&lt;br/&gt;no termo atual · I-03 I-04&quot;]
+    R --&gt; G[&quot;Gate&lt;br/&gt;K = 1 Azure com fsync&lt;br/&gt;no termo atual · I-03 I-04&quot;]
     G --&gt; AP[&quot;Apply no banco da líder&lt;br/&gt;depois do gate, por chave&lt;br/&gt;I-05 I-06&quot;]
     AP --&gt; ACK[&quot;ACK 200&lt;br/&gt;I-01&quot;]
     G -.-&gt;|&quot;prazo estourado&quot;| P[&quot;503 PENDING&lt;br/&gt;resultado desconhecido&quot;]
@@ -290,10 +292,10 @@ Gerado em 18/10/2026 a partir do pacote DataReplication_Versao_1.
 <li><strong>Chegada.</strong> Numa follower, a escrita é encaminhada à líder com o termo, em um salto só. Sem líder conhecida, o servidor espera até 1 s (<code>WAIT_LEADER</code>) e responde <code>503</code> <a href="../03_adr/ADR-010-follower-encaminha-para-lider.md">010</a> <a href="../03_adr/ADR-039-sem-lider-conhecida-espera-ate-1s-e-503.md">039</a>. <strong>POC: Sim</strong>.</li>
 <li><strong>Admissão.</strong> A líder recusa com <code>ThrottlingException</code> se o apply local está mais de <code>APPLY_LAG_MAX</code> atrás do gate <a href="../03_adr/ADR-060-laco-do-raft-nunca-espera-o-apply-e-admissao-por-atraso.md">060</a>, ou se o buffer de entradas não persistidas do Raft (32 MiB por shard) está cheio <a href="../03_adr/ADR-056-group-commit-por-shard-e-nada-sai-antes-do-fsync.md">056</a>. Nada entra no log. <strong>POC: Sim</strong>.</li>
 <li><strong>Dedupe.</strong> Um retry com o mesmo identificador estável do SDK, dentro de 5 min, devolve o resultado anterior; o dedupe é por requisição <a href="../03_adr/ADR-026-dedupe-de-retry-id-estavel.md">026</a> <a href="../03_adr/ADR-051-compatibilidade-dynamodb-inventario-conformidade-e-idempotencia.md">051</a>. <strong>POC: Fora</strong>.</li>
-<li><strong>Commit.</strong> A líder propõe; o Raft commita com 2 de 3 votantes AWS com fsync. Um <code>BatchWriteItem</code> é uma única entrada <a href="../03_adr/ADR-035-lote-batchwriteitem-uma-entrada-e-apply-condicional.md">035</a> <a href="../03_adr/ADR-056-group-commit-por-shard-e-nada-sai-antes-do-fsync.md">056</a>. <strong>POC: Parcial</strong> (<code>BatchWriteItem</code> é fase 2).</li>
-<li><strong>Gate.</strong> <code>gate = min(commit do Raft, 2º maior índice durável dos learners Azure)</code>, só com progresso do termo atual <a href="../03_adr/ADR-017-azure-learners-e-gate.md">017</a> <a href="../03_adr/ADR-046-gate-so-conta-progresso-validado-pelo-raft.md">046</a>. <strong>POC: Parcial</strong> (gate = commit).</li>
+<li><strong>Commit.</strong> A líder propõe; o Raft commita com a maioria dos votantes com fsync (no 3 + 2, pelo menos 3 de 5). Um <code>BatchWriteItem</code> é uma única entrada <a href="../03_adr/ADR-035-lote-batchwriteitem-uma-entrada-e-apply-condicional.md">035</a> <a href="../03_adr/ADR-056-group-commit-por-shard-e-nada-sai-antes-do-fsync.md">056</a>. <strong>POC: Parcial</strong> (<code>BatchWriteItem</code> é fase 2).</li>
+<li><strong>Gate.</strong> <code>gate = min(commit do Raft, maior índice durável entre as células Azure)</code> (K = 1), só com progresso do termo atual; só AWS, gate = commit <a href="../03_adr/ADR-064-topologia-3-aws-2-azure-confirmacao-k1-e-promocao-por-comando.md">064</a> <a href="../03_adr/ADR-046-gate-so-conta-progresso-validado-pelo-raft.md">046</a>. <strong>POC: Parcial</strong> (gate = commit).</li>
 <li><strong>Apply.</strong> Depois do gate, o item é gravado no banco da líder (seção 3.4) <a href="../03_adr/ADR-057-um-unico-modo-strong-consistency.md">057</a> <a href="../03_adr/ADR-058-apply-paralelo-por-chave-com-marca-dagua.md">058</a>. <strong>POC: Sim</strong>.</li>
-<li><strong>ACK.</strong> Sai quando a marca d'água do apply na líder alcança o índice da escrita; com <code>accept</code>, o lease é conferido antes de responder <a href="../03_adr/ADR-044-lease-do-modo-degradado-e-promocao-da-azure.md">044</a> <a href="../03_adr/ADR-057-um-unico-modo-strong-consistency.md">057</a> <a href="../03_adr/ADR-058-apply-paralelo-por-chave-com-marca-dagua.md">058</a>. <strong>POC: Sim</strong> (sem lease).</li>
+<li><strong>ACK.</strong> Sai quando a marca d'água do apply na líder alcança o índice da escrita <a href="../03_adr/ADR-057-um-unico-modo-strong-consistency.md">057</a> <a href="../03_adr/ADR-058-apply-paralelo-por-chave-com-marca-dagua.md">058</a>. <strong>POC: Sim</strong>.</li>
 </ol>
 <p>O SLO de 50 ms de overhead <strong>exclui</strong> a escrita no banco; ao cliente a latência é publicada como "overhead + banco" <a href="../03_adr/ADR-036-slo-de-50ms-exclui-a-escrita-no-banco.md">036</a>.</p>
 <h3 id="33-leitura-forte">3.3 Leitura forte</h3>
@@ -326,34 +328,35 @@ Gerado em 18/10/2026 a partir do pacote DataReplication_Versao_1.
 <ul>
 <li><strong>Log do Raft:</strong> pacote <code>wal</code> do etcd, um por shard, fsync antes de responder; é o <strong>único log do nó</strong>, a única fonte das entradas commitadas e o <strong>único fsync no caminho do ACK</strong> <a href="../03_adr/ADR-019-wal-proprio-volume-dedicado.md">019</a>. Group commit por shard sem espera fixa (teto de 1 MiB por lote); modo síncrono com F3; <code>AsyncStorageWrites</code> só se o spike S1b mostrar ganho <a href="../03_adr/ADR-056-group-commit-por-shard-e-nada-sai-antes-do-fsync.md">056</a>. <strong>POC: Parcial</strong> (o lote vem só do <code>Ready</code>; o teto de 1 MiB entra junto com o <code>AsyncStorageWrites</code>, se o S1b aprovar).</li>
 <li><strong>Entrega ao applier:</strong> o <code>CommitPump</code> lê as entradas commitadas por faixa pelo <code>LogReader</code>, que lê da RAM (<code>MemoryStorage</code>) e, abaixo dela, dos segmentos <code>.wal</code> em modo leitura. Só sai entrada commitada e definitiva: uma versão reescrita por outra líder substitui a anterior, e uma entrada só é entregue depois de um <code>HardState</code> que a commite. Não há outro log nem escrita em dobro <a href="../03_adr/ADR-060-laco-do-raft-nunca-espera-o-apply-e-admissao-por-atraso.md">060</a> <a href="../../spec/compactacao_do_log/especificacao.md">especificação</a> (seção 5, G3). <strong>POC: Sim</strong>.</li>
-<li><strong>Snapshot-marcador:</strong> a cada <code>SNAPSHOT_EVERY_ENTRIES</code> (10.000) ou <code>SNAPSHOT_EVERY_BYTES</code> (64 MiB), um <code>Compactor</code> fora do laço do Raft grava um snapshot sem dados, no último índice avançado pelo laço. A ordem é fixa: fsync do progresso do applier, arquivo <code>snapshot</code> com o marcador (<code>cluster_id</code>, <code>epoch</code> e índice confirmado, com CRC e fsync), <code>wal.SaveSnapshot</code>, compactação da RAM e liberação do disco. Os dados ficam no banco da célula <a href="../../spec/compactacao_do_log/especificacao.md">especificação</a> (seção 3). <strong>POC: Sim</strong>.</li>
+<li><strong>Snapshot-marcador</strong> <a href="../03_adr/ADR-065-log-do-raft-limitado-snapshot-marcador-ram-e-disco.md">065</a>: a cada <code>SNAPSHOT_EVERY_ENTRIES</code> (10.000) ou <code>SNAPSHOT_EVERY_BYTES</code> (64 MiB), um <code>Compactor</code> fora do laço do Raft grava um snapshot sem dados, no último índice avançado pelo laço. A ordem é fixa: fsync do progresso do applier, arquivo <code>snapshot</code> com o marcador (<code>cluster_id</code>, <code>epoch</code> e índice confirmado, com CRC e fsync), <code>wal.SaveSnapshot</code>, compactação da RAM e liberação do disco. Os dados ficam no banco da célula <a href="../../spec/compactacao_do_log/especificacao.md">especificação</a> (seção 3). <strong>POC: Sim</strong>.</li>
 <li><strong>Memória:</strong> <code>RAFT_RAM_MAX</code> (256 MiB) é um teto duro dos bytes no <code>MemoryStorage</code>; o processo roda com <code>GOMEMLIMIT</code> em ~80% do limite do container <a href="../../spec/compactacao_do_log/especificacao.md">especificação</a> (seção 4, G7). <strong>POC: Sim</strong> (<code>mem_limit</code> de 1 GiB e <code>GOMEMLIMIT</code> de 800 MiB no compose).</li>
 <li><strong>Retenção:</strong> o disco do log segue a regra da I-08. Uma réplica está na janela enquanto os bytes retidos desde o seu <code>Match</code> não passam de <code>RETAIN_MAX_BYTES</code> (orçamento de ~1 h de atraso); fora dela, deixa de segurar o disco e a RAM da líder, e as escritas continuam. Acima do teto duro (<code>RETAIN_DISK_HARD</code>, 85% do volume, ou <code>RETAIN_DISK_HARD_BYTES</code>), só os pinos de reconstrução são soltos; se quem segura é o aplicado local, nada dele é apagado e a célula sai do <code>/readyz</code>. Sem S3 na v1 <a href="../../spec/compactacao_do_log/especificacao.md">especificação</a> (seção 4). <strong>POC: Sim</strong> (Incremento A).</li>
-<li><strong>Réplica atrasada:</strong> a líder envia o marcador (<code>MsgSnap</code>) a quem ficou atrás da RAM dela. A réplica só o entrega ao Raft com o aplicado local ≥ índice do marcador; antes disso, descarta e se recupera por um canal separado (<code>Retained</code> e <code>CatchUp</code>, lendo o log de qualquer célula que o retenha, só até o gate da fonte). Fora da janela, a réplica se reconstrói: copia o banco de uma célula sã até F e sobrescreve no lugar a própria tabela, item a item, pela condição de versão, sem tabela sombra (DC-11) <a href="../../spec/compactacao_do_log/especificacao.md">especificação</a> (seções 5 e 6). <strong>POC: Parcial</strong> (o tratamento do <code>MsgSnap</code> está feito; a célula atrás da cauda fica parada e visível em <code>raft.atrasCauda</code> até o Incremento B, que traz a recuperação e a reconstrução).</li>
+<li><strong>Réplica atrasada</strong> <a href="../03_adr/ADR-066-recuperacao-por-canal-separado-e-reconstrucao-por-sobrescrita.md">066</a>: a líder envia o marcador (<code>MsgSnap</code>) a quem ficou atrás da RAM dela. A réplica só o entrega ao Raft com o aplicado local ≥ índice do marcador; antes disso, descarta e se recupera por um canal separado (<code>Retained</code> e <code>CatchUp</code>, lendo o log de qualquer célula que o retenha, só até o gate da fonte). Fora da janela, a réplica se reconstrói: copia o banco de uma célula sã até F e sobrescreve no lugar a própria tabela, item a item, pela condição de versão, sem tabela sombra (DC-11) <a href="../../spec/compactacao_do_log/especificacao.md">especificação</a> (seções 5 e 6). <strong>POC: Sim, sem commit</strong> (Incremento B na árvore local de 24/10: <code>recovery.go</code>, <code>rebuild.go</code>, fluxos <code>Retained</code>, <code>CatchUp</code> e <code>CopyTable</code>).</li>
 <li><strong>Partida:</strong> o WAL é aberto a partir do último snapshot, e só a cauda depois dele volta para a RAM. A retomada é o índice do progresso do applier (sem progresso, o primeiro índice retido em disco); a marca d'água começa no progresso, e as entradas entre o progresso e o snapshot vêm do disco pelo <code>LogReader</code>. O confirmado do marcador restaura o gate (G6). O metadado do WAL guarda <code>node_id</code> e <code>cluster_id</code> (<code>CLUSTER_ID</code>): outro grupo ou o formato antigo não sobem <a href="../03_adr/ADR-060-laco-do-raft-nunca-espera-o-apply-e-admissao-por-atraso.md">060</a> <a href="../../spec/compactacao_do_log/especificacao.md">especificação</a> (seção 7). <strong>POC: Sim</strong>.</li>
 </ul>
 <h3 id="36-consenso-e-lideranca">3.6 Consenso e liderança</h3>
 <ul>
-<li>Eleição só entre os votantes AWS; a Azure nunca vota <a href="../03_adr/ADR-006-consenso-por-shard-eleicao-na-aws.md">006</a> <a href="../03_adr/ADR-017-azure-learners-e-gate.md">017</a>.</li>
+<li>As células Azure votam, mas não se candidatam: enquanto follower, não avançam o relógio de eleição <a href="../03_adr/ADR-006-consenso-por-shard-eleicao-na-aws.md">006</a> <a href="../03_adr/ADR-064-topologia-3-aws-2-azure-confirmacao-k1-e-promocao-por-comando.md">064</a>. Com uma AZ AWS fora, eleição e commit passam a precisar de um voto Azure. <strong>POC: Fora</strong> (só AWS).</li>
+<li>Uma célula em <code>recuperando</code> ou <code>reconstruindo</code> não responde leitura forte, mas <strong>nada a impede de ser eleita líder</strong> (C5 da crítica do prompt SPDD, em aberto) <a href="../03_adr/ADR-066-recuperacao-por-canal-separado-e-reconstrucao-por-sobrescrita.md">066</a>.</li>
 <li>A liderança muda só por eleição de saúde ou por transferência planejada; uma requisição numa follower nunca move a liderança <a href="../03_adr/ADR-010-follower-encaminha-para-lider.md">010</a>.</li>
 <li>Transferência planejada em 5 fases: pré-checagem, catch-up a quente, barreira curta (≤ 50 ms), retomada e roteamento <a href="../03_adr/ADR-013-transferencia-planejada-de-lideranca.md">013</a>. A nova líder volta a aceitar escritas com o no-op, mas só confirma depois de reconstruir o gate e aplicar; o fencing da líder antiga vem do Raft e do gate, não de condição no banco <a href="../03_adr/ADR-013-transferencia-planejada-de-lideranca.md">013</a> <a href="../03_adr/ADR-029-gate-monotonico-na-troca-de-lider.md">029</a> <a href="../03_adr/ADR-046-gate-so-conta-progresso-validado-pelo-raft.md">046</a>. <strong>POC: Fora</strong>.</li>
 <li>Timeout de eleição configurável (<code>ELECTION_TICKS</code>, 30 ticks de 100 ms na POC) <a href="../03_adr/ADR-060-laco-do-raft-nunca-espera-o-apply-e-admissao-por-atraso.md">060</a>. <strong>POC: Sim</strong>.</li>
 </ul>
-<h3 id="37-modo-degradado-promocao-e-retorno-da-aws">3.7 Modo degradado, promoção e retorno da AWS</h3>
+<h3 id="37-azure-fora-promocao-e-retorno-da-aws">3.7 Azure fora, promoção e retorno da AWS</h3>
 <ul>
-<li><code>DEGRADED_POLICY</code> é obrigatória por instalação, sem padrão: <code>accept</code> ou <code>reject</code> <a href="../03_adr/ADR-045-politica-de-degradacao-por-instalacao.md">045</a>. <strong>POC: Fora</strong>.</li>
-<li>Com <code>accept</code>: depois de <code>DEGRADE_AFTER</code> (2 s) sem a Azure, a líder propõe <code>DEGRADE</code> com lease D, contado desde o último contato com a maioria Azure (<code>t_c</code>). As respostas levam <code>x-dr-mode: degraded</code>. Ao fim de D sem <code>RENEW</code> humano, <code>503 LEASE_EXPIRED</code>. Uma líder nova herda o modo, mas não o <code>t_c</code> <a href="../03_adr/ADR-014-modo-degradado-opcao-b.md">014</a> <a href="../03_adr/ADR-027-sinalizacao-do-modo-degradado.md">027</a> <a href="../03_adr/ADR-044-lease-do-modo-degradado-e-promocao-da-azure.md">044</a>. <strong>POC: Fora</strong>.</li>
-<li>Com <code>reject</code>: sem o gate da Azure a escrita não é ACKada (<code>503 PENDING</code>); RPO 0 sempre <a href="../03_adr/ADR-045-politica-de-degradacao-por-instalacao.md">045</a>.</li>
-<li>Link lento abaixo de <code>DEGRADE_AFTER</code> (a "faixa cinzenta") só gera alerta <a href="../03_adr/ADR-037-faixa-cinzenta-do-link-so-alerta.md">037</a>.</li>
-<li>Promoção da Azure (<code>ForcePromote</code>, epoch E+1): humana, com checklist, e recusada antes de D + M; sem contorno de emergência na v1 <a href="../03_adr/ADR-033-promocao-da-azure-humana.md">033</a> <a href="../03_adr/ADR-044-lease-do-modo-degradado-e-promocao-da-azure.md">044</a>.</li>
-<li>A AWS que volta: boot cercado (appliers desligados até confirmar a epoch), credenciais revogadas, identidade nova e banco recriado; as escritas órfãs são extraídas antes <a href="../03_adr/ADR-042-aws-que-volta-boot-cercado-e-recriacao-da-celula.md">042</a>. ⏳ <a href="../03_adr/ADR-062-banco-com-versao-de-outra-historia-do-log.md">062</a> propõe o mecanismo no caminho dos dados.</li>
+<li>Com a Azure inteira fora ou o link cortado, a AWS segue com a líder e escrevendo, <strong>automaticamente</strong>, com RPO &gt; 0 sinalizado (<code>x-dr-mode</code> e métrica). Não há lease D, <code>RENEW</code>, <code>LEASE_EXPIRED</code> nem <code>DEGRADED_POLICY</code> <a href="../03_adr/ADR-064-topologia-3-aws-2-azure-confirmacao-k1-e-promocao-por-comando.md">064</a> <a href="../03_adr/ADR-027-sinalizacao-do-modo-degradado.md">027</a>. <strong>POC: Fora</strong>. ⏳ O limiar que declara a Azure fora e se o modo vira entrada do log estão em aberto.</li>
+<li>Isso só vale com as 3 células AWS de pé: com uma AZ AWS fora e o link cortado, a AWS fica com 2 de 5 e para de escrever <a href="../03_adr/ADR-064-topologia-3-aws-2-azure-confirmacao-k1-e-promocao-por-comando.md">064</a>.</li>
+<li>Quando o link volta, a Azure alcança pelo canal de recuperação dentro da janela (~1 h) ou se reconstrói <a href="../03_adr/ADR-066-recuperacao-por-canal-separado-e-reconstrucao-por-sobrescrita.md">066</a>.</li>
+<li>Link lento abaixo do limiar (a "faixa cinzenta") só gera alerta <a href="../03_adr/ADR-037-faixa-cinzenta-do-link-so-alerta.md">037</a>.</li>
+<li>Promoção da Azure: comando via API, por automação ou operador; escolhe a célula Azure com o maior índice durável e recria o grupo só com as células Azure, numa <code>epoch</code> nova. Sem cerca prévia da AWS. <strong>Risco aceito (Lb):</strong> comando com a AWS viva gera duas líderes, e uma história é descartada <a href="../03_adr/ADR-064-topologia-3-aws-2-azure-confirmacao-k1-e-promocao-por-comando.md">064</a>. <strong>POC: Fora</strong>.</li>
+<li>A AWS que volta depois da promoção: ⏳ <strong>em conflito.</strong> O <a href="../03_adr/ADR-042-aws-que-volta-boot-cercado-e-recriacao-da-celula.md">042</a> diz boot cercado, credenciais revogadas e banco recriado; a reconstrução por sobrescrita nunca recria e recusa fonte de outra <code>epoch</code> <a href="../03_adr/ADR-066-recuperacao-por-canal-separado-e-reconstrucao-por-sobrescrita.md">066</a>; a P-05 diz que a volta usa a ConfChange <a href="../03_adr/ADR-067-membros-pelo-log-do-raft-e-fail-fast-do-volume-perdido.md">067</a>. <a href="../03_adr/ADR-062-banco-com-versao-de-outra-historia-do-log.md">062</a> segue pendente.</li>
 </ul>
 <h3 id="38-dados-e-api">3.8 Dados e API</h3>
 <ul>
 <li>API v1: <code>PutItem</code>, <code>DeleteItem</code>, <code>BatchWriteItem</code>, <code>GetItem</code>, <code>BatchGetItem</code>, <code>Query</code> e <code>Scan</code>. Recusados com <code>400</code>: <code>UpdateItem</code> com expressão, escrita condicional e <code>TransactWriteItems</code>. SDKs: Java 2.x, Go v2 e .NET v4. Entrada máxima de 4 MiB <a href="../03_adr/ADR-025-escopo-da-api-v1-e-sdks.md">025</a>. <strong>POC: Parcial</strong> (<code>PutItem</code>, <code>GetItem</code>, <code>Scan</code>).</li>
 <li>O log guarda a <strong>post-image</strong> e a versão (= índice); <code>_dr_v</code> nunca aparece nas respostas <a href="../03_adr/ADR-015-wal-post-image-e-versao.md">015</a> <a href="../03_adr/ADR-051-compatibilidade-dynamodb-inventario-conformidade-e-idempotencia.md">051</a>. <strong>POC: Sim</strong>.</li>
 <li>DELETE real, sem tombstone, com ordem por chave; a invariante I-DEL vale por chave. TTL expira localmente em cada célula <a href="../03_adr/ADR-024-delete-real-ttl-local-gsi.md">024</a> <a href="../03_adr/ADR-047-delete-real-invariante-e-reconstrucao-em-tabela-sombra.md">047</a> <a href="../03_adr/ADR-058-apply-paralelo-por-chave-com-marca-dagua.md">058</a>. <strong>POC: Fora</strong>.</li>
-<li>Reconstrução de um banco: tabela sombra, cópia difusa mais replay desde F, cutover por geração do nome lógico e checksum por faixa <a href="../03_adr/ADR-047-delete-real-invariante-e-reconstrucao-em-tabela-sombra.md">047</a>. <strong>POC: Fora</strong>.</li>
+<li>Reconstrução de um banco: cópia das tabelas de uma célula sã até F, <strong>sobrescrevendo no lugar</strong> pela condição de versão, sem tabela sombra; com o DELETE, exige lápide <a href="../03_adr/ADR-047-delete-real-invariante-e-reconstrucao-em-tabela-sombra.md">047</a> <a href="../03_adr/ADR-066-recuperacao-por-canal-separado-e-reconstrucao-por-sobrescrita.md">066</a>. <strong>POC: Sim, sem commit</strong>.</li>
 <li>Antes de cada cliente entrar: inventário real de chamadas, levantamento de escrita condicional e suíte de conformidade contra DynamoDB, camada e Cosmos <a href="../03_adr/ADR-051-compatibilidade-dynamodb-inventario-conformidade-e-idempotencia.md">051</a>.</li>
 </ul>
 <h3 id="39-prazos-e-respostas-de-erro">3.9 Prazos e respostas de erro</h3>
@@ -397,9 +400,9 @@ Gerado em 18/10/2026 a partir do pacote DataReplication_Versao_1.
 <td><a href="../03_adr/ADR-029-gate-monotonico-na-troca-de-lider.md">029</a> <a href="../03_adr/ADR-049-barreira-da-leitura-forte-e-o-gate.md">049</a></td>
 </tr>
 <tr>
-<td>Lease do modo degradado vencido</td>
-<td><code>503 LEASE_EXPIRED</code></td>
-<td><a href="../03_adr/ADR-044-lease-do-modo-degradado-e-promocao-da-azure.md">044</a></td>
+<td>Célula em <code>recuperando</code> ou <code>reconstruindo</code></td>
+<td>Leitura: <code>503 CELL_RECOVERING</code></td>
+<td><a href="../03_adr/ADR-066-recuperacao-por-canal-separado-e-reconstrucao-por-sobrescrita.md">066</a></td>
 </tr>
 <tr>
 <td>Contrapressão (buffer do Raft, atraso do apply)</td>
@@ -426,14 +429,14 @@ Gerado em 18/10/2026 a partir do pacote DataReplication_Versao_1.
 <h3 id="311-falhas-e-recuperacao">3.11 Falhas e recuperação</h3>
 <ul>
 <li>Corrupção no meio do log do Raft faz o nó recusar subir; cauda rasgada é truncada <a href="../03_adr/ADR-034-fsync-fatal-e-identidade-nova.md">034</a>. <strong>POC: Parcial</strong> (a corrupção no meio recusa a partida; uma cauda zerada pela pré-alocação é limpa, mas uma cauda rasgada com dados também recusa, porque a POC não chama <code>wal.Repair</code>; cenário FD-06 da validação).</li>
-<li>Perda do volume do Raft é tratada como disco perdido: o nó volta com identidade nova <a href="../03_adr/ADR-034-fsync-fatal-e-identidade-nova.md">034</a>. Até a troca de membros por ConfChange existir (feature <code>troca-de-pvc-em-cell-ativa</code>, <a href="../../parklot/adr-troca-de-pvc-em-cell-ativa.md">parking lot</a>), uma célula com o volume vazio num grupo que já existe <strong>não sobe</strong> (fail-fast, DC-12). <strong>POC: Fora</strong> (vem no Incremento B).</li>
+<li>Perda do volume do Raft é tratada como disco perdido: o nó volta com identidade nova <a href="../03_adr/ADR-034-fsync-fatal-e-identidade-nova.md">034</a>. Até a troca de membros por ConfChange existir (feature <code>troca-de-pvc-em-cell-ativa</code>, <a href="../../parklot/adr-troca-de-pvc-em-cell-ativa.md">parking lot</a>), uma célula com o volume vazio num grupo que já existe <strong>não sobe</strong> (fail-fast, DC-12) <a href="../03_adr/ADR-067-membros-pelo-log-do-raft-e-fail-fast-do-volume-perdido.md">067</a>. <strong>POC: Sim, sem commit</strong> (<code>domain/boot.go</code>, <code>preBoot</code>).</li>
 <li>Backup e restauração do banco e do WAL ficam fora deste produto (P-04): são de outro escopo. Um backup do WAL nunca é restaurado numa célula de um grupo ativo.</li>
 <li>A memória do nó não cresce com o atraso de uma réplica: a RAM do log tem teto próprio (<code>RAFT_RAM_MAX</code>) e o que fica retido para a réplica atrasada está em disco <a href="../../spec/compactacao_do_log/especificacao.md">especificação</a> (G7). <strong>POC: Sim</strong>.</li>
-<li>Reconstrução automática para a réplica fora da janela e manual por <code>POST /admin/reconstruir</code> (<code>task rebuild</code>), com sobrescrita no lugar (DC-11); uma reconstrução que bate no teto duro de disco é abortada e tenta de novo depois, sem afetar as escritas <a href="../03_adr/ADR-034-fsync-fatal-e-identidade-nova.md">034</a> <a href="../../spec/compactacao_do_log/especificacao.md">especificação</a> (seção 6). <strong>POC: Fora</strong> (vem no Incremento B).</li>
+<li>Reconstrução automática para a réplica fora da janela e manual por <code>POST /admin/reconstruir</code> (<code>task rebuild</code>), com sobrescrita no lugar (DC-11); uma reconstrução que bate no teto duro de disco é abortada e tenta de novo depois, sem afetar as escritas <a href="../03_adr/ADR-034-fsync-fatal-e-identidade-nova.md">034</a> <a href="../03_adr/ADR-066-recuperacao-por-canal-separado-e-reconstrucao-por-sobrescrita.md">066</a>. <strong>POC: Sim, sem commit</strong>.</li>
 </ul>
 <h3 id="312-verificacao">3.12 Verificação</h3>
 <ul>
-<li>O modelo TLA+ (gate, <code>DEGRADE</code>/<code>RESTORE</code>, lease e promoção, troca de membros, dedupe, resultado desconhecido, DELETE e replay, barreira, log volátil e durável) vem <strong>antes</strong> do código do gate com learners reais <a href="../03_adr/ADR-030-verificacao-formal-tla.md">030</a>. A POC usa gate = commit, sem learners, e não conta para essa regra. <strong>POC: Fora</strong> (o modelo não existe ainda).</li>
+<li>O modelo TLA+ (gate com K = 1, Azure que vota sem se candidatar, AWS seguindo sem a Azure, promoção por comando, troca de membros, recuperação e reconstrução, dedupe, resultado desconhecido, DELETE e replay, barreira, log volátil e durável) vem <strong>antes</strong> do código do gate com learners reais <a href="../03_adr/ADR-030-verificacao-formal-tla.md">030</a>. A POC usa gate = commit, sem learners, e não conta para essa regra. <strong>POC: Fora</strong> (o modelo não existe ainda).</li>
 <li>Spikes que fixam números: S1 (fsync e IOPS), S1b (síncrono x assíncrono), S5 (apply e <code>APPLY_WORKERS</code>) <a href="../03_adr/ADR-056-group-commit-por-shard-e-nada-sai-antes-do-fsync.md">056</a> <a href="../03_adr/ADR-058-apply-paralelo-por-chave-com-marca-dagua.md">058</a>.</li>
 </ul>
 <h2 id="4-o-que-mudou">4. O que mudou</h2>
@@ -537,18 +540,40 @@ Gerado em 18/10/2026 a partir do pacote DataReplication_Versao_1.
 <td>Resposta na hora, <code>503 APPLIER_STOPPED</code></td>
 <td><a href="../03_adr/ADR-049-barreira-da-leitura-forte-e-o-gate.md">049</a></td>
 </tr>
+<tr>
+<td>3 AWS votantes + 3 Azure learners, gate com 2 de 3 learners</td>
+<td>3 AWS + 2 Azure votantes, K = 1 Azure; a Azure não se candidata</td>
+<td><a href="../03_adr/ADR-017-azure-learners-e-gate.md">017</a> → <a href="../03_adr/ADR-064-topologia-3-aws-2-azure-confirmacao-k1-e-promocao-por-comando.md">064</a></td>
+</tr>
+<tr>
+<td>Modo degradado com lease D, <code>RENEW</code> e política <code>accept</code>/<code>reject</code></td>
+<td>AWS segue sozinha, automático, RPO &gt; 0 sinalizado; sem lease nem política</td>
+<td><a href="../03_adr/ADR-014-modo-degradado-opcao-b.md">014</a> <a href="../03_adr/ADR-044-lease-do-modo-degradado-e-promocao-da-azure.md">044</a> <a href="../03_adr/ADR-045-politica-de-degradacao-por-instalacao.md">045</a> → <a href="../03_adr/ADR-064-topologia-3-aws-2-azure-confirmacao-k1-e-promocao-por-comando.md">064</a></td>
+</tr>
+<tr>
+<td>Promoção humana, só depois de D + M</td>
+<td>Comando via API, automação ou operador; risco aceito de duas líderes</td>
+<td><a href="../03_adr/ADR-033-promocao-da-azure-humana.md">033</a> → <a href="../03_adr/ADR-064-topologia-3-aws-2-azure-confirmacao-k1-e-promocao-por-comando.md">064</a></td>
+</tr>
+<tr>
+<td>Membros pela configuração (<code>PEERS</code>)</td>
+<td>A configuração só cria o grupo; membros pela ConfChange</td>
+<td><a href="../03_adr/ADR-067-membros-pelo-log-do-raft-e-fail-fast-do-volume-perdido.md">067</a></td>
+</tr>
 </tbody>
 </table></div>
 <h2 id="5-em-aberto">5. Em aberto</h2>
 <p><strong>Decisões pendentes de ADR:</strong></p>
 <ul>
 <li><a href="../03_adr/ADR-062-banco-com-versao-de-outra-historia-do-log.md">062</a> Banco com versão de outra história do log: detector no apply e marcador conferido no boot.</li>
-<li><a href="../03_adr/ADR-063-snapshot-e-compactacao-do-log-do-raft.md">063</a> Snapshot e compactação do log do Raft: o desenho foi refeito na <a href="../../spec/compactacao_do_log/especificacao.md">especificação</a> e nas <a href="../../spec/compactacao_do_log/decisoes.md">decisões</a> de 18/10 (o Incremento A está na POC); os ADRs 041, 047 e 063 serão revistos à luz dela. Continua em aberto o estado que hoje só existe como entrada do log (modo degradado, <code>SKIP</code>, dedupe).</li>
+<li><a href="../03_adr/ADR-042-aws-que-volta-boot-cercado-e-recriacao-da-celula.md">042</a> <strong>em conflito</strong> com <a href="../03_adr/ADR-064-topologia-3-aws-2-azure-confirmacao-k1-e-promocao-por-comando.md">064</a> e <a href="../03_adr/ADR-066-recuperacao-por-canal-separado-e-reconstrucao-por-sobrescrita.md">066</a>: como a AWS volta depois de uma promoção.</li>
+<li>O estado que só existe como entrada do log (<code>SKIP</code>, dedupe, modo de RPO &gt; 0) ainda não está no marcador <a href="../03_adr/ADR-065-log-do-raft-limitado-snapshot-marcador-ram-e-disco.md">065</a>.</li>
+<li>Pontos 9 a 14 da <a href="inventario-adrs.html#revisão-de-24102026-código-da-poc-e-redesenho-de-1810">revisão de 24/10 do inventário</a>: fim do <code>reject</code>, uma AZ AWS fora no 3 + 2, limiar da Azure fora, célula em recuperação eleita líder (C5).</li>
 <li>DELETE com a reconstrução por sobrescrita exige lápide com <code>_dr_v</code> (<a href="../../parklot/adr-tombstone.md">parking lot</a>).</li>
 <li>As 8 perguntas do <a href="inventario-adrs.html#pontos-a-decidir-perguntas-para-o-bruno">inventário</a> foram respondidas em 14/10 (1a 2a 3a 4a 5a 6b 7a 8a) e já estão nas regras acima; o witness (<a href="../03_adr/ADR-011-witness-manifesto-snapshots.md">011</a>) ficou sem uso.</li>
 <li>Recusar escritas <strong>antes de propor</strong> enquanto o applier está parado, para não encher o log com escritas que só serão aplicadas depois do <code>SKIP</code> (<a href="fail-path/C26-entrada-venenosa.html">C26</a>).</li>
 </ul>
-<p><strong>Pendências que bloqueiam</strong> (<a href="../06_pendencias_e_riscos/01_pendencias.md">lista completa</a>): PEND-01 e PEND-02 (valores de D e M, aceite do RPO &gt; 0, prova no TLA+) para ligar <code>accept</code>; PEND-15 e PEND-16 (inventário e suíte de conformidade) antes do primeiro cliente.</p>
+<p><strong>Pendências que bloqueiam</strong> (<a href="../06_pendencias_e_riscos/01_pendencias.md">lista completa</a>): PEND-01 e PEND-02 mudaram de natureza com o <a href="../03_adr/ADR-064-topologia-3-aws-2-azure-confirmacao-k1-e-promocao-por-comando.md">064</a>: não há mais D e M, mas o aceite do RPO &gt; 0 no corte do link e do risco de duas líderes continua precisando de aprovação do negócio; PEND-15 e PEND-16 (inventário e suíte de conformidade) antes do primeiro cliente.</p>
 <h2 id="6-validacao-deste-documento">6. Validação deste documento</h2>
 <p>O documento está validado quando o Bruno confere as seções 2 e 3 e um recém-chegado responde, <strong>só com ele</strong>, às perguntas abaixo. O gabarito diz onde está a resposta.</p>
 <div class="tabela"><table>
@@ -572,7 +597,7 @@ Gerado em 18/10/2026 a partir do pacote DataReplication_Versao_1.
 </tr>
 <tr>
 <td>3</td>
-<td>O que acontece com as escritas se o link com a Azure cai, com <code>reject</code> e com <code>accept</code>?</td>
+<td>O que acontece com as escritas se o link com a Azure cai? E se, além disso, uma AZ AWS estiver fora?</td>
 <td>3.7</td>
 </tr>
 <tr>
@@ -592,7 +617,7 @@ Gerado em 18/10/2026 a partir do pacote DataReplication_Versao_1.
 </tr>
 <tr>
 <td>7</td>
-<td>Quem pode promover a Azure, e quando?</td>
+<td>Quem pode promover a Azure, e qual risco foi aceito?</td>
 <td>3.7, I-12</td>
 </tr>
 <tr>
@@ -608,7 +633,7 @@ Gerado em 18/10/2026 a partir do pacote DataReplication_Versao_1.
 <li><code>task check-estado</code> (em <code>DataReplicationApp/taskfile.yaml</code>) falha se um ADR "Decidido" não estiver citado aqui ou se o "cobre até" não for o último ADR. Pega o esquecimento, não o conteúdo errado.</li>
 </ul>
 <footer class="rodape">
-Gerado em 18/10/2026 a partir de <code>DataReplication_Versao_1/</code>. O conteúdo vem dos arquivos .md citados no código-fonte desta página;
+Gerado em 24/10/2026 a partir de <code>DataReplication_Versao_1/</code>. O conteúdo vem dos arquivos .md citados no código-fonte desta página;
 textos marcados como <em>sugestão</em> são inferência do arquiteto e não decisões registradas.
 </footer>
 </main>

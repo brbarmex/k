@@ -34,6 +34,10 @@ O modelo separa **log volátil e log durável** por nó, com queda que perde o v
 
 "Antes do código do gate" vale para o **gate com learners reais** (fase AWS). A POC roda sem Azure e sem learners, com gate = commit do Raft, e não conta como o código do gate para esta regra. O modelo continua obrigatório antes de ligar learners reais.
 
+## Atualização de 24/10/2026 (redesenho de 18/10 e código da POC)
+
+O modelo precisa cobrir o desenho de 18/10, e não o lease: confirmação com K = 1 Azure, Azure que vota sem se candidatar, AWS seguindo sem a Azure, promoção por comando com o risco aceito de duas líderes ([ADR-064](ADR-064-topologia-3-aws-2-azure-confirmacao-k1-e-promocao-por-comando.md)), recuperação e reconstrução ([ADR-066](ADR-066-recuperacao-por-canal-separado-e-reconstrucao-por-sobrescrita.md)) e troca de membros ([ADR-067](ADR-067-membros-pelo-log-do-raft-e-fail-fast-do-volume-perdido.md)). O modelo ainda não existe.
+
 ## Onde está o detalhe
 
 - [03_consenso_raft_quorum_e_gate.md](../01_arquitetura/03_consenso_raft_quorum_e_gate.md)

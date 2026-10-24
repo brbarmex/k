@@ -1,6 +1,6 @@
 # ADR-063 — Snapshot e compactação do log do Raft
 
-**Status:** Pendente (aguarda o Bruno: decisões 1 a 5) · **Data:** 14/10/2026 · **Origem:** revisão geral do projeto de 14/10 · **Fecha (quando decidido):** RT-11 e o risco 7 da spec da POC · **Precisa:** [ADR-019](ADR-019-wal-proprio-volume-dedicado.md), [ADR-060](ADR-060-laco-do-raft-nunca-espera-o-apply-e-admissao-por-atraso.md), [ADR-047](ADR-047-delete-real-invariante-e-reconstrucao-em-tabela-sombra.md), [ADR-041](ADR-041-disco-do-log-teto-de-70-por-cento-sem-s3-na-v1.md) · **Afeta o estado atual:** seções 3.5 e 3.11, quando decidido · **Relacionado:** [ADR-062](ADR-062-banco-com-versao-de-outra-historia-do-log.md), [ADR-044](ADR-044-lease-do-modo-degradado-e-promocao-da-azure.md)
+**Status:** **Substituído pelo ADR-065** (24/10/2026); era Pendente · **Data:** 14/10/2026 · **Origem:** revisão geral do projeto de 14/10 · **Fecha (quando decidido):** RT-11 e o risco 7 da spec da POC · **Precisa:** [ADR-019](ADR-019-wal-proprio-volume-dedicado.md), [ADR-060](ADR-060-laco-do-raft-nunca-espera-o-apply-e-admissao-por-atraso.md), [ADR-047](ADR-047-delete-real-invariante-e-reconstrucao-em-tabela-sombra.md), [ADR-041](ADR-041-disco-do-log-teto-de-70-por-cento-sem-s3-na-v1.md) · **Afeta o estado atual:** seções 3.5 e 3.11, quando decidido · **Relacionado:** [ADR-062](ADR-062-banco-com-versao-de-outra-historia-do-log.md), [ADR-044](ADR-044-lease-do-modo-degradado-e-promocao-da-azure.md)
 
 ## Contexto
 
@@ -70,6 +70,10 @@
 - O formato do snapshot vira contrato: versão do registro e compatibilidade entre versões do binário na atualização contínua.
 - O `Adopt` e o restante do estado derivado do log passam a ter dois caminhos (snapshot e entradas), ambos testados.
 - O teste de "follower parada além da compactação" entra nos critérios de aceite da POC.
+
+## Atualização de 24/10/2026 (redesenho de 18/10 e código da POC)
+
+Substituído por [ADR-065](ADR-065-log-do-raft-limitado-snapshot-marcador-ram-e-disco.md) (snapshot-marcador, RAM com teto, disco com janela e teto duro, partida pela cauda) e [ADR-066](ADR-066-recuperacao-por-canal-separado-e-reconstrucao-por-sobrescrita.md) (recuperação e reconstrução). As decisões 1 a 5 deste ADR ficaram sem resposta porque o Bruno pediu o redesenho do zero em 18/10. Implementado na POC (Incremento A, `2ba474d` e `38ae207`).
 
 ## Onde está o detalhe
 

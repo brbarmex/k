@@ -1,6 +1,6 @@
 # ADR-019 — Log do Raft em volume de bloco dedicado; sem ACK em memória
 
-**Status:** Decidido (Bruno) · **Data:** 12/10/2026 · **Revisado em 13/10/2026:** o WAL próprio (W2) saiu; o log do Raft usa o pacote `wal` do etcd, num volume dedicado por nó. *(O nome do arquivo foi mantido para não quebrar links.)*
+**Status:** Decidido (Bruno); retenção alterada pelo ADR-065 (24/10/2026) · **Data:** 12/10/2026 · **Revisado em 13/10/2026:** o WAL próprio (W2) saiu; o log do Raft usa o pacote `wal` do etcd, num volume dedicado por nó. *(O nome do arquivo foi mantido para não quebrar links.)*
 
 ## Contexto
 
@@ -25,6 +25,12 @@ ACK com quórum em memória e memória durável (M1 a M4); WAL próprio segmenta
 
 O volume do log do Raft passa a ter **IOPS provisionadas** acima da base (io2 ou gp3 provisionado; Premium SSD v2 com IOPS acima da base), por causa de um fsync por shard. O group commit é por shard; o compartilhado entre shards volta só pelo gatilho do S1 ([ADR-056](ADR-056-group-commit-por-shard-e-nada-sai-antes-do-fsync.md)).
 
+
+## Atualização de 24/10/2026 (redesenho de 18/10 e código da POC)
+
+O teto de 70% do volume para a retenção da Azure saiu ([ADR-065](ADR-065-log-do-raft-limitado-snapshot-marcador-ram-e-disco.md)): a retenção passa a ser uma janela em bytes por réplica (`RETAIN_MAX_BYTES`) com teto duro (`RETAIN_DISK_HARD`, 85%), e a RAM tem teto próprio (`RAFT_RAM_MAX`). O volume dedicado, o `wal` do etcd e o fsync fatal continuam.
+
+**Na POC:** um volume por célula; o progresso do applier e o arquivo `snapshot` ficam no mesmo volume.
 
 ## Onde está o detalhe
 
