@@ -19,6 +19,15 @@ type StateCollector struct {
 	applyWorkers, applyInFlight          *prometheus.Desc
 	applyLag, applyLagMax, applyInbox    *prometheus.Desc
 	commitUndelivered, electionTicks     *prometheus.Desc
+
+	// Log do Raft na RAM (M-04, DC-14).
+	memBytes, memEntries, memMax, memPeer *prometheus.Desc
+	snapshotIndex, behindTail             *prometheus.Desc
+	// Replicação até o banco, vista pela líder (D-04, DC-13, DC-17).
+	replApplied, replKnown, replAge, replLag     *prometheus.Desc
+	replDelay, replSaturated, replSynced         *prometheus.Desc
+	recoveryOn, recoveryElapsed, behindLeaderRAM *prometheus.Desc
+	replSyncMax, replHorizon                     *prometheus.Desc
 }
 
 // NewStateCollector cria o coletor de estado.
@@ -48,6 +57,26 @@ func NewStateCollector(source StatusSource) *StateCollector {
 		applyInbox:        d("dr_apply_inbox_batches", "Lotes entregues pelo CommitPump e ainda não despachados pelo applier."),
 		commitUndelivered: d("dr_commit_undelivered", "Entradas commitadas que o CommitPump ainda não entregou ao applier (ficam na memória do Raft, ADR-060)."),
 		electionTicks:     d("dr_election_ticks", "ELECTION_TICKS: timeout de eleição em ticks de 100 ms."),
+
+		memBytes:      d("dr_raft_mem_bytes", "Bytes das entradas no MemoryStorage do Raft."),
+		memEntries:    d("dr_raft_mem_entries", "Entradas no MemoryStorage do Raft."),
+		memMax:        d("dr_raft_mem_max_bytes", "RAFT_RAM_MAX: teto da RAM do Raft (DC-14)."),
+		memPeer:       d("dr_raft_mem_peer_bytes", "Bytes da RAM do Raft desde o Match do par: o que a líder segura por ele. Só na líder.", "par"),
+		snapshotIndex: d("dr_raft_snapshot_index", "Índice do último snapshot-marcador."),
+		behindTail:    d("dr_raft_behind_tail", "1 se a célula recebeu um marcador à frente do aplicado e espera a recuperação."),
+
+		replApplied:     d("dr_repl_applied_index", "Aplicado de cada célula conhecido pela líder (a própria líder incluída): a versão _dr_v garantida no banco. Só na líder.", "par"),
+		replKnown:       d("dr_repl_known", "1 se a líder tem notícia do aplicado da célula. Só na líder.", "par"),
+		replAge:         d("dr_repl_report_age_seconds", "Idade da última notícia do aplicado da célula. Só na líder.", "par"),
+		replLag:         d("dr_repl_lag_entries", "Entradas commitadas que a célula ainda não tem no banco. Só na líder.", "par"),
+		replDelay:       d("dr_repl_delay_seconds", "Atraso de replicação: idade, no relógio da líder, da entrada commitada mais antiga que a célula não tem no banco (M-11). Só na líder.", "par"),
+		replSaturated:   d("dr_repl_delay_saturated", "1 se o atraso passou do horizonte das amostras (o valor é um mínimo). Só na líder.", "par"),
+		replSynced:      d("dr_repl_synced", "1 se a célula está dentro de REPL_SYNC_MAX (DC-13). Só na líder.", "par"),
+		recoveryOn:      d("dr_recovery_in_progress", "1 se a célula está numa sessão de recuperação (DC-17). Só na líder.", "par"),
+		recoveryElapsed: d("dr_recovery_elapsed_seconds", "Duração da sessão de recuperação em curso (0 sem sessão). Só na líder.", "par"),
+		behindLeaderRAM: d("dr_repl_behind_leader_ram", "1 se o par está atrás da primeira entrada na RAM da líder: só volta pelo Incremento B. Só na líder.", "par"),
+		replSyncMax:     d("dr_repl_sync_max_seconds", "REPL_SYNC_MAX: atraso máximo de uma célula sincronizada (DC-13). Só na líder."),
+		replHorizon:     d("dr_repl_clock_horizon_seconds", "Horizonte das amostras do relógio de replicação (DC-16). Só na líder."),
 	}
 }
 
@@ -55,7 +84,10 @@ func (c *StateCollector) Describe(ch chan<- *prometheus.Desc) {
 	for _, d := range []*prometheus.Desc{c.isLeader, c.leaderID, c.term, c.commit, c.gate, c.applied,
 		c.quorumActive, c.quorumVoters, c.quorumOk, c.peerMatch, c.peerLag,
 		c.applierStopped, c.ready, c.applyWorkers, c.applyInFlight,
-		c.applyLag, c.applyLagMax, c.applyInbox, c.commitUndelivered, c.electionTicks} {
+		c.applyLag, c.applyLagMax, c.applyInbox, c.commitUndelivered, c.electionTicks,
+		c.memBytes, c.memEntries, c.memMax, c.memPeer, c.snapshotIndex, c.behindTail,
+		c.replApplied, c.replKnown, c.replAge, c.replLag, c.replDelay, c.replSaturated, c.replSynced,
+		c.recoveryOn, c.recoveryElapsed, c.behindLeaderRAM, c.replSyncMax, c.replHorizon} {
 		ch <- d
 	}
 }
@@ -104,4 +136,30 @@ func (c *StateCollector) Collect(ch chan<- prometheus.Metric) {
 	g(c.applyInbox, float64(st.Apply.Fila))
 	g(c.commitUndelivered, float64(st.CommitNaoEntregue))
 	g(c.electionTicks, float64(st.ElectionTicks))
+
+	m := st.Raft.Memoria
+	g(c.memBytes, float64(m.Bytes))
+	g(c.memEntries, float64(m.Entradas))
+	g(c.memMax, float64(m.Teto))
+	g(c.snapshotIndex, float64(st.Raft.Snapshot))
+	g(c.behindTail, b2f(st.Raft.AtrasCauda))
+	for par, b := range m.PorPar {
+		g(c.memPeer, float64(b), par)
+	}
+	if r := st.Replicacao; r != nil {
+		g(c.replSyncMax, r.SyncMaxSeg)
+		g(c.replHorizon, r.HorizonteSeg)
+		for par, cl := range r.Celulas {
+			g(c.replApplied, float64(cl.Aplicado), par)
+			g(c.replKnown, b2f(cl.Conhecido), par)
+			g(c.replAge, cl.IdadeNoticiaSeg, par)
+			g(c.replLag, float64(cl.AtrasoEntradas), par)
+			g(c.replDelay, cl.AtrasoSeg, par)
+			g(c.replSaturated, b2f(cl.Saturado), par)
+			g(c.replSynced, b2f(cl.Sincronizada), par)
+			g(c.recoveryOn, b2f(cl.Recuperando), par)
+			g(c.recoveryElapsed, cl.RecuperandoHaSeg, par)
+			g(c.behindLeaderRAM, b2f(cl.AtrasCaudaLider), par)
+		}
+	}
 }

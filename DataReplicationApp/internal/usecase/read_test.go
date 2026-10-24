@@ -226,7 +226,13 @@ func TestGateSync(t *testing.T) {
 		return m == m2
 	}, "o papel não foi atualizado")
 	g.SetRaftCommit(10)
-	s.OnGateUpdate(20, 7)
+	if a, ok := s.OnGateUpdate(20, 7); ok || a != 0 { // sem Applied: não informa (DC-15)
+		t.Fatalf("sem Applied: %d %v", a, ok)
+	}
+	s.Applied = func() domain.Index { return 9 }
+	if a, ok := s.OnGateUpdate(20, 7); !ok || a != 9 {
+		t.Fatalf("com Applied: %d %v, quer 9 true", a, ok)
+	}
 	if g.Index() != 10 {
 		t.Fatalf("follower: gate = %d, quer 10 (commit local limita)", g.Index())
 	}

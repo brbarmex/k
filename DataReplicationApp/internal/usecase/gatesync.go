@@ -33,6 +33,10 @@ type GateSync struct {
 	// nas followers). FloorSink recebe o piso na follower; nulo = ignorado.
 	Floor     func() domain.Index
 	FloorSink port.RetentionFloorSink
+
+	// Applied é o aplicado local, devolvido à líder na resposta do GateUpdate (DC-15);
+	// nulo = não informa.
+	Applied func() domain.Index
 }
 
 func (s *GateSync) Run(ctx context.Context) error {
@@ -82,10 +86,15 @@ func (s *GateSync) Tick() {
 	}
 }
 
-// OnGateUpdate recebe o gate e o piso de retenção publicados pela líder.
-func (s *GateSync) OnGateUpdate(gate, floor domain.Index) {
+// OnGateUpdate recebe o gate e o piso de retenção publicados pela líder e devolve o
+// aplicado local (DC-15), que a líder usa só para medir a replicação.
+func (s *GateSync) OnGateUpdate(gate, floor domain.Index) (domain.Index, bool) {
 	s.Gate.SetReceived(gate)
 	if s.FloorSink != nil {
 		s.FloorSink.SetFloor(floor)
 	}
+	if s.Applied == nil {
+		return 0, false
+	}
+	return s.Applied(), true
 }

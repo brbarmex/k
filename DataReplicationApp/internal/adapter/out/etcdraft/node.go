@@ -58,6 +58,9 @@ type Config struct {
 	Genesis map[uint64]string
 	// Compaction liga o Compactor (RT-11, RT-14, RT-15); Progress nulo = desligado.
 	Compaction CompactionConfig
+	// ReplClock recebe as amostras da líder (DC-16): o último índice de cada Append e o
+	// commit publicado. Nulo = desligado.
+	ReplClock *domain.ReplicationClock
 }
 
 // Node é o motor de consenso real. Implementa port.ConsensusEngine, port.RaftInbound e
@@ -223,6 +226,9 @@ func (n *Node) handleReady(ctx context.Context, rd raft.Ready) error {
 		if old := n.lead.Swap(rd.SoftState.Lead); old != rd.SoftState.Lead {
 			n.log.Info().Uint64("lider", rd.SoftState.Lead).Uint64("termo", n.term.Load()).Msg("mudança de líder")
 			n.metrics.LeaderChanged(rd.SoftState.Lead)
+			if rd.SoftState.Lead == n.cfg.ID && n.cfg.ReplClock != nil {
+				n.cfg.ReplClock.Reset(start) // nova liderança: mede só o que ela propõe (DC-16)
+			}
 		}
 	}
 	// RT-18: marcador aceito pelo Step (aplicado ≥ S). É a exceção da SG-22: o recebimento
@@ -258,6 +264,9 @@ func (n *Node) handleReady(ctx context.Context, rd raft.Ready) error {
 		return fmt.Errorf("etcdraft: MemoryStorage.Append: %w", err)
 	}
 	n.ram.recordAppend(rd.Entries)
+	if isLeader && len(rd.Entries) > 0 && n.cfg.ReplClock != nil {
+		n.cfg.ReplClock.RecordAppend(domain.Index(rd.Entries[len(rd.Entries)-1].GetIndex()), start)
+	}
 	if !raft.IsEmptyHardState(rd.HardState) {
 		_ = n.storage.SetHardState(rd.HardState)
 		n.term.Store(rd.HardState.GetTerm())
@@ -281,7 +290,13 @@ func (n *Node) handleReady(ctx context.Context, rd raft.Ready) error {
 		if err := n.notifyProposals(rd.CommittedEntries); err != nil {
 			return err
 		}
-		n.publishCommit(rd.CommittedEntries[len(rd.CommittedEntries)-1].GetIndex())
+		last := rd.CommittedEntries[len(rd.CommittedEntries)-1].GetIndex()
+		n.publishCommit(last)
+		if isLeader && n.cfg.ReplClock != nil {
+			// O instante é o início do Ready: o Raft já tinha decidido o commit; a diferença
+			// para a publicação é no máximo um Ready (DC-16).
+			n.cfg.ReplClock.RecordCommit(domain.Index(last), start)
+		}
 	}
 	n.metrics.RaftLoop(time.Since(start)) // fsync, envio e publicação: o Ready inteiro
 	return nil                            // (6) Advance é chamado por Run, sem esperar ninguém
@@ -535,6 +550,7 @@ func (n *Node) Status() port.RaftInfo {
 	}
 	info.Snapshot = n.SnapshotIndex()
 	info.MemEntries, info.MemBytes = n.ram.stats()
+	info.MemMax, info.MemFirst = n.cfg.Compaction.RAMMax, n.ramFirst()
 	if d := n.deferred.Load(); d > 0 && (n.cfg.Policy == nil || uint64(n.cfg.Policy.Applied()) < d) {
 		info.BehindTail = true
 	}
@@ -544,6 +560,7 @@ func (n *Node) Status() port.RaftInfo {
 		info.HardCeiling, info.HeldByApplied = cs.HardCeiling, cs.HeldByApplied
 		if info.Lead == n.cfg.ID {
 			info.Window = cs.Window
+			info.MemByPeer = cs.MemByPeer
 		}
 	}
 	return info

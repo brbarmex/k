@@ -165,6 +165,16 @@ type RaftInfo struct {
 	HeldByApplied bool            // no teto duro, quem segura o disco é o aplicado local
 	BehindTail    bool            // a célula recebeu um marcador à frente do seu aplicado
 	Window        map[uint64]bool // réplicas dentro da janela de retenção (só na líder)
+
+	MemMax    int64            // RAFT_RAM_MAX
+	MemFirst  domain.Index     // primeiro índice no MemoryStorage
+	MemByPeer map[uint64]int64 // bytes na RAM desde o Match de cada par (só na líder)
+}
+
+// PeerAppliedSink recebe o aplicado informado por uma follower na resposta do GateUpdate
+// (DC-15). Só para medir: não decide nada.
+type PeerAppliedSink interface {
+	PeerApplied(id uint64, applied domain.Index, at time.Time)
 }
 
 type VersionedOp struct {

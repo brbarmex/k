@@ -40,6 +40,9 @@ type Client struct {
 	// Metrics recebe os descartes e os encaminhamentos (O-16). Definir antes do uso;
 	// nulo = sem métricas.
 	Metrics port.Metrics
+	// AppliedSink recebe o aplicado das followers (DC-15). Definir antes do uso; nulo =
+	// ignorado.
+	AppliedSink port.PeerAppliedSink
 }
 
 var (
@@ -214,8 +217,11 @@ func (c *Client) pumpGate(p *peer) {
 			continue
 		}
 		ctx, cancel := context.WithTimeout(c.ctx, callTimeout)
-		if _, err := p.rpc.GateUpdate(ctx, req); err != nil {
+		resp, err := p.rpc.GateUpdate(ctx, req)
+		if err != nil {
 			c.log.Debug().Err(err).Uint64("par", p.id).Msg("gate não chegou ao par")
+		} else if resp != nil && resp.Applied != nil && c.AppliedSink != nil {
+			c.AppliedSink.PeerApplied(p.id, domain.Index(*resp.Applied), time.Now())
 		}
 		cancel()
 	}

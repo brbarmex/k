@@ -78,6 +78,25 @@ func (r *ramTracker) recordSnapshot(s domain.Index) {
 	r.bytes.Add(-cut)
 }
 
+// bytesAfter soma os bytes das entradas com índice > idx: o que a RAM segura por uma
+// réplica com Match idx (DC-14). Antes do primeiro índice guardado, devolve tudo.
+func (r *ramTracker) bytesAfter(idx domain.Index) int64 {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if idx < r.first {
+		return r.bytes.Load()
+	}
+	pos := int(idx - r.first + 1)
+	if pos >= len(r.sizes) {
+		return 0
+	}
+	var n int64
+	for _, s := range r.sizes[pos:] {
+		n += int64(s)
+	}
+	return n
+}
+
 // stats devolve as entradas e os bytes no MemoryStorage.
 func (r *ramTracker) stats() (uint64, int64) {
 	r.mu.Lock()

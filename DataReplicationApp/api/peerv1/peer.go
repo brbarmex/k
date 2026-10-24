@@ -47,12 +47,17 @@ type GateUpdateRequest struct {
 	Floor uint64
 }
 
+// GateUpdateResponse leva o aplicado da follower (DC-15); nil = célula de versão anterior.
+type GateUpdateResponse struct {
+	Applied *uint64
+}
+
 // PeerServer é o servidor entre células.
 type PeerServer interface {
 	Step(ctx context.Context, req *StepRequest) (*Empty, error)
 	Forward(ctx context.Context, req *ForwardRequest) (*ForwardResponse, error)
 	ReadBarrier(ctx context.Context, req *BarrierRequest) (*BarrierResponse, error)
-	GateUpdate(ctx context.Context, req *GateUpdateRequest) (*Empty, error)
+	GateUpdate(ctx context.Context, req *GateUpdateRequest) (*GateUpdateResponse, error)
 }
 
 func handler[Req any, Resp any](name string, call func(PeerServer, context.Context, *Req) (*Resp, error)) grpc.MethodDesc {
@@ -120,7 +125,7 @@ func (c Client) ReadBarrier(ctx context.Context, req *BarrierRequest) (*BarrierR
 	return out, c.cc.Invoke(ctx, "/"+ServiceName+"/ReadBarrier", req, out)
 }
 
-func (c Client) GateUpdate(ctx context.Context, req *GateUpdateRequest) (*Empty, error) {
-	out := new(Empty)
+func (c Client) GateUpdate(ctx context.Context, req *GateUpdateRequest) (*GateUpdateResponse, error) {
+	out := new(GateUpdateResponse)
 	return out, c.cc.Invoke(ctx, "/"+ServiceName+"/GateUpdate", req, out)
 }

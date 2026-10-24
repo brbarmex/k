@@ -58,6 +58,16 @@ type Metrics interface {
 	SnapshotDeferred()
 	// StartupDuration: duração da abertura do WAL e da releitura da cauda na partida (RT-09).
 	StartupDuration(d time.Duration)
+
+	// ReplicationStage: tempo de replicação no relógio da líder (D-04), por etapa em
+	// commit, banco_lider, banco_quorum, banco_todas. Cada observação é uma amostra do
+	// ReplicationClock (DC-16).
+	ReplicationStage(etapa string, d time.Duration)
+	// RecoveryFinished: sessão de recuperação encerrada, medida pela líder (DC-17).
+	RecoveryFinished(par uint64, d time.Duration)
+	// RAMCeilingHit: um ciclo do Compactor encontrou a RAM do Raft acima de RAFT_RAM_MAX e
+	// compactou até o snapshot, ignorando o Match (SG-23).
+	RAMCeilingHit()
 }
 
 // NopMetrics não faz nada: usada nos testes e quando nenhuma métrica é injetada.
@@ -84,6 +94,9 @@ func (NopMetrics) HTTPInFlight(int)                       {}
 func (NopMetrics) SnapshotTaken(time.Duration)            {}
 func (NopMetrics) SnapshotDeferred()                      {}
 func (NopMetrics) StartupDuration(time.Duration)          {}
+func (NopMetrics) ReplicationStage(string, time.Duration) {}
+func (NopMetrics) RecoveryFinished(uint64, time.Duration) {}
+func (NopMetrics) RAMCeilingHit()                         {}
 
 // MetricsOrNop devolve m, ou NopMetrics quando m é nulo.
 func MetricsOrNop(m Metrics) Metrics {

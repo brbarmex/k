@@ -20,9 +20,10 @@ type LeaderBarrier interface {
 	LeaderBarrier(ctx context.Context) (readIndex, gate domain.Index, err error)
 }
 
-// GateReceiver recebe o gate publicado pela líder (usecase.GateSync).
+// GateReceiver recebe o gate publicado pela líder e devolve o aplicado local
+// (usecase.GateSync, DC-15).
 type GateReceiver interface {
-	OnGateUpdate(gate, floor domain.Index)
+	OnGateUpdate(gate, floor domain.Index) (applied domain.Index, ok bool)
 }
 
 // Server implementa peerv1.PeerServer.
@@ -62,9 +63,13 @@ func (s *Server) ReadBarrier(ctx context.Context, _ *peerv1.BarrierRequest) (*pe
 	return &peerv1.BarrierResponse{Code: peerv1.CodeOf(err), ReadIndex: uint64(ri), Gate: uint64(gate)}, nil
 }
 
-func (s *Server) GateUpdate(_ context.Context, req *peerv1.GateUpdateRequest) (*peerv1.Empty, error) {
-	s.Gate.OnGateUpdate(domain.Index(req.Gate), domain.Index(req.Floor))
-	return &peerv1.Empty{}, nil
+func (s *Server) GateUpdate(_ context.Context, req *peerv1.GateUpdateRequest) (*peerv1.GateUpdateResponse, error) {
+	resp := &peerv1.GateUpdateResponse{}
+	if applied, ok := s.Gate.OnGateUpdate(domain.Index(req.Gate), domain.Index(req.Floor)); ok {
+		v := uint64(applied)
+		resp.Applied = &v
+	}
+	return resp, nil
 }
 
 // Serve abre o servidor gRPC no listener (sem TLS na POC).

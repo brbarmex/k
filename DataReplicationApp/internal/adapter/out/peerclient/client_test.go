@@ -57,15 +57,41 @@ func (f fakeBarrier) LeaderBarrier(context.Context) (domain.Index, domain.Index,
 }
 
 type fakeGate struct {
-	mu    sync.Mutex
-	last  domain.Index
-	floor domain.Index
+	mu      sync.Mutex
+	last    domain.Index
+	floor   domain.Index
+	applied *domain.Index // nil = célula que não informa o aplicado (versão anterior)
 }
 
-func (f *fakeGate) OnGateUpdate(g, floor domain.Index) {
+func (f *fakeGate) OnGateUpdate(g, floor domain.Index) (domain.Index, bool) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.last, f.floor = g, floor
+	if f.applied == nil {
+		return 0, false
+	}
+	return *f.applied, true
+}
+
+// fakeSink guarda o último aplicado entregue pelo peerclient (DC-15).
+type fakeSink struct {
+	mu      sync.Mutex
+	calls   int
+	id      uint64
+	applied domain.Index
+}
+
+func (f *fakeSink) PeerApplied(id uint64, applied domain.Index, _ time.Time) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.calls++
+	f.id, f.applied = id, applied
+}
+
+func (f *fakeSink) get() (int, uint64, domain.Index) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.calls, f.id, f.applied
 }
 
 func (f *fakeGate) get() domain.Index {
@@ -141,6 +167,38 @@ func TestRoundTrip(t *testing.T) {
 	}
 	if g.getFloor() != 200 { // O-35: o piso de retenção vai junto com o gate (RT-15)
 		t.Fatalf("piso publicado = %d, quer 200", g.getFloor())
+	}
+}
+
+// O-48: a resposta do GateUpdate leva o aplicado da follower até o sink (DC-15); sem o
+// campo (célula antiga), o sink não é chamado.
+func TestGateUpdateAppliedReachesSink(t *testing.T) {
+	applied := domain.Index(42)
+	g := &fakeGate{applied: &applied}
+	c := setup(t, &peergrpc.Server{Raft: &fakeRaft{}, Writer: &fakeWriter{}, Barrier: fakeBarrier{}, Gate: g})
+	sink := &fakeSink{}
+	c.AppliedSink = sink
+	c.Publish(5, 0)
+	deadline := time.Now().Add(2 * time.Second)
+	for n, _, _ := sink.get(); n == 0 && time.Now().Before(deadline); n, _, _ = sink.get() {
+		time.Sleep(5 * time.Millisecond)
+	}
+	if n, id, a := sink.get(); n == 0 || id != 2 || a != 42 {
+		t.Fatalf("sink: chamadas %d, par %d, aplicado %d", n, id, a)
+	}
+
+	old := &fakeGate{}
+	c2 := setup(t, &peergrpc.Server{Raft: &fakeRaft{}, Writer: &fakeWriter{}, Barrier: fakeBarrier{}, Gate: old})
+	sink2 := &fakeSink{}
+	c2.AppliedSink = sink2
+	c2.Publish(5, 0)
+	deadline = time.Now().Add(2 * time.Second)
+	for old.get() != 5 && time.Now().Before(deadline) {
+		time.Sleep(5 * time.Millisecond)
+	}
+	time.Sleep(20 * time.Millisecond)
+	if n, _, _ := sink2.get(); n != 0 {
+		t.Fatalf("célula antiga não devia chamar o sink: %d chamadas", n)
 	}
 }
 

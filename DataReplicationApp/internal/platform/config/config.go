@@ -32,6 +32,7 @@ type Config struct {
 
 	TableWait           time.Duration // TABLE_WAIT: espera pelas tabelas na partida; padrão 120s
 	GatePublishInterval time.Duration // GATE_PUBLISH_INTERVAL: padrão 100ms (G-06)
+	ReplSyncMax         time.Duration // REPL_SYNC_MAX: atraso máximo de replicação de uma célula sincronizada (DC-13); padrão 2s
 
 	// ApplyWorkers (APPLY_WORKERS) é quantos itens o applier grava em paralelo no banco da
 	// célula, com a ordem garantida por chave (ADR-058). Padrão 16; 1 = um item por vez.
@@ -144,6 +145,10 @@ func LoadFrom(getenv func(string) string) (Config, error) {
 	c.IdleTimeout = dur("IDLE_TIMEOUT", 120*time.Second, false)
 	c.TableWait = dur("TABLE_WAIT", 120*time.Second, false)
 	c.GatePublishInterval = dur("GATE_PUBLISH_INTERVAL", 100*time.Millisecond, false)
+	c.ReplSyncMax = dur("REPL_SYNC_MAX", 2*time.Second, false)
+	if c.ReplSyncMax < 2*c.GatePublishInterval || c.ReplSyncMax > time.Minute {
+		errs = append(errs, errors.New("REPL_SYNC_MAX deve ficar entre 2 × GATE_PUBLISH_INTERVAL e 60s"))
+	}
 
 	c.ApplyWorkers = 16
 	if s := getenv("APPLY_WORKERS"); s != "" {

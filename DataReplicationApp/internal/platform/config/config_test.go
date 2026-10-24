@@ -252,3 +252,23 @@ func TestCompactionErrorsJoined(t *testing.T) {
 		}
 	}
 }
+
+// O-45: régua de sincronia (DC-13).
+func TestReplSyncMax(t *testing.T) {
+	c, err := LoadFrom(env(valid()))
+	if err != nil || c.ReplSyncMax != 2*time.Second {
+		t.Fatalf("padrão: %v %v", c.ReplSyncMax, err)
+	}
+	m := valid()
+	m["REPL_SYNC_MAX"] = "500ms"
+	if c, err = LoadFrom(env(m)); err != nil || c.ReplSyncMax != 500*time.Millisecond {
+		t.Fatalf("500ms: %v %v", c.ReplSyncMax, err)
+	}
+	for _, bad := range []string{"50ms", "2m"} {
+		m := valid()
+		m["REPL_SYNC_MAX"] = bad
+		if _, err := LoadFrom(env(m)); err == nil || !strings.Contains(err.Error(), "REPL_SYNC_MAX deve ficar entre 2 × GATE_PUBLISH_INTERVAL e 60s") {
+			t.Errorf("REPL_SYNC_MAX=%s devia falhar, veio %v", bad, err)
+		}
+	}
+}

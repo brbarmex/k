@@ -32,6 +32,8 @@ var (
 	ThrottleCauses = []string{"buffer_cheio", "nao_lider", "atraso_apply"}
 	// HTTPOps são as operações pré-inicializadas na porta de API (O-28).
 	HTTPOps = []string{"PutItem", "GetItem", "Scan"}
+	// ReplStages são as etapas do tempo de replicação (D-04).
+	ReplStages = []string{"commit", "banco_lider", "banco_quorum", "banco_todas"}
 )
 
 // Recorder implementa port.Metrics. Os métodos só fazem incrementos atômicos e medições:
@@ -62,6 +64,10 @@ type Recorder struct {
 	snapshotDuration prometheus.Histogram
 	snapshotDeferred prometheus.Counter
 	startupDuration  prometheus.Gauge
+
+	replStage  *prometheus.HistogramVec
+	recovery   *prometheus.HistogramVec
+	ramCeiling prometheus.Counter
 }
 
 var _ port.Metrics = (*Recorder)(nil)
@@ -147,6 +153,24 @@ func NewRecorder(celula string, source StatusSource) *Recorder {
 		Name: "dr_startup_duration_seconds", Help: "Duração da última abertura do WAL com a releitura da cauda (RT-09, CA-22).",
 	})).(prometheus.Gauge)
 
+	r.replStage = f(prometheus.NewHistogramVec(prometheus.HistogramOpts{
+		Name:    "dr_replication_duration_seconds",
+		Help:    "Tempo de replicação no relógio da líder, por etapa: commit, banco_lider, banco_quorum (2 de 3 bancos), banco_todas (D-04). Cada observação é uma amostra (≥ 10 ms).",
+		Buckets: prometheus.ExponentialBucketsRange(0.0005, 60, 18),
+	}, []string{"etapa"})).(*prometheus.HistogramVec)
+	r.recovery = f(prometheus.NewHistogramVec(prometheus.HistogramOpts{
+		Name:    "dr_recovery_duration_seconds",
+		Help:    "Duração das sessões de recuperação encerradas, por célula, medida pela líder (DC-17).",
+		Buckets: []float64{0.5, 1, 2, 5, 10, 15, 30, 60, 120, 300, 600, 1800, 3600},
+	}, []string{"par"})).(*prometheus.HistogramVec)
+	r.ramCeiling = f(prometheus.NewCounter(prometheus.CounterOpts{
+		Name: "dr_raft_mem_ceiling_total",
+		Help: "Ciclos do Compactor com a RAM do Raft acima de RAFT_RAM_MAX: a líder compactou até o snapshot e abandonou o Match das réplicas atrasadas (SG-23).",
+	})).(prometheus.Counter)
+	for _, e := range ReplStages {
+		r.replStage.WithLabelValues(e)
+	}
+
 	for _, c := range ThrottleCauses {
 		r.throttled.WithLabelValues(c)
 	}
@@ -207,6 +231,13 @@ func (r *Recorder) HTTPInFlight(delta int)          { r.httpInFlight.Add(float64
 func (r *Recorder) SnapshotTaken(d time.Duration)   { r.snapshotDuration.Observe(d.Seconds()) }
 func (r *Recorder) SnapshotDeferred()               { r.snapshotDeferred.Inc() }
 func (r *Recorder) StartupDuration(d time.Duration) { r.startupDuration.Set(d.Seconds()) }
+func (r *Recorder) ReplicationStage(etapa string, d time.Duration) {
+	r.replStage.WithLabelValues(etapa).Observe(d.Seconds())
+}
+func (r *Recorder) RecoveryFinished(par uint64, d time.Duration) {
+	r.recovery.WithLabelValues(strconv.FormatUint(par, 10)).Observe(d.Seconds())
+}
+func (r *Recorder) RAMCeilingHit() { r.ramCeiling.Inc() }
 
 // RegisterState registra o coletor de estado. Existe porque a fonte (StatusReporter)
 // depende do nó Raft, que por sua vez recebe este Recorder: o bootstrap liga a fonte

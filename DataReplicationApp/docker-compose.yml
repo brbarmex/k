@@ -10,6 +10,8 @@ x-dr-env: &dr-env
   AWS_SECRET_ACCESS_KEY: "test"
   TABLE_WAIT: "120s"
   GATE_PUBLISH_INTERVAL: "100ms"
+  # DC-13: régua de sincronia medida pela líder (atraso de replicação de cada célula).
+  REPL_SYNC_MAX: "2s"
   APPLY_WORKERS: "16"
   # ADR-060: timeout de eleição de 3 s (30 ticks de 100 ms) no notebook: o fsync tem picos
   # de 1 a 2 s com tudo no mesmo SSD. APPLY_LAG_MAX fica no padrão (APPLY_WORKERS x 256).

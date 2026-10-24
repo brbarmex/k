@@ -130,6 +130,7 @@ func Runtime() fx.Option {
 			func(c *peerclient.Client) port.Forwarder { return c },
 			func(c *peerclient.Client) port.BarrierClient { return c },
 			func(c *peerclient.Client) port.GatePublisher { return c },
+			func() *domain.ReplicationClock { return &domain.ReplicationClock{} },
 			newRaft,
 			func(n *etcdraft.Node) port.ConsensusEngine { return n },
 			func(n *etcdraft.Node) port.RaftInbound { return n },
@@ -141,6 +142,7 @@ func Runtime() fx.Option {
 			newReadService,
 			func(r *usecase.ReadService) port.Reader { return r },
 			newGateSync,
+			newReplicationMonitor,
 			newStatus,
 			func(tm domain.TableMap, cat port.Catalog) dynamohttp.ParseFunc {
 				return (&dynamohttp.Parser{Tables: tm, Catalog: cat}).Parse
@@ -212,6 +214,8 @@ type raftIn struct {
 	Progress port.ApplyProgress
 	Gate     *domain.Gate
 	Applied  port.AppliedWaiter
+	// ReplClock recebe as amostras da líder (DC-16).
+	ReplClock *domain.ReplicationClock
 }
 
 func newRaft(in raftIn) (*etcdraft.Node, error) {
@@ -239,6 +243,7 @@ func newRaft(in raftIn) (*etcdraft.Node, error) {
 			RetainMax: cfg.RetainMaxBytes, HardFrac: cfg.RetainDiskHard, HardBytes: cfg.RetainDiskHardBytes,
 			Interval: cfg.RaftCompactInterval,
 		},
+		ReplClock: in.ReplClock,
 	}, in.Send, in.Log)
 	if err != nil {
 		return nil, err
@@ -293,9 +298,22 @@ func newReadService(cfg config.Config, c port.ConsensusEngine, g *domain.Gate, a
 
 // newGateSync: o piso de retenção vai junto com o gate (RT-15). Na líder, o Compactor o
 // calcula; na follower, a retenção local recebe o da líder.
-func newGateSync(cfg config.Config, c port.ConsensusEngine, g *domain.Gate, p port.GatePublisher, log zerolog.Logger, n *etcdraft.Node) *usecase.GateSync {
+// O aplicado local volta à líder na resposta do GateUpdate (DC-15).
+func newGateSync(cfg config.Config, c port.ConsensusEngine, g *domain.Gate, p port.GatePublisher, log zerolog.Logger,
+	n *etcdraft.Node, a *usecase.Applier) *usecase.GateSync {
 	return &usecase.GateSync{Consensus: c, Gate: g, Publisher: p, Interval: cfg.GatePublishInterval, Log: log,
-		Floor: n.Floor, FloorSink: n.Pins()}
+		Floor: n.Floor, FloorSink: n.Pins(), Applied: a.Applied}
+}
+
+// newReplicationMonitor mede a replicação até o banco na líder (D-04). O peerclient
+// entrega a ele o aplicado das followers: o campo é definido aqui, antes de qualquer
+// Publish (o grafo não fecha ciclo: o nó Raft depende do peerclient).
+func newReplicationMonitor(cfg config.Config, c port.ConsensusEngine, clk *domain.ReplicationClock, a *usecase.Applier,
+	pc *peerclient.Client, m port.Metrics, log zerolog.Logger) *usecase.ReplicationMonitor {
+	mon := &usecase.ReplicationMonitor{Consensus: c, Clock: clk, LocalApplied: a.Applied, NodeID: cfg.NodeID,
+		Voters: config.IDs(cfg.Peers), SyncMax: cfg.ReplSyncMax, Interval: cfg.GatePublishInterval, Metrics: m, Log: log}
+	pc.AppliedSink = mon
+	return mon
 }
 
 func newCommitPump(n *etcdraft.Node, g *domain.Gate, to chan []domain.Entry, r Resume) *usecase.CommitPump {
@@ -303,10 +321,10 @@ func newCommitPump(n *etcdraft.Node, g *domain.Gate, to chan []domain.Entry, r R
 }
 
 func newStatus(cfg config.Config, r port.RaftStatus, g *domain.Gate, a *usecase.Applier, cat port.Catalog,
-	p *usecase.CommitPump, inbox chan []domain.Entry) *usecase.StatusReporter {
+	p *usecase.CommitPump, inbox chan []domain.Entry, mon *usecase.ReplicationMonitor) *usecase.StatusReporter {
 	return &usecase.StatusReporter{CellID: cfg.CellID, NodeID: cfg.NodeID, Raft: r, Gate: g, Applier: a, Catalog: cat,
 		Pump: p, ApplyInbox: func() int { return len(inbox) },
-		ApplyLagMax: cfg.ApplyLagMax, ElectionTicks: cfg.ElectionTicks}
+		ApplyLagMax: cfg.ApplyLagMax, ElectionTicks: cfg.ElectionTicks, Replication: mon}
 }
 
 // runAdmin abre a administração primeiro: o /livez responde enquanto as tabelas são
@@ -337,8 +355,10 @@ type runtimeDeps struct {
 	Node     *etcdraft.Node
 	Applier  *usecase.Applier
 	GateSync *usecase.GateSync
-	Reads    *usecase.ReadService
-	Writer   port.Writer
+	// ReplMonitor mede a replicação até o banco na líder (D-04).
+	ReplMonitor *usecase.ReplicationMonitor
+	Reads       *usecase.ReadService
+	Writer      port.Writer
 }
 
 // runRuntime confere as tabelas, abre o gRPC entre células e roda os laços de fundo.
@@ -376,6 +396,7 @@ func runRuntime(d runtimeDeps) {
 			fatal("commitpump", pump.Run)
 			fatal("applier", d.Applier.Run)
 			fatal("gatesync", d.GateSync.Run)
+			fatal("replmonitor", d.ReplMonitor.Run)
 			if c := d.Node.Compactor(); c != nil {
 				fatal("compactor", c.Run) // fsync do progresso, do marcador ou do WAL: fatal (RT-05)
 			}
@@ -383,7 +404,7 @@ func runRuntime(d runtimeDeps) {
 				Uint64("applyLagMax", d.Cfg.ApplyLagMax).Int("electionTicks", d.Cfg.ElectionTicks).
 				Uint64("retomaEm", uint64(d.Pump.From)).Uint64("snapshot", uint64(d.Node.SnapshotIndex())).
 				Int64("ramMax", d.Cfg.RaftRAMMax).Int64("retainMax", d.Cfg.RetainMaxBytes).
-				Int64("segmento", d.Cfg.WalSegmentBytes).Msg("célula iniciada")
+				Int64("segmento", d.Cfg.WalSegmentBytes).Dur("replSyncMax", d.Cfg.ReplSyncMax).Msg("célula iniciada")
 			return nil
 		},
 		OnStop: func(stopCtx context.Context) error {

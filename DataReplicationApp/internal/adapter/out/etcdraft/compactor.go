@@ -44,6 +44,7 @@ type CompactorStatus struct {
 	HardCeiling   bool
 	HeldByApplied bool
 	Window        map[uint64]bool
+	MemByPeer     map[uint64]int64 // bytes na RAM desde o Match de cada par (só na líder, DC-14)
 }
 
 // Compactor é o ciclo snapshot → RAM → disco, numa goroutine própria, fora do laço do
@@ -188,6 +189,7 @@ func (c *Compactor) compactRAM(now time.Time, floor domain.Index) {
 	}
 	if _, ramBytes := c.node.ram.stats(); c.cfg.RAMMax > 0 && ramBytes > c.cfg.RAMMax {
 		to = snap
+		c.metrics.RAMCeilingHit()
 		if ok, n := c.warn.allow("teto-ram", now); ok {
 			c.log.Warn().Int64("bytes", ramBytes).Int64("teto", c.cfg.RAMMax).Uint64("snapshot", uint64(snap)).
 				Int("suprimidas", n).Msg("memória do Raft no teto: compactando até o snapshot")
@@ -255,9 +257,24 @@ func (c *Compactor) releaseDisk(now time.Time, segs []domain.Segment, floor doma
 	v := view()
 	c.mu.Lock()
 	c.st = CompactorStatus{Floor: floor, RetainedBytes: v.RetainedSince(0), RetainedFiles: len(segs), Pins: c.ret.Pins(),
-		HardCeiling: hard, HeldByApplied: heldByApplied, Window: window}
+		HardCeiling: hard, HeldByApplied: heldByApplied, Window: window, MemByPeer: c.memByPeer()}
 	c.mu.Unlock()
 	return nil
+}
+
+// memByPeer calcula, na líder, os bytes da RAM desde o Match de cada par (DC-14). Uma vez
+// por ciclo: o scrape só lê o resultado.
+func (c *Compactor) memByPeer() map[uint64]int64 {
+	if !c.node.isLeader() {
+		return nil
+	}
+	out := map[uint64]int64{}
+	for id, m := range c.node.matches() {
+		if id != c.node.cfg.ID {
+			out[id] = c.node.ram.bytesAfter(m)
+		}
+	}
+	return out
 }
 
 // limit é o limite da view, com um pino em 0 segurando tudo.
@@ -279,6 +296,13 @@ func (c *Compactor) Status() CompactorStatus {
 			w[k] = v
 		}
 		st.Window = w
+	}
+	if st.MemByPeer != nil {
+		m := make(map[uint64]int64, len(st.MemByPeer))
+		for k, v := range st.MemByPeer {
+			m[k] = v
+		}
+		st.MemByPeer = m
 	}
 	return st
 }

@@ -85,7 +85,7 @@ func TestStatusShowsBoundedLog(t *testing.T) {
 		RetainedBytes: 3 << 20, RetainedFiles: 3, Floor: 850, Pins: 1, BehindTail: true,
 		Window: map[uint64]bool{2: true, 3: false}}
 	st := newStatus(info).Status()
-	if st.Raft != (RaftLogStatus{Snapshot: 900, Memoria: MemoriaStatus{Entradas: 110, Bytes: 4096}, AtrasCauda: true}) {
+	if m := st.Raft.Memoria; st.Raft.Snapshot != 900 || !st.Raft.AtrasCauda || m.Entradas != 110 || m.Bytes != 4096 || m.PorPar != nil {
 		t.Fatalf("raft = %+v", st.Raft)
 	}
 	if st.Wal.Retido != (RetidoStatus{Bytes: 3 << 20, Arquivos: 3}) || st.Wal.Piso != 850 || st.Wal.Pinos != 1 ||
@@ -99,5 +99,45 @@ func TestStatusShowsBoundedLog(t *testing.T) {
 	info.HeldByApplied = true
 	if ok, why := newStatus(info).Ready(); ok || why != "disco no teto duro: reconstrução necessária" {
 		t.Fatalf("Ready = %v %q", ok, why)
+	}
+}
+
+// O-51: a seção replicacao só aparece na líder; atrasCaudaLider e porPar vêm do RaftInfo.
+func TestStatusReplicacao(t *testing.T) {
+	f := newReplFixture(t)
+	f.tick()
+	f.write(5)
+	f.local = 5
+	f.report(2, 5)
+	f.report(3, 1)
+	f.mon.Tick(f.now)
+
+	info := port.RaftInfo{NodeID: 1, Lead: 1, Voters: 3, Running: true, Commit: 5, MemMax: 1 << 20, MemFirst: 3,
+		Match: map[uint64]domain.Index{1: 5, 2: 5, 3: 1}, MemByPeer: map[uint64]int64{2: 0, 3: 400}}
+	st := newStatus(info)
+	st.Replication = f.mon
+	got := st.Status()
+	if got.Raft.Memoria.Teto != 1<<20 || got.Raft.Memoria.Primeiro != 3 || got.Raft.Memoria.PorPar["3"] != 400 {
+		t.Fatalf("memória: %+v", got.Raft.Memoria)
+	}
+	r := got.Replicacao
+	if r == nil || len(r.Celulas) != 3 || r.SyncMaxSeg != 2 {
+		t.Fatalf("replicacao: %+v", r)
+	}
+	if c := r.Celulas["3"]; !c.AtrasCaudaLider || c.MemoriaBytes != 400 || c.AtrasoEntradas != 4 || c.Aplicado != 1 {
+		t.Fatalf("célula 3: %+v", c)
+	}
+	if c := r.Celulas["2"]; c.AtrasCaudaLider || !c.Sincronizada {
+		t.Fatalf("célula 2: %+v", c)
+	}
+	if c := r.Celulas["1"]; c.AtrasCaudaLider || !c.Sincronizada {
+		t.Fatalf("líder: %+v", c)
+	}
+
+	info.Lead = 2 // follower: sem a seção
+	st = newStatus(info)
+	st.Replication = f.mon
+	if got := st.Status(); got.Replicacao != nil {
+		t.Fatalf("follower com replicacao: %+v", got.Replicacao)
 	}
 }

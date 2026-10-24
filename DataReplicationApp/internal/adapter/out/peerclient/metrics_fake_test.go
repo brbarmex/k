@@ -48,3 +48,8 @@ func (r *recMetrics) HTTPInFlight(d int)            { r.inc("inflight:" + strcon
 func (r *recMetrics) SnapshotTaken(time.Duration)   { r.inc("snapshot") }
 func (r *recMetrics) SnapshotDeferred()             { r.inc("snapshot_deferred") }
 func (r *recMetrics) StartupDuration(time.Duration) { r.inc("startup") }
+func (r *recMetrics) ReplicationStage(etapa string, _ time.Duration) {
+	r.inc("repl_" + etapa)
+}
+func (r *recMetrics) RecoveryFinished(uint64, time.Duration) { r.inc("recovery") }
+func (r *recMetrics) RAMCeilingHit()                         { r.inc("ram_ceiling") }

@@ -29,6 +29,14 @@ func leaderSource() fakeSource {
 		Celula: "1", No: 1, Papel: "lider", Lider: 1, Termo: 3, Commit: 10, Gate: 10, Aplicado: 9,
 		Match:  map[string]uint64{"1": 10, "2": 10, "3": 7},
 		Quorum: &usecase.QuorumStatus{Ativos: 2, Votantes: 3, Ok: true},
+		Raft: usecase.RaftLogStatus{Snapshot: 8, Memoria: usecase.MemoriaStatus{Entradas: 4, Bytes: 4096, Teto: 1 << 20,
+			Primeiro: 6, PorPar: map[string]int64{"2": 0, "3": 2048}}},
+		Replicacao: &usecase.ReplicacaoStatus{SyncMaxSeg: 2, HorizonteSeg: 30, Celulas: map[string]usecase.ReplicacaoCelula{
+			"1": {Aplicado: 9, Conhecido: true, AtrasoEntradas: 1, AtrasoSeg: 0.01, Sincronizada: true},
+			"2": {Aplicado: 10, Conhecido: true, Sincronizada: true},
+			"3": {Aplicado: 4, Conhecido: true, IdadeNoticiaSeg: 0.1, AtrasoEntradas: 6, AtrasoSeg: 7.5, Recuperando: true,
+				RecuperandoHaSeg: 5, AtrasCaudaLider: true, MemoriaBytes: 2048},
+		}},
 	}}
 }
 
@@ -54,6 +62,9 @@ func TestRecorderEvents(t *testing.T) {
 	r.HTTPInFlight(1)
 	r.HTTPInFlight(1)
 	r.HTTPInFlight(-1)
+	r.RAMCeilingHit()
+	r.RecoveryFinished(3, 4*time.Second)
+	r.ReplicationStage("banco_todas", 20*time.Millisecond)
 
 	checks := []struct {
 		name      string
@@ -73,10 +84,21 @@ func TestRecorderEvents(t *testing.T) {
 		{"HTTP PutItem 400", testutil.ToFloat64(r.httpRequests.WithLabelValues("PutItem", "400")), 1},
 		{"HTTP PutItem 200", testutil.ToFloat64(r.httpRequests.WithLabelValues("PutItem", "200")), 1},
 		{"HTTP em andamento", testutil.ToFloat64(r.httpInFlight), 1},
+		{"teto da RAM atingido", testutil.ToFloat64(r.ramCeiling), 1},
 	}
 	for _, c := range checks {
 		if c.got != c.want {
 			t.Errorf("%s = %v, quer %v", c.name, c.got, c.want)
+		}
+	}
+	out := scrape(t, r)
+	for _, want := range []string{
+		`dr_recovery_duration_seconds_count{celula="1",par="3"} 1`,
+		`dr_replication_duration_seconds_count{celula="1",etapa="banco_todas"} 1`,
+		`dr_replication_duration_seconds_count{celula="1",etapa="commit"} 0`,
+	} {
+		if !strings.Contains(out, want+"\n") {
+			t.Errorf("faltou %q", want)
 		}
 	}
 	if hb := testutil.ToFloat64(r.lastHeartbeat); time.Since(time.Unix(int64(hb), 0)) > 5*time.Second {
@@ -99,13 +121,22 @@ func TestStateCollectorLeaderAndFollower(t *testing.T) {
 		`dr_peer_lag{celula="1",par="3"} 3`, `dr_peer_match_index{celula="1",par="2"} 10`,
 		`dr_ready{celula="1"} 1`,
 		`dr_applier_stopped{celula="1"} 0`,
+		// O-51: RAM do Raft e replicação até o banco (DC-13, DC-14, DC-17)
+		`dr_raft_mem_bytes{celula="1"} 4096`, `dr_raft_mem_max_bytes{celula="1"} 1.048576e+06`,
+		`dr_raft_mem_peer_bytes{celula="1",par="3"} 2048`, `dr_raft_snapshot_index{celula="1"} 8`,
+		`dr_repl_applied_index{celula="1",par="1"} 9`, `dr_repl_applied_index{celula="1",par="3"} 4`,
+		`dr_repl_lag_entries{celula="1",par="3"} 6`, `dr_repl_delay_seconds{celula="1",par="3"} 7.5`,
+		`dr_repl_synced{celula="1",par="3"} 0`, `dr_repl_synced{celula="1",par="2"} 1`,
+		`dr_recovery_in_progress{celula="1",par="3"} 1`, `dr_recovery_elapsed_seconds{celula="1",par="3"} 5`,
+		`dr_repl_behind_leader_ram{celula="1",par="3"} 1`, `dr_repl_sync_max_seconds{celula="1"} 2`,
+		`dr_repl_clock_horizon_seconds{celula="1"} 30`,
 	} {
 		if !strings.Contains(out, want+"\n") {
 			t.Errorf("faltou %q", want)
 		}
 	}
-	if strings.Contains(out, `par="1"`) {
-		t.Error("a própria líder não pode aparecer como par")
+	if strings.Contains(out, `dr_peer_lag{celula="1",par="1"}`) || strings.Contains(out, `dr_peer_match_index{celula="1",par="1"}`) {
+		t.Error("a própria líder não pode aparecer como par do log")
 	}
 
 	f := fakeSource{st: usecase.CellStatus{Celula: "2", No: 2, Papel: "follower", Lider: 1, ErroApply: "parado em (5, 1): x"}}
@@ -115,7 +146,7 @@ func TestStateCollectorLeaderAndFollower(t *testing.T) {
 			t.Errorf("follower: faltou %q", want)
 		}
 	}
-	for _, absent := range []string{"dr_quorum_ok{", "dr_peer_lag{"} {
+	for _, absent := range []string{"dr_quorum_ok{", "dr_peer_lag{", "dr_repl_", "dr_recovery_in_progress{", "dr_raft_mem_peer_bytes{"} {
 		if strings.Contains(out, absent) {
 			t.Errorf("follower não exporta %s", absent)
 		}
@@ -138,6 +169,7 @@ func registeredNames(t *testing.T) map[string]bool {
 	r.WriteDone("ok", time.Millisecond)
 	r.WALFsync(time.Millisecond)
 	r.ReadBarrier(time.Millisecond)
+	r.RecoveryFinished(3, time.Second)
 	mfs, err := r.registry.Gather()
 	if err != nil {
 		t.Fatal(err)
@@ -167,6 +199,14 @@ func TestAllSeriesRegistered(t *testing.T) {
 		"dr_apply_lag", "dr_apply_lag_max", "dr_apply_inbox_batches", "dr_commit_undelivered", "dr_election_ticks",
 		// Compactação do log, Incremento A (O-37, item 6)
 		"dr_raft_snapshot_duration_seconds", "dr_raft_snapshot_deferred_total", "dr_startup_duration_seconds",
+		// Observabilidade da replicação (O-51)
+		"dr_raft_mem_bytes", "dr_raft_mem_entries", "dr_raft_mem_max_bytes", "dr_raft_mem_peer_bytes",
+		"dr_raft_snapshot_index", "dr_raft_behind_tail", "dr_raft_mem_ceiling_total",
+		"dr_repl_applied_index", "dr_repl_known", "dr_repl_report_age_seconds", "dr_repl_lag_entries",
+		"dr_repl_delay_seconds", "dr_repl_delay_saturated", "dr_repl_synced", "dr_repl_behind_leader_ram",
+		"dr_repl_sync_max_seconds", "dr_repl_clock_horizon_seconds",
+		"dr_recovery_in_progress", "dr_recovery_elapsed_seconds",
+		"dr_replication_duration_seconds", "dr_recovery_duration_seconds",
 	} {
 		if !names[n] {
 			t.Errorf("série %s não registrada", n)

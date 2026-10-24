@@ -29,6 +29,34 @@ type CellStatus struct {
 	// Log do Raft limitado (O-37, item 6; S.7 da trecho).
 	Raft RaftLogStatus `json:"raft"`
 	Wal  WalStatus     `json:"wal"`
+
+	// Replicacao é a replicação até o banco de cada célula, vista pela líder (D-04,
+	// DC-13). Só na líder.
+	Replicacao *ReplicacaoStatus `json:"replicacao,omitempty"`
+}
+
+// ReplicacaoStatus é a régua de sincronia e cada célula (a própria líder incluída).
+type ReplicacaoStatus struct {
+	SyncMaxSeg   float64                     `json:"syncMaxSeg"`
+	HorizonteSeg float64                     `json:"horizonteSeg"`
+	Celulas      map[string]ReplicacaoCelula `json:"celulas"`
+}
+
+// ReplicacaoCelula é uma célula vista pela líder. Aplicado é a versão _dr_v garantida no
+// banco dela; AtrasCaudaLider = a líder não tem mais na RAM o que ela precisa (só volta
+// pelo Incremento B); MemoriaBytes = o que a RAM da líder segura por ela (DC-14).
+type ReplicacaoCelula struct {
+	Aplicado         uint64  `json:"aplicado"`
+	Conhecido        bool    `json:"conhecido"`
+	IdadeNoticiaSeg  float64 `json:"idadeNoticiaSeg"`
+	AtrasoEntradas   uint64  `json:"atrasoEntradas"`
+	AtrasoSeg        float64 `json:"atrasoSeg"`
+	Saturado         bool    `json:"saturado"`
+	Sincronizada     bool    `json:"sincronizada"`
+	Recuperando      bool    `json:"recuperando"`
+	RecuperandoHaSeg float64 `json:"recuperandoHaSeg"`
+	AtrasCaudaLider  bool    `json:"atrasCaudaLider"`
+	MemoriaBytes     int64   `json:"memoriaBytes"`
 }
 
 // RaftLogStatus é o log do Raft na RAM: o último snapshot-marcador e o que sobrou no
@@ -44,6 +72,11 @@ type RaftLogStatus struct {
 type MemoriaStatus struct {
 	Entradas uint64 `json:"entradas"`
 	Bytes    int64  `json:"bytes"`
+	// Teto é o RAFT_RAM_MAX; Primeiro, o primeiro índice na RAM; PorPar, os bytes desde o
+	// Match de cada par (só na líder, DC-14).
+	Teto     int64            `json:"teto"`
+	Primeiro domain.Index     `json:"primeiro"`
+	PorPar   map[string]int64 `json:"porPar,omitempty"`
 }
 
 // WalStatus é o log do Raft no disco (RT-15).
@@ -97,6 +130,9 @@ type StatusReporter struct {
 	ApplyInbox    func() int
 	ApplyLagMax   uint64
 	ElectionTicks int
+
+	// Replication é o monitor da replicação até o banco (D-04); nulo = sem a seção.
+	Replication *ReplicationMonitor
 }
 
 func (r *StatusReporter) Status() CellStatus {
@@ -120,8 +156,14 @@ func (r *StatusReporter) Status() CellStatus {
 		}
 	}
 	st.ElectionTicks = r.ElectionTicks
-	st.Raft = RaftLogStatus{Snapshot: ri.Snapshot, Memoria: MemoriaStatus{Entradas: ri.MemEntries, Bytes: ri.MemBytes},
-		AtrasCauda: ri.BehindTail}
+	st.Raft = RaftLogStatus{Snapshot: ri.Snapshot, Memoria: MemoriaStatus{Entradas: ri.MemEntries, Bytes: ri.MemBytes,
+		Teto: ri.MemMax, Primeiro: ri.MemFirst}, AtrasCauda: ri.BehindTail}
+	if len(ri.MemByPeer) > 0 {
+		st.Raft.Memoria.PorPar = make(map[string]int64, len(ri.MemByPeer))
+		for id, b := range ri.MemByPeer {
+			st.Raft.Memoria.PorPar[strconv.FormatUint(id, 10)] = b
+		}
+	}
 	st.Wal = WalStatus{Retido: RetidoStatus{Bytes: ri.RetainedBytes, Arquivos: ri.RetainedFiles}, Piso: ri.Floor,
 		Pinos: ri.Pins, TetoDuro: ri.HardCeiling, SeguradoPeloAplicado: ri.HeldByApplied}
 	if len(ri.Window) > 0 {
@@ -137,6 +179,7 @@ func (r *StatusReporter) Status() CellStatus {
 			st.Match[strconv.FormatUint(id, 10)] = uint64(m)
 		}
 		st.Quorum = &QuorumStatus{Ativos: ri.QuorumActive, Votantes: ri.Voters, Ok: ri.QuorumActive >= ri.Voters/2+1}
+		st.Replicacao = r.replicacao(ri)
 	}
 	if h := r.Applier.Health(); h.Stopped {
 		st.ErroApply = "parado em (" + strconv.FormatUint(uint64(h.Index), 10) + ", " +
@@ -162,4 +205,28 @@ func (r *StatusReporter) Ready() (bool, string) {
 		return false, "disco no teto duro: reconstrução necessária"
 	}
 	return true, ""
+}
+
+// replicacao monta a seção de replicação do /status a partir da última medição do monitor.
+func (r *StatusReporter) replicacao(ri port.RaftInfo) *ReplicacaoStatus {
+	if r.Replication == nil {
+		return nil
+	}
+	v := r.Replication.Snapshot()
+	if !v.Lider {
+		return nil
+	}
+	out := &ReplicacaoStatus{SyncMaxSeg: v.SyncMax.Seconds(), HorizonteSeg: v.Horizonte.Seconds(),
+		Celulas: make(map[string]ReplicacaoCelula, len(v.Celulas))}
+	for id, c := range v.Celulas {
+		rc := ReplicacaoCelula{Aplicado: uint64(c.Aplicado), Conhecido: c.Conhecido,
+			IdadeNoticiaSeg: c.IdadeNoticia.Seconds(), AtrasoEntradas: c.AtrasoEntradas, AtrasoSeg: c.Atraso.Seconds(),
+			Saturado: c.Saturado, Sincronizada: c.Sincronizada, Recuperando: c.Recuperando,
+			RecuperandoHaSeg: c.RecuperandoHa.Seconds(), MemoriaBytes: ri.MemByPeer[id]}
+		if m, ok := ri.Match[id]; ok && id != r.NodeID {
+			rc.AtrasCaudaLider = m+1 < ri.MemFirst
+		}
+		out.Celulas[strconv.FormatUint(id, 10)] = rc
+	}
+	return out
 }

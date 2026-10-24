@@ -99,8 +99,8 @@ Referência teórica para a eleição (inferida do etcd raft com `PreVote` e `Ch
 | L-APPLY | Gravação de um item no DynamoDB pelo applier | `dr_apply_item_duration_seconds` | sim |
 | L-READ | Barreira da leitura forte | `dr_read_barrier_duration_seconds`; k6 `http_req_duration{op="GetItem"}` | sim |
 | L-FWD | Encaminhamento follower → líder | — | **não** (M-02) |
-| L-ETAPAS | propose → commit, commit → gate, gate → apply local | — | **não** (M-01) |
-| L-REPL | Atraso de replicação em tempo por follower | — | **não** (M-11); hoje só em entradas (`dr_apply_lag`) |
+| L-ETAPAS | entrada no log → commit, → banco da líder, → banco do quórum (2 de 3), → banco das três | `dr_replication_duration_seconds{etapa}` (`commit`, `banco_lider`, `banco_quorum`, `banco_todas`), no relógio da líder, por amostra (≥ 10 ms) | sim; o gate não tem etapa própria (M-01 parcial) |
+| L-REPL | Atraso de replicação em tempo por célula, até o banco | `dr_repl_delay_seconds{par}` (só na líder; `dr_repl_delay_saturated` marca o mínimo) | sim (M-11) |
 | L-DB | Latência do DynamoDB no lado da AWS | CloudWatch `SuccessfulRequestLatency` (1 min) | sim, granularidade grossa |
 | L-EBS | Latência do disco no SO | node-exporter `node_disk_write_time_seconds_total / node_disk_writes_completed_total`; CloudWatch `VolumeTotalWriteTime` | sim |
 
@@ -151,6 +151,7 @@ Referência teórica para a eleição (inferida do etcd raft com `PreVote` e `Ch
 | B-REDE | Rede | `container_network_transmit_bytes_total`, `container_network_receive_errors_total`, RTT entre células (blackbox exporter em gRPC ou TCP) |
 | B-CUSTO | Custo | WCU consumida nas 3 tabelas / escritas confirmadas (esperado ≈ 3× por escrita) |
 | B-ORC | Oráculo | séries `dr_val_*` (ORC-05) |
+| B-SYNC | Sincronia até o banco, vista pela líder | `dr_repl_synced{par}`, `dr_repl_delay_seconds{par}`, `dr_repl_lag_entries{par}`, `dr_repl_applied_index{par}`, `dr_repl_report_age_seconds{par}`, `dr_recovery_in_progress{par}`, `dr_recovery_elapsed_seconds{par}`, `dr_recovery_duration_seconds{par}`; régua `REPL_SYNC_MAX` (DC-13, DC-17). RAM retida: `dr_raft_mem_peer_bytes{par}`, `dr_raft_mem_bytes / dr_raft_mem_max_bytes`, `dr_raft_mem_ceiling_total`, `dr_repl_behind_leader_ram{par}` (DC-14) |
 
 ### 5.4 Lacunas de instrumentação (M)
 
@@ -158,17 +159,17 @@ Itens que os cenários pedem e o código de hoje não tem. É especificação pa
 
 | Código | Lacuna | Usada em |
 |---|---|---|
-| M-01 | Histogramas por etapa: propose → commit, commit → gate, gate → apply local na líder | todos os de latência |
+| M-01 | Histogramas por etapa. **Parcial:** existe `dr_replication_duration_seconds{etapa}` (entrada no log → commit → banco da líder → bancos do quórum e das três). **Falta** a etapa commit → gate. | todos os de latência |
 | M-02 | `dr_forward_duration_seconds{resultado}` e `dr_forwards_total{resultado}` | CF-02, CF-03, falhas da líder |
 | M-03 | Histogramas nativos do Prometheus (ou baldes mais finos entre 1 ms e 100 ms) e um max por janela (gauge zerado a cada coleta, ou o maior valor visto em log estruturado) | todos |
-| M-04 | Entradas e bytes do log na RAM e no disco. **Hoje no `/status`** (`raft.snapshot`, `raft.memoria.entradas`, `raft.memoria.bytes`, `raft.atrasCauda`, `wal.retido`, `wal.piso`, `wal.pinos`, `wal.tetoDuro`, `wal.janela`); as séries `dr_raft_mem_entries`, `dr_raft_mem_bytes`, `dr_raft_snapshot_index`, `dr_wal_retained_bytes`, `dr_wal_files`, `dr_retention_floor` e `dr_wal_pins` entram no Incremento B (O-42). Já existem `dr_raft_snapshot_duration_seconds` e `dr_raft_snapshot_deferred_total`. | CF-06, FP-04, FP-05, FL-* |
+| M-04 | Entradas e bytes do log na RAM e no disco. **Hoje no `/status`** (`raft.snapshot`, `raft.memoria.entradas`, `raft.memoria.bytes`, `raft.atrasCauda`, `wal.retido`, `wal.piso`, `wal.pinos`, `wal.tetoDuro`, `wal.janela`); **a parte da RAM já é série** (`dr_raft_mem_entries`, `dr_raft_mem_bytes`, `dr_raft_mem_max_bytes`, `dr_raft_mem_peer_bytes{par}`, `dr_raft_snapshot_index`, `dr_raft_behind_tail`, `dr_raft_mem_ceiling_total`); a do disco (`dr_wal_retained_bytes`, `dr_wal_files`, `dr_retention_floor`, `dr_wal_pins`) entra no Incremento B (O-42). Já existem `dr_raft_snapshot_duration_seconds` e `dr_raft_snapshot_deferred_total`. | CF-06, FP-04, FP-05, FL-* |
 | M-05 | Partida: **existe** `dr_startup_duration_seconds` (abertura do WAL e releitura da cauda) e o log `partida: WAL relido` com `snapshot`, `entradas`, `primeiro` e `ultimo`. **Falta** o último índice e o termo do `HardState` como série (`dr_boot_last_index`, `dr_boot_hardstate_term`). | FP-*, FD-*, FL-05 |
 | M-06 | Instante em que a célula ficou pronta (`dr_ready_since_timestamp_seconds`) | RTO-07 |
 | M-07 | `dr_apply_errors_total{classe, codigo}` (classe transitório ou permanente) | FB-* |
 | M-08 | Latência de leitura total por resultado (`dr_read_duration_seconds{op,resultado}`) | CF-04, FR-* |
 | M-09 | `dr_write_duration_seconds` com rótulo de resultado (hoje só `ok` é medido) | todos com erro |
 | M-10 | Métricas do gRPC entre células (latência e código por método: Raft, Forward, Barrier, Gate) | FR-* |
-| M-11 | `dr_replication_delay_seconds{par}`: tempo entre o commit na líder e o apply na follower | FP-04, FB-01 |
+| M-11 | **Feito:** `dr_repl_delay_seconds{par}` (só na líder): idade, no relógio da líder, da entrada commitada mais antiga que a célula não tem no banco. | FP-04, FB-01 |
 | M-12 | Oráculo (ORC-05), fora do app | todos |
 | M-13 | Anotação de injeção de falha no Grafana | todos de falha |
 | M-14 | `dr_raft_role{termo}` ou `dr_is_leader` com o termo como rótulo, para B-INV-2 | CE-*, FR-* |
