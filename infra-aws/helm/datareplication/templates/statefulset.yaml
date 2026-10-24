@@ -1,0 +1,92 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "dr.name" . }}
+  labels:
+    {{- include "dr.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  serviceName: {{ include "dr.name" . }}
+  podManagementPolicy: Parallel
+  selector:
+    matchLabels:
+      {{- include "dr.labels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "dr.labels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ .Values.serviceAccountName }}
+      nodeSelector:
+        dr/role: cell
+      terminationGracePeriodSeconds: 30 # o app usa fx.StopTimeout(25s)
+      securityContext:
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001 # o volume EBS nasce do root; sem isso o WAL não grava
+      containers:
+        - name: datareplication
+          image: {{ required "image é obrigatório (linux/arm64)" .Values.image }}
+          ports:
+            - name: api
+              containerPort: {{ .Values.ports.api }}
+            - name: grpc
+              containerPort: {{ .Values.ports.grpc }}
+            - name: admin
+              containerPort: {{ .Values.ports.admin }}
+          env:
+            - name: CELL_ID
+              value: {{ include "dr.cell" . | quote }}
+            - name: NODE_ID
+              value: {{ include "dr.cell" . | quote }}
+            - name: PEERS
+              value: {{ include "dr.peers" . | quote }}
+            - name: TABLES
+              value: {{ .Values.tables | quote }}
+            - name: AWS_REGION
+              value: {{ .Values.region | quote }}
+            - name: CLUSTER_ID
+              value: {{ .Values.clusterId | quote }}
+            - name: RAFT_DIR
+              value: /var/lib/dr/raft/wal
+            - name: ELECTION_TICKS
+              value: {{ .Values.electionTicks | quote }}
+            - name: APPLY_WORKERS
+              value: {{ .Values.applyWorkers | quote }}
+            - name: GOMEMLIMIT
+              value: {{ .Values.gomemlimit | quote }}
+            {{- range .Values.extraEnv }}
+            - name: {{ .name }}
+              value: {{ .value | quote }}
+            {{- end }}
+          resources: # Guaranteed (AMB-04)
+            requests:
+              cpu: {{ .Values.resources.cpu }}
+              memory: {{ .Values.resources.memory }}
+            limits:
+              cpu: {{ .Values.resources.cpu }}
+              memory: {{ .Values.resources.memory }}
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: admin
+            periodSeconds: 2
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /livez
+              port: admin
+            periodSeconds: 5
+            failureThreshold: 6
+          volumeMounts:
+            - name: wal
+              mountPath: /var/lib/dr/raft
+  volumeClaimTemplates:
+    - metadata:
+        name: wal
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        storageClassName: {{ .Values.storage.className }}
+        resources:
+          requests:
+            storage: {{ .Values.storage.size }}

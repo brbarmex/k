@@ -86,3 +86,30 @@ resource "aws_eks_pod_identity_association" "external_dns" {
   service_account = "external-dns"
   role_arn        = aws_iam_role.external_dns.arn
 }
+
+# --- Prometheus (monitoramento/prometheus-server, só no cluster 1): ec2_sd_configs acha os
+# nós dos 3 clusters pela etiqueta eks:cluster-name e raspa node-exporter e cAdvisor pelo IP.
+resource "aws_iam_role" "prometheus" {
+  name               = "${var.projeto}-prometheus"
+  assume_role_policy = data.aws_iam_policy_document.pod_identity.json
+}
+
+resource "aws_iam_role_policy" "prometheus" {
+  name = "ec2-sd"
+  role = aws_iam_role.prometheus.id
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect   = "Allow"
+      Action   = ["ec2:DescribeInstances", "ec2:DescribeAvailabilityZones"]
+      Resource = "*"
+    }]
+  })
+}
+
+resource "aws_eks_pod_identity_association" "prometheus" {
+  cluster_name    = module.eks["1"].cluster_name
+  namespace       = "monitoramento"
+  service_account = "prometheus-server"
+  role_arn        = aws_iam_role.prometheus.arn
+}

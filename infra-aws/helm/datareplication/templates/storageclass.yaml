@@ -1,0 +1,16 @@
+{{- if .Values.storageClass.create }}
+# gp3 com IOPS e throughput incluídos; reclaimPolicy Delete e etiqueta para achar órfãos.
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: {{ .Values.storage.className }}
+provisioner: ebs.csi.aws.com
+parameters:
+  type: gp3
+  iops: {{ .Values.storageClass.iops | quote }}
+  throughput: {{ .Values.storageClass.throughput | quote }}
+  tagSpecification_1: {{ .Values.storageClass.tag | quote }}
+volumeBindingMode: WaitForFirstConsumer
+reclaimPolicy: Delete
+allowVolumeExpansion: true
+{{- end }}

@@ -1,0 +1,5 @@
+apiVersion: v2
+name: k6
+description: Pod ocioso do k6 no nó spot do cluster 1, com o script carga.js; os testes rodam por kubectl exec.
+type: application
+version: 0.1.0

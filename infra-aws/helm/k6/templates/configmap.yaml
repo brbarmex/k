@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: k6-script
+data:
+  carga.js: |-
+{{ .Files.Get "files/carga.js" | indent 4 }}

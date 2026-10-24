@@ -1,0 +1,23 @@
+# helm upgrade --install exporters ./helm/dr-exporters -n monitoramento --create-namespace
+# Rodam em todos os nós (inclusive os com taint do k6 e do Prometheus), na rede do nó:
+# o Prometheus do cluster 1 raspa os 3 clusters pelo IP privado, liberado no security
+# group dentro da VPC (terraform/sessao, portas_entre_clusters).
+
+nodeExporter:
+  image: quay.io/prometheus/node-exporter:v1.9.1
+  port: 9100
+  resources:
+    requests: { cpu: 10m, memory: 32Mi }
+    limits: { memory: 64Mi }
+
+# CPU com throttling (cfs), memória e OOM por container. As etiquetas do containerd viram
+# pod, container e namespace no relabel do Prometheus (helm/valores/prometheus.yaml).
+cadvisor:
+  image: gcr.io/cadvisor/cadvisor:v0.52.1
+  port: 8085
+  housekeepingInterval: 2s
+  # Só o que a validação usa; o resto infla as séries e a RAM do Prometheus.
+  disableMetrics: "advtcp,cpu_topology,cpuset,hugetlb,memory_numa,percpu,referenced_memory,resctrl,sched,tcp,udp,process"
+  resources:
+    requests: { cpu: 30m, memory: 64Mi }
+    limits: { memory: 192Mi }

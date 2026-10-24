@@ -31,10 +31,18 @@ module "eks" {
         env = { ENABLE_PREFIX_DELEGATION = "true" }
       })
     }
-    kube-proxy             = {}
-    coredns                = {}
+    kube-proxy = {}
+    # Uma réplica e request menor: nos clusters 2 e 3 tudo divide o único nó com a célula
+    # (Guaranteed de 1,5 CPU), e a soma dos requests tem de caber nos ~1,93 vCPU alocáveis.
+    coredns = {
+      configuration_values = jsonencode({
+        replicaCount = 1
+        resources    = { requests = { cpu = "50m", memory = "70Mi" }, limits = { memory = "170Mi" } }
+      })
+    }
     eks-pod-identity-agent = { before_compute = true }
     aws-ebs-csi-driver = {
+      configuration_values = jsonencode({ controller = { replicaCount = 1 } })
       pod_identity_association = [{
         role_arn        = aws_iam_role.ebs_csi.arn
         service_account = "ebs-csi-controller-sa"
@@ -43,7 +51,7 @@ module "eks" {
     metrics-server = {} # para o kubectl top da coleta
   }
 
-  # gRPC entre células, API (k6 do cluster 1) e administração liberados dentro da VPC.
+  # Portas da POC e dos exportadores liberadas dentro da VPC (var.portas_entre_clusters).
   node_security_group_additional_rules = {
     for nome, porta in var.portas_entre_clusters : "dr_${nome}" => {
       description = "DataReplication ${nome} dentro da VPC"
@@ -72,6 +80,21 @@ module "eks" {
       }
     },
     each.key == "1" ? {
+      # Prometheus fora dos nós das células, para não disputar CPU com o app.
+      monitoramento = {
+        ami_type                   = "AL2023_ARM_64_STANDARD"
+        instance_types             = [var.tipo_no_monitoramento]
+        capacity_type              = "ON_DEMAND"
+        min_size                   = 1
+        max_size                   = 1
+        desired_size               = 1
+        use_custom_launch_template = false
+        disk_size                  = 20
+        labels                     = { "dr/role" = "monitoramento" }
+        taints = {
+          monitoramento = { key = "dr/role", value = "monitoramento", effect = "NO_SCHEDULE" }
+        }
+      }
       k6 = {
         ami_type                   = "AL2023_ARM_64_STANDARD"
         instance_types             = var.tipos_no_k6

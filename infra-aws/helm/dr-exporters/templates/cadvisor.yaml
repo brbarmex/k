@@ -1,0 +1,46 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: cadvisor
+  labels: { app: cadvisor }
+spec:
+  selector:
+    matchLabels: { app: cadvisor }
+  template:
+    metadata:
+      labels: { app: cadvisor }
+    spec:
+      hostNetwork: true
+      tolerations:
+        - operator: Exists
+      containers:
+        - name: cadvisor
+          image: {{ .Values.cadvisor.image }}
+          args:
+            - --port={{ .Values.cadvisor.port }}
+            - --housekeeping_interval={{ .Values.cadvisor.housekeepingInterval }}
+            - --allow_dynamic_housekeeping=false
+            - --docker_only=false
+            - --containerd=/run/containerd/containerd.sock
+            - --store_container_labels=false
+            - --whitelisted_container_labels=io.kubernetes.container.name,io.kubernetes.pod.name,io.kubernetes.pod.namespace
+            - --disable_metrics={{ .Values.cadvisor.disableMetrics }}
+          ports:
+            - name: metrics
+              containerPort: {{ .Values.cadvisor.port }}
+          resources:
+            {{- toYaml .Values.cadvisor.resources | nindent 12 }}
+          securityContext:
+            privileged: true
+          volumeMounts:
+            - { name: rootfs, mountPath: /rootfs, readOnly: true }
+            - { name: run, mountPath: /run, readOnly: true }
+            - { name: sys, mountPath: /sys, readOnly: true }
+            - { name: containerd, mountPath: /var/lib/containerd, readOnly: true }
+            - { name: disk, mountPath: /dev/disk, readOnly: true }
+      volumes:
+        - { name: rootfs, hostPath: { path: / } }
+        - { name: run, hostPath: { path: /run } }
+        - { name: sys, hostPath: { path: /sys } }
+        - { name: containerd, hostPath: { path: /var/lib/containerd } }
+        - { name: disk, hostPath: { path: /dev/disk } }

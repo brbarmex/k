@@ -1,0 +1,126 @@
+# Prometheus (chart oficial prometheus-community/prometheus), só no cluster 1, no nó
+# dr/role=monitoramento:
+#   helm upgrade --install prometheus prometheus-community/prometheus --version 29.37.1 \
+#     -n monitoramento --create-namespace -f helm/valores/prometheus.yaml
+# Raspa os 3 clusters pela VPC: as células pelo DNS privado e os nós (node-exporter e
+# cAdvisor do chart dr-exporters) pelo IP privado, descobertos na API do EC2 com a
+# credencial do Pod Identity (monitoramento/prometheus-server, terraform/sessao/iam.tf).
+# O Grafana fica na sua máquina, por um port-forward só (scripts/ponte.sh).
+
+# Só o servidor. node-exporter e cAdvisor vêm do dr-exporters (em todos os clusters, e o
+# do chart só rodaria no cluster 1); o resto não é usado.
+alertmanager: { enabled: false }
+kube-state-metrics: { enabled: false }
+prometheus-node-exporter: { enabled: false }
+prometheus-pushgateway: { enabled: false }
+
+serviceAccounts:
+  server:
+    create: true
+    name: prometheus-server
+
+server:
+  nodeSelector: { dr/role: monitoramento }
+  tolerations:
+    - { key: dr/role, operator: Equal, value: monitoramento, effect: NoSchedule }
+  # Sessão de ~3,5 h: 2 dias sobram. O que precisa ficar sai pelo task obs:snapshot
+  # antes do destroy.
+  retention: 2d
+  extraFlags:
+    - web.enable-lifecycle
+    - web.enable-admin-api   # snapshot da TSDB (task obs:snapshot)
+  persistentVolume:
+    enabled: true
+    size: 10Gi
+    # Criada pelo chart da célula no mesmo cluster: instale a célula antes.
+    storageClass: gp3-wal
+  resources:
+    requests: { cpu: 500m, memory: 1Gi }
+    limits: { memory: 3Gi }
+  global:
+    scrape_interval: 1s
+    scrape_timeout: 900ms
+    evaluation_interval: 15s
+  service:
+    servicePort: 80
+
+# O chart 29.x monta os jobs a partir deste mapa (a chave vira o job_name). Os padrões do
+# chart, que descobrem pods pela API do Kubernetes do cluster 1, ficam desligados.
+scrapeConfigs:
+  kubernetes-api-servers: { enabled: false }
+  kubernetes-nodes: { enabled: false }
+  kubernetes-nodes-cadvisor: { enabled: false }
+  kubernetes-service-endpoints: { enabled: false }
+  kubernetes-service-endpoints-slow: { enabled: false }
+  prometheus-pushgateway: { enabled: false }
+  kubernetes-services: { enabled: false }
+  kubernetes-pods: { enabled: false }
+  kubernetes-pods-slow: { enabled: false }
+  # Métricas do app (dr_*). O rótulo celula já vem do próprio app.
+  datareplication:
+    dns_sd_configs:
+      - names:
+          - cell-1-0.cell-1.dr.internal
+          - cell-2-0.cell-2.dr.internal
+          - cell-3-0.cell-3.dr.internal
+        type: A
+        port: 9090
+        refresh_interval: 5s
+    relabel_configs:
+      - source_labels: [__meta_dns_name]
+        regex: cell-(\d)-0\..*
+        target_label: cluster
+        replacement: dr-poc-cell-$1
+
+  # Nó: CPU, memória, disco do nó (inclui o volume do WAL: node_disk_*, node_filesystem_*).
+  node-exporter:
+    scrape_interval: 5s
+    scrape_timeout: 4s
+    ec2_sd_configs:
+      - region: sa-east-1
+        port: 9100
+        refresh_interval: 30s
+        filters:
+          - name: tag:eks:cluster-name
+            values: [dr-poc-cell-1, dr-poc-cell-2, dr-poc-cell-3]
+          - name: instance-state-name
+            values: [running]
+    relabel_configs: &nos
+      - source_labels: [__meta_ec2_tag_eks_cluster_name]
+        target_label: cluster
+      - source_labels: [__meta_ec2_tag_eks_nodegroup_name]
+        target_label: nodegroup
+      - source_labels: [__meta_ec2_instance_id]
+        target_label: instance
+      - source_labels: [__meta_ec2_availability_zone]
+        target_label: zona
+
+  # Container: CPU com throttling (cfs), memória, OOM, rede e disco por pod.
+  cadvisor:
+    scrape_interval: 2s
+    scrape_timeout: 1500ms
+    ec2_sd_configs:
+      - region: sa-east-1
+        port: 8085
+        refresh_interval: 30s
+        filters:
+          - name: tag:eks:cluster-name
+            values: [dr-poc-cell-1, dr-poc-cell-2, dr-poc-cell-3]
+          - name: instance-state-name
+            values: [running]
+    relabel_configs: *nos
+    metric_relabel_configs:
+      - source_labels: [__name__]
+        regex: container_(cpu_usage_seconds_total|cpu_cfs_.*|memory_working_set_bytes|memory_rss|memory_usage_bytes|memory_failcnt|oom_events_total|spec_memory_limit_bytes|spec_cpu_quota|spec_cpu_period|fs_.*|network_(receive|transmit)_(bytes|packets_dropped)_total|last_seen|start_time_seconds)|machine_.*|cadvisor_version_info
+        action: keep
+      - source_labels: [container_label_io_kubernetes_pod_namespace]
+        target_label: namespace
+      - source_labels: [container_label_io_kubernetes_pod_name]
+        target_label: pod
+      - source_labels: [container_label_io_kubernetes_container_name]
+        target_label: container
+      - regex: container_label_io_kubernetes_.*
+        action: labeldrop
+
+  prometheus:
+    scrape_interval: 15s

@@ -1,6 +1,0 @@
-# ExternalDNS de um cluster: publica o headless da célula na zona privada dr.internal.
-# O intervalo de 10 s e o TTL de 5 s entram no RTO depois de um pod reiniciar com IP novo.
-apiVersion: kustomize.config.k8s.io/v1beta1
-kind: Kustomization
-resources:
-  - external-dns.yaml

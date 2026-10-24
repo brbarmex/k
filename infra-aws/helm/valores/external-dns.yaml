@@ -1,0 +1,34 @@
+# ExternalDNS (chart oficial kubernetes-sigs/external-dns), um por cluster:
+#   helm upgrade --install external-dns external-dns/external-dns --version 1.22.0 \
+#     -n external-dns --create-namespace -f helm/valores/external-dns.yaml \
+#     --set txtOwnerId=dr-poc-cell-N
+# Publica cell-N.dr.internal e cell-N-0.cell-N.dr.internal na zona privada a partir do
+# headless da célula. Credencial pelo Pod Identity (terraform/sessao/iam.tf espera
+# external-dns/external-dns): nada de chave aqui.
+serviceAccount:
+  name: external-dns
+
+provider:
+  name: aws
+
+sources: [service]
+domainFilters: [dr.internal]
+policy: sync
+registry: txt
+txtPrefix: txt-
+# txtOwnerId vem do --set: cada cluster só apaga os registros que ele criou.
+
+# 10 s entre sincronizações: entra no RTO quando o pod troca de IP.
+interval: 10s
+
+extraArgs:
+  - --aws-zone-type=private
+  - --namespace=dr   # só o headless da célula; RBAC continua de cluster
+
+env:
+  - name: AWS_REGION
+    value: sa-east-1
+
+resources:
+  requests: { cpu: 10m, memory: 50Mi }
+  limits: { memory: 100Mi }
