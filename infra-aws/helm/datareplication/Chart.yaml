@@ -1,0 +1,6 @@
+apiVersion: v2
+name: datareplication
+description: Uma célula da POC do DataReplication num cluster EKS (StatefulSet, headless, PVC gp3).
+type: application
+version: 0.1.0
+appVersion: "poc"

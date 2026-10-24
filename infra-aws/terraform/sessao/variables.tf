@@ -58,6 +58,12 @@ variable "tipos_no_k6" {
   default     = ["t4g.small", "t4g.medium", "m7g.medium"]
 }
 
+variable "tipo_no_monitoramento" {
+  description = "Tipo do nó dedicado ao Prometheus no cluster 1 (on-demand: uma interrupção spot levaria a observação no meio do teste)."
+  type        = string
+  default     = "t4g.medium"
+}
+
 variable "vpc_cidr" {
   description = "CIDR da VPC."
   type        = string
@@ -71,11 +77,13 @@ variable "zona_privada" {
 }
 
 variable "portas_entre_clusters" {
-  description = "Portas da POC liberadas dentro da VPC: gRPC entre células, API para o k6 e administração (/status)."
+  description = "Portas liberadas dentro da VPC: gRPC entre células, API para o k6, administração e métricas do app, node-exporter e cAdvisor (scrape do Prometheus do cluster 1)."
   type        = map(number)
   default = {
-    grpc  = 7000
-    api   = 8000
-    admin = 9090
+    grpc          = 7000
+    api           = 8000
+    admin         = 9090
+    node_exporter = 9100
+    cadvisor      = 8085
   }
 }

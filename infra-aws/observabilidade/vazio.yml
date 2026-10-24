@@ -1,0 +1,3 @@
+# Prometheus de análise: não raspa nada, só lê o snapshot em ./snapshot.
+global:
+  scrape_interval: 1m

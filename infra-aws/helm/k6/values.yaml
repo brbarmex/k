@@ -1,0 +1,4 @@
+# helm upgrade --install k6 ./helm/k6 -n teste --create-namespace (só no cluster 1)
+image: grafana/k6:1.2.0
+resources:
+  requests: { cpu: 500m, memory: 512Mi }

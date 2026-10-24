@@ -1,26 +1,14 @@
-# Prometheus e Grafana na sua máquina para a sessão na AWS (05_observabilidade_local.md,
-# seção 0). As métricas das 3 células chegam pelos port-forwards do scripts/ponte.sh
-# (localhost:19091..19093). Portas diferentes das do compose da POC (9095 e 3000) para
-# os dois poderem rodar juntos. Os dados ficam no volume prometheus-aws e sobrevivem ao
-# destroy da AWS.
+# Grafana na sua máquina para a sessão na AWS. O Prometheus roda no cluster 1 (nó
+# dr/role=monitoramento, helm/valores/prometheus.yaml) e chega aqui pelo port-forward do
+# scripts/ponte.sh (localhost:19090). Porta 3001 para não colidir com o compose da POC.
+#
+# Depois do destroy: task obs:snapshot copia a TSDB para observabilidade/snapshot/ e
+#   docker compose --profile analise up -d
+# sobe um Prometheus local (localhost:9096) sobre ela; aponte o Grafana para ele com
+#   PROM_URL=http://prometheus:9090 docker compose --profile analise up -d
 name: dr-obs-aws
 
 services:
-  prometheus:
-    image: prom/prometheus:v3.5.0
-    command:
-      - --config.file=/etc/prometheus/prometheus.yml
-      - --storage.tsdb.retention.time=30d
-      - --web.enable-lifecycle
-      - --web.enable-admin-api
-    volumes:
-      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
-      - prometheus-aws:/prometheus
-    extra_hosts:
-      - "host.docker.internal:host-gateway" # Linux; no Mac já existe
-    ports:
-      - "9096:9090"
-
   grafana:
     image: grafana/grafana:12.1.0
     environment:
@@ -30,6 +18,7 @@ services:
       GF_AUTH_DISABLE_LOGIN_FORM: "true"
       GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /var/lib/grafana/dashboards/datareplication.json
       GF_USERS_DEFAULT_THEME: dark
+      PROM_URL: "${PROM_URL:-http://host.docker.internal:19090}"
       # CloudWatch com a sua credencial local (perfil do ~/.aws).
       AWS_PROFILE: "${AWS_PROFILE:-default}"
       AWS_SDK_LOAD_CONFIG: "true"
@@ -37,10 +26,22 @@ services:
       - ./grafana/provisioning:/etc/grafana/provisioning:ro
       - ../../DataReplicationApp/observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
       - ${HOME}/.aws:/usr/share/grafana/.aws:ro
+    extra_hosts:
+      - "host.docker.internal:host-gateway" # Linux; no Mac já existe
     ports:
       - "3001:3000"
-    depends_on:
-      - prometheus
 
-volumes:
-  prometheus-aws:
+  # Só para análise depois do destroy, sobre o snapshot trazido da AWS.
+  prometheus:
+    profiles: [analise]
+    image: prom/prometheus:v3.15.1 # mesma versão do chart 29.37.1 na AWS
+    user: root # o snapshot vem com o dono do kubectl cp
+    command:
+      - --config.file=/etc/prometheus/vazio.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=3650d
+    volumes:
+      - ./vazio.yml:/etc/prometheus/vazio.yml:ro
+      - ./snapshot:/prometheus
+    ports:
+      - "9096:9090"

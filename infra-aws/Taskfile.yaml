@@ -8,6 +8,8 @@ vars:
   TF_SESSAO: terraform/sessao
   TF_CONTA: terraform/conta
   CELULAS: "1 2 3"
+  VERSAO_PROMETHEUS: 29.37.1   # chart prometheus-community/prometheus (Prometheus v3.15.1)
+  VERSAO_EXTERNAL_DNS: 1.22.0  # chart kubernetes-sigs/external-dns (v0.22.0)
 
 tasks:
   # ---------- uma vez por conta ----------
@@ -74,46 +76,103 @@ tasks:
     cmds:
       - REGIAO={{.REGIAO}} ./scripts/verificar.sh
 
-  # ---------- Kubernetes ----------
+  # ---------- Kubernetes (Helm) ----------
+  helm:repos:
+    desc: Registra os repositórios dos charts oficiais (Prometheus e ExternalDNS). Uma vez por máquina.
+    cmds:
+      - helm repo add prometheus-community https://prometheus-community.github.io/helm-charts --force-update
+      - helm repo add external-dns https://kubernetes-sigs.github.io/external-dns/ --force-update
+      - helm repo update prometheus-community external-dns
+
   k8s:up:
-    desc: Sobe ExternalDNS e a célula em cada cluster, e o pod do k6 no cluster 1. IMAGE=ghcr.io/...@sha256:... (linux/arm64)
+    desc: "Por cluster: ExternalDNS, exportadores e a célula; no cluster 1 também Prometheus e k6. IMAGE=ghcr.io/...@sha256:... (linux/arm64)"
     requires:
       vars: [IMAGE]
     cmds:
       - for: { var: CELULAS, split: " " }
-        cmd: kubectl kustomize k8s/overlays/cell-{{.ITEM}} | sed "s#IMAGEM_DA_POC#{{.IMAGE}}#" | kubectl --context cluster-{{.ITEM}} apply -f -
-      - kubectl --context cluster-1 apply -k k8s/k6
+        cmd: >-
+          helm --kube-context cluster-{{.ITEM}} upgrade --install external-dns external-dns/external-dns
+          --version {{.VERSAO_EXTERNAL_DNS}} -n external-dns --create-namespace
+          -f helm/valores/external-dns.yaml --set txtOwnerId=dr-poc-cell-{{.ITEM}}
+      - for: { var: CELULAS, split: " " }
+        cmd: >-
+          helm --kube-context cluster-{{.ITEM}} upgrade --install exporters ./helm/dr-exporters
+          -n monitoramento --create-namespace
+      # A célula cria a StorageClass gp3-wal, que o PVC do Prometheus usa: vem antes dele.
+      - for: { var: CELULAS, split: " " }
+        cmd: >-
+          helm --kube-context cluster-{{.ITEM}} upgrade --install cell ./helm/datareplication
+          -n dr --create-namespace --set cellId={{.ITEM}} --set image={{.IMAGE}}
+      - >-
+        helm --kube-context cluster-1 upgrade --install prometheus prometheus-community/prometheus
+        --version {{.VERSAO_PROMETHEUS}} -n monitoramento -f helm/valores/prometheus.yaml
+      - helm --kube-context cluster-1 upgrade --install k6 ./helm/k6 -n teste --create-namespace
 
   k8s:pronto:
-    desc: Espera os 3 registros no DNS privado e o /readyz das 3 células.
+    desc: Espera as 3 células, o /status pelo DNS privado, os alvos do Prometheus e mostra a CPU reservada nos nós.
     cmds:
       - for: { var: CELULAS, split: " " }
         cmd: kubectl --context cluster-{{.ITEM}} -n dr wait --for=condition=Ready pod/cell-{{.ITEM}}-0 --timeout=10m
       - for: { var: CELULAS, split: " " }
         cmd: kubectl --context cluster-1 -n teste exec k6 -- wget -qO- http://cell-{{.ITEM}}-0.cell-{{.ITEM}}.dr.internal:9090/status; echo
+      - kubectl --context cluster-1 -n monitoramento rollout status deploy/prometheus-server --timeout=5m
+      # Esperado: 3 datareplication, 5 node-exporter e 5 cadvisor (3 células, monitoramento e k6), todos "up".
+      - >-
+        kubectl --context cluster-1 -n teste exec k6 --
+        wget -qO- 'http://prometheus-server.monitoramento.svc/api/v1/query?query=count+by+(job)(up==1)'; echo
+      - for: { var: CELULAS, split: " " }
+        cmd: kubectl --context cluster-{{.ITEM}} describe node -l dr/role=cell | grep -A6 'Allocated resources'
 
   k8s:down:
-    desc: Apaga namespaces dr, external-dns e teste e espera os volumes sumirem (antes do aws:down).
+    desc: Remove os releases e os namespaces e espera os volumes sumirem (antes do aws:down).
     cmds:
       - for: { var: CELULAS, split: " " }
-        cmd: kubectl --context cluster-{{.ITEM}} delete namespace dr external-dns teste --ignore-not-found --wait=true
+        cmd: |
+          for r in "cell dr" "exporters monitoramento" "prometheus monitoramento" "external-dns external-dns" "k6 teste"; do
+            set -- $r
+            helm --kube-context cluster-{{.ITEM}} uninstall "$1" -n "$2" --ignore-not-found --wait
+          done
+      # O helm não apaga os PVCs do StatefulSet: o namespace leva junto.
+      - for: { var: CELULAS, split: " " }
+        cmd: kubectl --context cluster-{{.ITEM}} delete namespace dr monitoramento external-dns teste --ignore-not-found --wait=true
       - for: { var: CELULAS, split: " " }
         cmd: |
           until [ -z "$(kubectl --context cluster-{{.ITEM}} get pv -o name)" ]; do
             echo "cluster-{{.ITEM}}: esperando os PVs sumirem..."; sleep 5
           done
 
-  # ---------- observabilidade local ----------
+  # ---------- observabilidade ----------
   obs:up:
-    desc: Prometheus (localhost:9096) e Grafana (localhost:3001) na sua máquina.
+    desc: Grafana na sua máquina (localhost:3001), lendo o Prometheus do cluster 1 pelo obs:ponte.
     dir: observabilidade
     cmds:
-      - docker compose up -d
+      - docker compose up -d grafana
 
   obs:ponte:
-    desc: Port-forwards em laço das 3 células (métricas em 1909N, API em 1800N). Ctrl-C encerra.
+    desc: Port-forwards em laço (Prometheus em 19090; células em 1909N e 1800N). Ctrl-C encerra.
     cmds:
       - ./scripts/ponte.sh
+
+  obs:snapshot:
+    desc: Copia um snapshot da TSDB do Prometheus para observabilidade/snapshot/ (antes do k8s:down).
+    vars:
+      POD:
+        sh: kubectl --context cluster-1 -n monitoramento get pod -l app.kubernetes.io/name=prometheus,app.kubernetes.io/component=server -o jsonpath='{.items[0].metadata.name}'
+    cmds:
+      - |
+        NOME=$(kubectl --context cluster-1 -n monitoramento exec {{.POD}} -c prometheus-server -- \
+          wget -qO- --post-data='' http://localhost:9090/api/v1/admin/tsdb/snapshot \
+          | python3 -c 'import json,sys; print(json.load(sys.stdin)["data"]["name"])')
+        rm -rf observabilidade/snapshot
+        kubectl --context cluster-1 -n monitoramento cp -c prometheus-server \
+          {{.POD}}:/data/snapshots/$NOME observabilidade/snapshot
+        du -sh observabilidade/snapshot
+
+  obs:analise:
+    desc: Depois do destroy, Prometheus local (localhost:9096) sobre o snapshot e o Grafana apontando para ele.
+    dir: observabilidade
+    cmds:
+      - PROM_URL=http://prometheus:9090 docker compose --profile analise up -d --force-recreate
 
   # ---------- carga ----------
   k6:rodar:
@@ -151,7 +210,7 @@ tasks:
     requires:
       vars: [CLUSTER]
     cmds:
-      - kubectl --context cluster-{{.CLUSTER}} apply -f k8s/falhas/netshoot.yaml
+      - kubectl --context cluster-{{.CLUSTER}} apply -f falhas/netshoot.yaml
       - kubectl --context cluster-{{.CLUSTER}} wait --for=condition=Ready pod/falha --timeout=2m
       - kubectl --context cluster-{{.CLUSTER}} exec -it falha -- bash
     interactive: true

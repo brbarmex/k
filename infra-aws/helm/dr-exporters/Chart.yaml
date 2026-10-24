@@ -1,0 +1,5 @@
+apiVersion: v2
+name: dr-exporters
+description: node-exporter e cAdvisor em todos os nós do cluster, na rede do nó, para o Prometheus do cluster 1 raspar pelo IP (ec2_sd).
+type: application
+version: 0.1.0

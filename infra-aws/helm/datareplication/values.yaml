@@ -1,0 +1,44 @@
+# Uma célula por cluster: helm upgrade --install cell ./helm/datareplication -n dr
+#   --create-namespace --set cellId=N --set image=ghcr.io/...@sha256:...
+# Variáveis obrigatórias do app conferidas na main 127c7e8. NUNCA acrescentar
+# AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY nem DYNAMODB_ENDPOINT (chave estática ganha do
+# Pod Identity e o DynamoDB real recusa; a POC para o applier como erro permanente).
+
+cellId: ""        # obrigatório: 1, 2 ou 3 (CELL_ID e NODE_ID)
+image: ""         # obrigatório: imagem linux/arm64, de preferência por digest
+
+clusterId: dr-poc-aws
+region: sa-east-1
+dnsZone: dr.internal
+cells: [1, 2, 3]  # monta o PEERS, idêntico nas 3 células (RT-10)
+ports:
+  api: 8000
+  grpc: 7000
+  admin: 9090
+tables: "cadastro_cliente_cell_{cell}"
+
+# AMB-08 da validação: o ELECTION_TICKS=30 do compose esconderia o RTO real.
+electionTicks: 10
+applyWorkers: 16
+gomemlimit: 800MiB
+extraEnv: []      # lista de {name, value} para as variáveis da compactação etc.
+
+resources:
+  cpu: 1500m
+  memory: 1Gi
+
+storage:
+  size: 10Gi
+  className: gp3-wal
+
+# A StorageClass é do cluster; a célula a cria porque é o primeiro chart a precisar dela.
+storageClass:
+  create: true
+  iops: "3000"
+  throughput: "125"
+  tag: "projeto=dr-poc"   # o aws:verificar e a autodestruição acham volume órfão por ela
+
+externalDns:
+  ttl: "5"
+
+serviceAccountName: datareplication  # o Pod Identity (terraform/sessao/iam.tf) espera dr/datareplication

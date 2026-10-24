@@ -1,12 +1,13 @@
 apiVersion: 1
 
 datasources:
-  # Mesmo uid do compose da POC: o dashboard v2 funciona sem mudança.
+  # Mesmo uid do compose da POC: o dashboard funciona sem mudança. PROM_URL vem do
+  # compose (Prometheus do cluster 1 pelo port-forward, ou o local de análise).
   - name: Prometheus
     uid: prometheus-dr
     type: prometheus
     access: proxy
-    url: http://prometheus:9090
+    url: ${PROM_URL}
     isDefault: true
     editable: false
     jsonData:
