@@ -188,3 +188,85 @@ func classify(err error) error {
 		return fmt.Errorf("%w: %v", port.ErrStorePermanent, err)
 	}
 }
+
+// ScanVersioned é o Scan consistente com a versão de cada item, para a cópia da
+// reconstrução (AP-18, DC-11): devolve a chave canônica, o item sem _dr_v e a versão
+// (0 sem _dr_v). Nunca chega à API.
+func (s *Store) ScanVersioned(ctx context.Context, table domain.LogicalTable, limit int, startKey []byte) (port.VersionedPage, error) {
+	phys, ok := s.tables.Physical(table)
+	if !ok {
+		return port.VersionedPage{}, fmt.Errorf("%w: tabela %s fora da lista", port.ErrStorePermanent, table)
+	}
+	ks, ok := s.KeySchema(table)
+	if !ok {
+		return port.VersionedPage{}, fmt.Errorf("%w: tabela %s sem KeySchema conferido", port.ErrStorePermanent, table)
+	}
+	in := &dynamodb.ScanInput{TableName: aws.String(phys), ConsistentRead: aws.Bool(true)}
+	if limit > 0 {
+		in.Limit = aws.Int32(int32(limit))
+	}
+	if len(startKey) > 0 {
+		k, err := itemFromJSON(startKey)
+		if err != nil {
+			return port.VersionedPage{}, fmt.Errorf("%w: %v", port.ErrStorePermanent, err)
+		}
+		in.ExclusiveStartKey = k
+	}
+	out, err := s.client.Scan(ctx, in)
+	if err != nil {
+		return port.VersionedPage{}, classify(err)
+	}
+	page := port.VersionedPage{Items: make([]port.VersionedItem, 0, len(out.Items))}
+	for _, it := range out.Items {
+		var v uint64
+		if n, ok := it[VersionAttr].(*types.AttributeValueMemberN); ok {
+			if v, err = strconv.ParseUint(n.Value, 10, 64); err != nil {
+				return port.VersionedPage{}, fmt.Errorf("%w: _dr_v ilegível %q", port.ErrStorePermanent, n.Value)
+			}
+		}
+		key := map[string]types.AttributeValue{}
+		for _, name := range ks.Names() {
+			if av, ok := it[name]; ok {
+				key[name] = av
+			}
+		}
+		k, err := s.canonicalKey(table, key)
+		if err != nil {
+			return port.VersionedPage{}, err
+		}
+		b, err := itemToJSON(stripVersion(it))
+		if err != nil {
+			return port.VersionedPage{}, err
+		}
+		page.Items = append(page.Items, port.VersionedItem{Key: k, Item: b, Version: domain.Index(v)})
+	}
+	if len(out.LastEvaluatedKey) > 0 {
+		lk, err := s.canonicalKey(table, out.LastEvaluatedKey)
+		if err != nil {
+			return port.VersionedPage{}, err
+		}
+		page.LastKey = lk
+	}
+	return page, nil
+}
+
+// HasItems diz se alguma das tabelas tem pelo menos um item (um Scan com Limit 1 por
+// tabela). Só o fail-fast da partida usa (DC-12). Tabela ausente é erro: a partida espera
+// e tenta de novo.
+func (s *Store) HasItems(ctx context.Context, tables []domain.LogicalTable) (bool, error) {
+	for _, t := range tables {
+		phys, ok := s.tables.Physical(t)
+		if !ok {
+			return false, fmt.Errorf("%w: tabela %s fora da lista", port.ErrStorePermanent, t)
+		}
+		out, err := s.client.Scan(ctx, &dynamodb.ScanInput{TableName: aws.String(phys), Limit: aws.Int32(1),
+			ConsistentRead: aws.Bool(true)})
+		if err != nil {
+			return false, classify(err)
+		}
+		if len(out.Items) > 0 {
+			return true, nil
+		}
+	}
+	return false, nil
+}

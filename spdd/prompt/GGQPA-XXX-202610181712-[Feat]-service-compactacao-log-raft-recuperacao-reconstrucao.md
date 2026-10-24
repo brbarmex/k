@@ -18,6 +18,9 @@
   - **DC-10**: o pino da reconstrução na fonte dura até o `CatchUp` da célula reconstruída começar, ou até `REBUILD_PIN_TTL` (padrão de 5 min) passar sem isso, e não só enquanto dura o fluxo do `CopyTable`.
   - **DC-11** (P-02, aprovada pelo Bruno em 18/10): a reconstrução **sobrescreve no lugar** a tabela que a célula já tem, com o mesmo `PutItem` condicional do apply (`_dr_v` gravado < `_dr_v` copiado). Não apaga nem recria a tabela, e não usa tabela sombra. Um item só anda para frente, e uma tentativa abortada deixa a tabela pelo menos como estava. A tabela é a da IaC/`create-tables`; a aplicação não precisa de `DeleteTable` nem de `CreateTable`. Dois limites aceitos: (1) um item apagado na fonte continuaria vivo na célula, o que hoje não acontece porque não há `DeleteItem` (AP-19); a lápide com `_dr_v` fica para quando o delete entrar; (2) com uma história diferente (`cluster_id` ou `epoch` da fonte diferente do marcador local), a sobrescrita não é segura e a reconstrução é **recusada**, sem alternativa nesta entrega.
   - **DC-12** (P-03, aprovada pelo Bruno em 18/10): **fail-fast do volume do Raft perdido.** Uma célula com o volume do Raft vazio só cria o grupo quando ele está nascendo. Se há qualquer sinal de que o grupo já existe (um par rodando cujo `Genesis` não tem o token de partida desta célula, ou a tabela local já com itens), ela **não sobe**: sai com `ErrLostRaftVolume` e um log que aponta para `parklot/adr-troca-de-pvc-em-cell-ativa.md`. Na POC, a saída é `task clean`. A devolução segura da célula (remover o ID e adicionar um novo por ConfChange) é a feature `troca-de-pvc-em-cell-ativa`, no parking lot. Fica no Incremento B, porque usa o `Retained`.
+  - **DC-18** (da implementação do Incremento B, 24/10): **o buraco do marcador recebido.** Um marcador aceito (RT-18) pula as entradas até o índice dele, que nunca entram no log local. Uma célula que se recuperou assim e depois serve de fonte do `CatchUp` cairia no erro fatal de contiguidade do `LogReader` ao ler uma faixa que atravessa o buraco. O índice do último marcador recebido fica num arquivo ao lado do marcador (`snapshot-recebido`, gravado antes do marcador e do `wal.SaveSnapshot`, para que uma queda só deixe o buraco maior), e o `LogReader.FirstRetained()` nunca fica abaixo dele + 1. A numeração continua depois da DC-17, usada pela observabilidade (`GGQPA-XXX-202610240015`).
+  - **DC-19** (da verificação da CA-24, 24/10): **o destino de cada mensagem entre células é conferido no recebimento.** Com containers parando e reiniciando, o Docker reaproveita o IP de um para outro, e a conexão gRPC que uma célula tinha com um par passa a cair noutra célula. Um heartbeat da líder para o par 3 (com `commit = Match[3]`) chegou à célula 1, com o log atrás desse commit, e o etcd-raft entrou em pânico (`tocommit(785) is out of range`), em reinício contínuo. Regras: o `Node.Step` descarta toda mensagem com `To` diferente do próprio nó, com log de taxa limitada `"mensagem do Raft para outro nó descartada"`; o `GateUpdate` leva `To` e é ignorado (sem `Applied` na resposta) quando é para outro nó; o `CatchUp` e o `CopyTable` levam `Node` e respondem `SOURCE_NOT_READY`; o `peerclient.Retained` devolve `ErrSourceGone` quando a resposta vem de outro nó (a pré-partida também informa o `Node`). Destino 0 (célula de versão anterior) é aceito.
+  - **DC-20** (da verificação da CA-25, 24/10): **a saída da janela não tem volta.** Na regra da O-31, um par está na janela enquanto os bytes retidos desde o `Match` cabem em `RETAIN_MAX_BYTES`. Com o par parado, os bytes passam do teto por um ciclo, o par sai, o piso sobe e o segmento com o `Match` dele é apagado. No ciclo seguinte, a conta começa do primeiro segmento que sobrou, cabe de novo e o par volta a parecer "na janela", mas o que ele precisa já não existe. Medido: o retido da líder nunca passou de 3 MiB e a janela só fechou depois de 12.800 itens. Regra: `LeaderFloor` também exige `Match + 1 ≥ FirstRetained()`; `Match` 0 (desconhecido, logo depois de uma eleição) segue só a regra dos bytes. O `Compactor` passa a logar cada segmento removido (`"segmento do WAL removido"`, com `limite`, `piso` e `aplicadoDuravel`), uma linha por arquivo.
 - **Limites**: um shard, só AWS e sem troca de membros (o RT-10 continua: `PEERS` × `ConfState`). Ficam fora a regra K=1 da Azure, a supressão de candidatura, a promoção, a transferência de liderança, a tabela sombra da D8 e a recriação da tabela do AP-18 (as duas substituídas pela sobrescrita no lugar, DC-11). Sem `DeleteItem` (AP-19). Backup e restauração do banco e do WAL não são deste produto (P-04, 18/10): são feitos por outro escopo. As tasks novas seguem os nomes em inglês do `taskfile.yaml`, com os nomes da spec como `aliases`. Os passos são numerados a partir de O-30, porque O-16 a O-29 já existem no prompt da POC base.
 - **Pronto quando**: CA-20 a CA-27 passam (com as adaptações de execução da O-44), os critérios antigos CA-01 a CA-19 continuam passando e `go test -race ./...` passa no container de teste.
 
@@ -229,16 +232,16 @@ Notas de modelagem (extensão conservadora do que existe):
 1. A interface `port.ApplyProgress` ganha `Sync() (domain.Index, error)`. `progress.File` a implementa.
 2. A interface nova `port.SnapshotPolicy` (`Applied() domain.Index`, `Behind(target domain.Index)`) é implementada por `usecase.Recovery`. O `etcdraft.Node` a consome.
 3. A interface nova `port.LogSource` (`Read(ctx, lo, hi domain.Index, maxBytes uint64) ([]domain.Entry, error)`, `FirstRetained() domain.Index`) é implementada pelo `etcdraft.LogReader`. O `peergrpc.Server` a consome (para o `CatchUp`).
-4. A interface nova `port.RetentionPins` (`Pin(owner string, idx domain.Index) (release func())`, `PinFor(owner string, idx domain.Index, ttl time.Duration)`, `Unpin(owner string)`) é implementada pelo `etcdraft.Retention`. O `LogReader`, o `peergrpc.Server` e o `Compactor` a consomem.
+4. A interface nova `port.RetentionPins` (`Pin(owner string, idx domain.Index) (release func())`, `PinFor(owner string, idx domain.Index, ttl time.Duration)`, `Unpin(owner string)` e `Has(owner string) bool`, este para o `CopyTable` notar o pino solto pelo teto duro) é implementada pelo `etcdraft.Retention`. O `LogReader`, o `peergrpc.Server` e o `Compactor` a consomem.
 5. A interface nova `port.RetentionFloorSink` (`SetFloor(domain.Index)`) é implementada pelo `etcdraft.Retention`. O `usecase.GateSync` a consome.
 6. A interface nova `port.RecoveryClient` (`Retained`, `CatchUp`, `CopyTable`) é implementada por `peerclient.Client`. `usecase.Recovery` e `usecase.Rebuild` a consomem.
 7. As interfaces novas `port.EntryStream` (`Recv() (CatchUpBatch, error)`, `Close()`) e `port.CopyStream` (`Recv() (CopyPage, error)`, `Close()`) são implementadas pelo `peerclient`.
 8. Não há interface de administração de tabela: a reconstrução grava pelo `port.StateStore` e confere o `KeySchema` pelo `port.Catalog`, que já existem (DC-11).
 9. A interface `port.Scanner` ganha `ScanVersioned(ctx, table, limit, startKey) (VersionedPage, error)`. `dynamodb.Store` a implementa.
 10. A interface `port.GatePublisher` muda para `Publish(gate, floor domain.Index)`. `peerclient.Client` a implementa.
-11. A interface `peergrpc.GateReceiver` muda para `OnGateUpdate(gate, floor domain.Index)`. `usecase.GateSync` a implementa.
+11. A interface `peergrpc.GateReceiver` muda para `OnGateUpdate(gate, floor domain.Index) (applied domain.Index, ok bool)`: o aplicado local volta na resposta (DC-15 da observabilidade). `usecase.GateSync` a implementa.
 12. A interface `peerv1.PeerServer` ganha `Retained(ctx, *RetainedRequest) (*RetainedResponse, error)`, `CatchUp(*CatchUpRequest, CatchUpServer) error` e `CopyTable(*CopyTableRequest, CopyTableServer) error`.
-13. Os erros novos do usecase: `ErrCellRecovering`, `ErrNoSource`, `ErrRebuildAborted`, `ErrRestartAfterRebuild`, `ErrHistoryMismatch` e `ErrSchemaMismatch` (DC-11) e `ErrLostRaftVolume` (DC-12) (sentinelas com `errors.New`, como as existentes). Os erros novos do `etcdraft`: `ErrIdentity` (metadado do WAL de outro grupo ou formato antigo) e `ErrNotRetained` (faixa fora do disco retido).
+13. Os erros novos do usecase: `ErrCellRecovering`, `ErrNoSource`, `ErrRebuildAborted`, `ErrRestartAfterRebuild`, `ErrHistoryMismatch` e `ErrSchemaMismatch` (DC-11), `ErrLostRaftVolume` (DC-12), `ErrCaughtUp` e `ErrLeaderRebuild` (o 409 do disparo manual) (sentinelas com `errors.New`, como as existentes, em `usecase/recovery.go` e `usecase/rebuild.go`). Os erros novos do `etcdraft`: `ErrIdentity` (metadado do WAL de outro grupo ou formato antigo) e `ErrNotRetained` (faixa fora do disco retido).
 
 ### Dependencies
 1. `etcdraft.Node` passa a depender de `port.SnapshotPolicy` (aceitação do `MsgSnap`) e possui o `LogReader`, a `Retention` e o `Compactor` (mesmo pacote, porque só o `etcdraft` toca o `wal`, o `raftpb` e o `MemoryStorage`).
@@ -328,7 +331,7 @@ Notas de modelagem (extensão conservadora do que existe):
    - `(v RetentionView) RetainedSince(i Index) int64`: a soma de `Bytes` a partir do último segmento com `First ≤ i` (do primeiro segmento, se nenhum).
    - `(v RetentionView) Removable(limit Index) []Segment`: o segmento k é removível se `k+1` existe, `Segments[k+1].First ≤ limit` e `k+1` não é o último (a cauda e o segmento anterior a ela nunca saem).
    - `(v RetentionView) FirstRetained() Index`: `Segments[0].First`, ou `Snapshot + 1` se a lista estiver vazia.
-   - `LeaderFloor(match map[uint64]Index, self uint64, v RetentionView, retainMax int64) (floor Index, inWindow map[uint64]bool)`: para cada par ≠ `self`, ele está na janela se `v.RetainedSince(m) ≤ retainMax`. `floor` = o menor `Match` na janela; sem nenhum par na janela, `floor = v.Snapshot`.
+   - `LeaderFloor(match map[uint64]Index, self uint64, v RetentionView, retainMax int64) (floor Index, inWindow map[uint64]bool)`: para cada par ≠ `self`, ele está na janela se `v.RetainedSince(m) ≤ retainMax` e, com `m > 0`, `m + 1 ≥ v.FirstRetained()` (DC-20). `floor` = o menor `Match` na janela; sem nenhum par na janela, `floor = v.Snapshot`.
 5. `sizes.go`: `ParseSize(s string) (int64, error)` aceita um inteiro de bytes ou os sufixos `KiB`, `MiB`, `GiB`, `TiB` (base 1024) e `KB`, `MB`, `GB` (base 1000); rejeita negativo e overflow.
 6. `gate.go`:
    - Campo `recovered Index`.
@@ -410,7 +413,7 @@ Notas de modelagem (extensão conservadora do que existe):
      - Fecha os arquivos e confere a contiguidade da saída a partir de `lo`; um buraco é erro fatal (`"logreader: buraco em %d"`).
        - Saída vazia com `lo ≤ min(hi, ramFirst − 1)` → `ErrNotRetained`.
      - O `ctx` é conferido a cada 1.000 registros.
-   - `FirstRetained()`: `max(RetentionView{Segments}.FirstRetained(), 2)`: o índice 1 é o snapshot sintético de partida e nunca é uma entrada.
+   - `FirstRetained()`: `max(RetentionView{Segments}.FirstRetained(), 2, buraco + 1)`: o índice 1 é o snapshot sintético de partida e nunca é uma entrada, e nada até o último marcador recebido está no log local (DC-18, O-36).
    - `ErrNotRetained` fica em `port` (o `CommitPump` o confere sem importar o `etcdraft`); o `etcdraft` o reexporta.
 3. `Node.CommittedEntries` passa a delegar ao `LogReader.Read` (a assinatura da porta não muda). `Node.FirstIndex()` passa a devolver o primeiro índice retido em disco (`LogReader.FirstRetained()`). `Node.LogReader() port.LogSource` e `Node.Pins() port.RetentionPins` expõem os dois ao `bootstrap`.
 4. `CommitPump.runCommits`: o cursor de partida continua `next = max(p.From, FirstIndex(), 1)`, mas o `FirstIndex` passa a ser o primeiro retido **em disco** (não mais o da RAM). Começar no primeiro retido é seguro: o disco só é liberado até o progresso durável (G1), então tudo o que está antes dele já foi aplicado. Na partida, sem a entrada `next` na RAM nem no disco (`ErrNotRetained`), o pump não é fatal: espera o commit avançar (a célula está atrás da cauda e vai receber `MsgSnap`; O-36 e O-39). Fora da partida, `ErrNotRetained` continua fatal (é bug, pelo G1).
@@ -459,7 +462,7 @@ Notas de modelagem (extensão conservadora do que existe):
    - `peerv1.GateUpdateRequest` ganha `Floor uint64`.
    - `port.GatePublisher.Publish(gate, floor domain.Index)`.
    - `GateSync.Tick` publica `(gate, s.Floor())`, com `Floor func() domain.Index` vindo do `Node` (o piso calculado no último ciclo).
-   - `GateSync.OnGateUpdate(gate, floor)` faz `Gate.SetReceived(gate)` e `FloorSink.SetFloor(floor)`.
+   - `GateSync.OnGateUpdate(gate, floor)` faz `Gate.SetReceived(gate)` e `FloorSink.SetFloor(floor)`. Ele devolve o aplicado local, que vai na resposta do `GateUpdate` (O-48 da observabilidade).
    - `peerclient` guarda os dois valores no `p.gate`.
 9. `Node.Status()` passa a preencher também a janela por par (para o `/status` da líder).
 10. Testes:
@@ -477,6 +480,7 @@ Notas de modelagem (extensão conservadora do que existe):
    - `S := m.Snapshot.Metadata.Index`. Com `Policy != nil` e `Policy.Applied() < S`, descarta e chama `Policy.Behind(S)`. A métrica `SnapshotDeferred()` (port) conta o caso. Nada chega ao Raft (SG-19).
    - Senão, entrega.
 3. `handleReady` com `!raft.IsEmptySnap(rd.Snapshot)`, na ordem:
+   - (DC-18) `writeHole(<marcador>-recebido, S)` com fsync, antes de tudo; o `Node` guarda o índice num atômico, lido de volta na partida (`readHole`; ausente = 0);
    - `writeMarker(path, decoded, S)`;
    - `wal.SaveSnapshot(walpb.Snapshot{Index, Term, ConfState})`;
    - `wal.Save(rd.HardState, rd.Entries)` (o passo de sempre);
@@ -526,7 +530,7 @@ Notas de modelagem (extensão conservadora do que existe):
    - `port.Metrics` ganha `SnapshotTaken(d)`, `SnapshotDeferred()` e `StartupDuration(d)` (e `NopMetrics` e os fakes). `prommetrics` ganha `dr_raft_snapshot_duration_seconds` (histograma), `dr_raft_snapshot_deferred_total` e `dr_startup_duration_seconds` (gauge com o último valor).
    - `port.RaftInfo` ganha `Snapshot`, `MemEntries`, `MemBytes`, `RetainedBytes`, `RetainedFiles`, `Floor`, `Pins`, `HardCeiling`, `HeldByApplied`, `BehindTail` e `Window map[uint64]bool` (só na líder), preenchidos pelo `Node.Status()` a partir do retrato do `Compactor` e da política.
    - `CellStatus` ganha os blocos `raft` (`snapshot`, `memoria{entradas, bytes}`, `atrasCauda`) e `wal` (`retido{bytes, arquivos}`, `piso`, `pinos`, `tetoDuro`, `janela`, só na líder), com as chaves em português e camelCase. `Ready()` ganha o caso `tetoDuro && seguradoPeloAplicado` → `"disco no teto duro: reconstrução necessária"`.
-   - Ficam na O-42 (Incremento B): `celula`, `recuperacao`, `reconstrucao`, `compactacao`, as métricas `CatchUpEntries` e `RebuildItems`, os gauges coletados do `/status` e o dashboard.
+   - Ficam na O-42 (Incremento B): `celula`, `recuperacao`, `reconstrucao`, `compactacao`, as métricas `CatchUpEntries` e `RebuildItems`, os gauges do disco e do estado e a linha 11 do dashboard. Os gauges da RAM e do snapshot vieram antes, com a observabilidade (O-51 de `GGQPA-XXX-202610240015`).
 
 ### O-38 Update Transport - `api/peerv1`, `peergrpc`, `peerclient`: `Retained`, `CatchUp` e `CopyTable` (RT-19, SG-21, DC-10)
 1. `api/peerv1`:
@@ -536,13 +540,13 @@ Notas de modelagem (extensão conservadora do que existe):
    - `ServiceDesc.Streams` com `grpc.StreamDesc{StreamName: "CatchUp", ServerStreams: true, Handler: ...}` e o mesmo para `CopyTable`. Os handlers fazem `stream.RecvMsg(req)` e chamam `srv.CatchUp(req, &catchUpServer{stream})`.
    - O `Client` ganha `Retained`, `CatchUp(ctx, req) (CatchUpClient, error)` e `CopyTable(...)`, por `cc.NewStream(ctx, &ServiceDesc.Streams[i], "/"+ServiceName+"/CatchUp")`, `SendMsg` e `CloseSend`.
    - Códigos novos em `codes.go`: `NOT_RETAINED`, `SOURCE_NOT_READY`, `REBUILD_ABORTED` e `CELL_RECOVERING`, com `CodeOf`/`ErrOf` simétricos.
-2. `peergrpc.Server` ganha os campos `Log port.LogSource`, `Pins port.RetentionPins`, `Scanner port.Scanner`, `Catalog port.Catalog`, `Mode *domain.CellMode`, `Gate *domain.Gate`, `Applied port.AppliedWaiter`, `Status port.RaftStatus`, `Tables []domain.LogicalTable`, `PinTTL time.Duration` e `Identity func() (clusterID string, epoch uint64)` (do marcador do `etcdraft.Node`), e os métodos:
+2. `peergrpc.Server` ganha os campos `Log port.LogSource`, `Pins port.RetentionPins`, `Scanner port.Scanner`, `Catalog port.Catalog`, `Mode *domain.CellMode`, `SourceGate *domain.Gate` (o nome `Gate` já é o `GateReceiver`), `Applied port.AppliedWaiter`, `Status port.RaftStatus`, `Tables []domain.LogicalTable`, `PinTTL time.Duration`, `Identity func() (clusterID string, epoch uint64)` (do marcador do `etcdraft.Node`), `Genesis func() map[uint64]string` e `PreBoot *PreBoot{ClusterID, BootToken}` (não nulo = modo pré-partida), e os métodos:
    - `Retained`: devolve `Log.FirstRetained()`, o commit, `Gate.Index()`, `Mode.State().String()`, se é a líder, a identidade (`Identity()`) e o `Genesis` gravado no metadado do WAL. Na **pré-partida** (DC-12, antes do `etcdraft.Open`), responde só `{ClusterID, EmptyVolume: true, BootToken, State: "partida"}`; os outros métodos respondem `SOURCE_NOT_READY` e o `Step` é descartado.
    - `CatchUp(req, stream)`:
      - Fora de `normal` → uma mensagem com `SOURCE_NOT_READY` e fim.
      - `req.From < Log.FirstRetained()` → `NOT_RETAINED`.
      - `Pins.Unpin("reconstrucao-<owner>")` (DC-10: o `CatchUp` da célula reconstruída começou) e `release := Pins.Pin("catchup-<owner>", next − 1)`.
-     - Laço `next = From` até `next > To`: `hi := min(To, Gate.Index())` (SG-21). Com `next > hi`, espera `Gate.Changed()` ou o contexto. `ents := Log.Read(ctx, next, hi, 1 MiB)`. Envia `CatchUpBatch{Entries, SourceGate: hi}`, atualiza o pino para `next − 1` e avança.
+     - Laço `next = From` até `next > To`: `hi := min(To, SourceGate.Index())` (SG-21). Com `next > hi`, espera `SourceGate.Changed()` ou o contexto. `ents := Log.Read(ctx, next, hi, 1 MiB)`. Lote vazio (numa follower, o commit local ainda atrás do gate recebido) espera 10 ms e lê de novo. Envia `CatchUpBatch{Entries, SourceGate: hi}`, atualiza o pino para o último enviado e avança.
      - `ErrNotRetained` no meio → `NOT_RETAINED`.
    - `CopyTable(req, stream)`:
      - Fora de `normal` → `SOURCE_NOT_READY`.
@@ -551,7 +555,7 @@ Notas de modelagem (extensão conservadora do que existe):
      - Ao terminar (bem ou mal), troca o pino por `PinFor(..., F − 1, PinTTL)`.
      - Se o pino sumiu pelo teto duro (o `Compactor` chamou `DropRebuildPins`; conferido a cada página por `Pins.Has(owner)`), envia `REBUILD_ABORTED` e termina.
 3. `peerclient` implementa `port.RecoveryClient`:
-   - `Retained(ctx, node uint64) (port.RetainedInfo, error)`.
+   - `Retained(ctx, node uint64) (port.RetainedInfo, error)`, com prazo de 1 s. `port.RetainedInfo.State` é texto, porque a pré-partida responde `"partida"`.
    - `CatchUp(ctx, node, from, to) (port.EntryStream, error)`.
    - `CopyTable(ctx, node, tables) (port.CopyStream, error)`.
    - Os códigos viram erros: `NOT_RETAINED` → `port.ErrNotRetained`, `SOURCE_NOT_READY` → `port.ErrSourceNotReady` e `REBUILD_ABORTED` → `usecase.ErrRebuildAborted`. Um erro de transporte vira `port.ErrSourceGone`.
@@ -565,7 +569,7 @@ Notas de modelagem (extensão conservadora do que existe):
    - O pino com TTL depois do fluxo e solto pelo `CatchUp` do mesmo dono.
 
 ### O-39 Implement Service - `usecase/recovery.go`; Update Service - `CommitPump` (AP-16, AP-17, DC-02, DC-03)
-1. `Recovery` implementa `port.SnapshotPolicy`. Atributos: `Self uint64`, `Peers []uint64`, `Client port.RecoveryClient`, `Mode *domain.CellMode`, `Gate *domain.Gate`, `Applied port.AppliedWaiter`, `Retry time.Duration` (`REBUILD_RETRY`), `Metrics`, `Log`, `stream port.EntryStream`, `from domain.Index` e `progress struct{ fonte uint64; de, ate, alcancado domain.Index }` (para o `/status`).
+1. `Recovery` implementa `port.SnapshotPolicy`. Atributos: `Self uint64`, `Peers []uint64`, `Client port.RecoveryClient`, `Mode *domain.CellMode`, `Gate *domain.Gate`, `Applier port.AppliedWaiter` (o nome `Applied` é o método da `SnapshotPolicy`), `Retry time.Duration` (`REBUILD_RETRY`), `Metrics`, `Log`, `stream port.EntryStream`, `from domain.Index` e `prog RecoveryProgress{Fonte; De, Ate, Alcancado}` sob mutex, lido por `Progress()` (para o `/status`). Uma fonte que recusa o fluxo ou cai no meio é trocada depois de 200 ms, para o pump não girar em vazio.
 2. `Applied()`: `Applied.Applied()`.
 3. `Behind(S)`: `if Mode.EnterRecovering(S) { log "célula atrás: recuperando até %d" com taxa limitada }`. Em `reconstruindo`, ignora.
 4. `Next(ctx, from domain.Index) ([]domain.Entry, error)`. É chamado só pelo `CommitPump` em `recuperando`:
@@ -581,9 +585,10 @@ Notas de modelagem (extensão conservadora do que existe):
      - `ErrSourceGone`/`ErrSourceNotReady` → descarta o stream e escolhe outra fonte.
      - `ErrNotRetained` → `ErrNoSource`.
    - Confere `b.Entries[0].Index == from` (senão, erro fatal de contiguidade). Faz `Gate.SetRecovered(min(último índice, b.SourceGate))` **antes** de devolver (DC-02). Atualiza o progresso e `Metrics.CatchUpEntries(len)`.
-5. `CommitPump` ganha os campos `Mode *domain.CellMode` e `Remote interface{ Next(ctx, domain.Index) ([]domain.Entry, error) }`. Em `runCommits`, no começo de cada volta:
+5. `CommitPump` ganha os campos `Mode *domain.CellMode`, `Remote RemoteSource` (`Next(ctx, domain.Index) ([]domain.Entry, error)`), `Applied port.AppliedWaiter` e `Log`. Toda espera do caminho normal também acorda com `Mode.Changed()`. `deliver` confere a contiguidade do lote inteiro. Em `runCommits`, no começo de cada volta:
    - `Mode.State() == CellRecovering`: `ents, err := Remote.Next(ctx, next)`.
-     - `ErrCaughtUp`: espera `Applied.WaitApplied(ctx, Target)` numa goroutine de término (uma por alvo), que faz `Mode.SetNormal()` e loga `"recuperação concluída"`. Depois o pump espera `Mode.Changed()` ou `CommitChanged()`.
+     - `ErrCaughtUp`: espera `Applied.WaitApplied(ctx, Target)` numa goroutine de término (uma por alvo), que faz `Mode.SetNormalIf(alvo)` e loga `"recuperação concluída"`. Depois o pump espera `Mode.Changed()` ou `CommitChanged()`.
+     - `domain.CellMode` ganha `SetNormalIf(t) bool` (volta a normal só se o alvo ainda é t: um alvo que subiu enquanto o aplicado alcançava o antigo mantém a recuperação), e `EnterRecovering` passa a avisar `Changed()` também na subida do alvo, para o pump parado no alvo antigo voltar a pedir.
      - `ErrNoSource`: `Mode.EnterRebuilding()` e log `"sem fonte que retenha %d: reconstrução"`.
      - Lote vazio: continua.
      - Lote com entradas: entrega pelo canal como hoje e avança `next` e `delivered`.
@@ -611,7 +616,7 @@ Notas de modelagem (extensão conservadora do que existe):
    - Sobrescrita no lugar: uma tabela com itens velhos (`_dr_v` menor), itens iguais e um item mais novo que o copiado. Depois do `ApplyBatch` da cópia, os velhos ficam com a versão da fonte, os iguais não mudam e o mais novo não regride.
 
 ### O-41 Implement Service - `usecase/rebuild.go`; Update Admin - `POST /admin/reconstruir` (AP-18, AP-19, DC-04, DC-10)
-1. `Rebuild`. Atributos: `Self uint64`, `Peers []uint64`, `Client port.RecoveryClient`, `Catalog port.Catalog`, `Identity func() (clusterID string, epoch uint64)`, `Store port.StateStore`, `Progress port.ApplyProgress`, `Mode *domain.CellMode`, `Idle func() bool` (o applier ocioso e a fila vazia), `Tables []domain.LogicalTable`, `Retry time.Duration`, `Metrics`, `Log` e `stat struct{ tabela domain.LogicalTable; itens uint64; f domain.Index }`.
+1. `Rebuild`. Atributos: `Self uint64`, `Peers []uint64`, `Client port.RecoveryClient`, `Catalog port.Catalog`, `Identity func() (clusterID string, epoch uint64)`, `Store port.StateStore`, `Progress port.ApplyProgress`, `Mode *domain.CellMode`, `Idle func() bool` (o applier ocioso e a fila vazia), `IsLeader func() bool`, `Tables []domain.LogicalTable`, `Retry time.Duration`, `Backoff` (o do applier, AP-07), `Metrics`, `Log` e `stat RebuildStatus{Tabela; ItensCopiados; F; Fonte; Recusada}` sob mutex, lido por `Status()`; `Refused()` diz se a última tentativa foi recusada.
 2. `Run(ctx) error` (um laço de fundo, que só age em `reconstruindo`):
    - Espera `Mode.State() == CellRebuilding` (por `Mode.Changed()`).
    - Espera `Idle()`, conferindo a cada 100 ms.
@@ -630,7 +635,7 @@ Notas de modelagem (extensão conservadora do que existe):
      - `Done` → `Progress.SaveProgress(F, port.OrdComplete)`.
 4. `Ready()` e o `/status` mostram `reconstrucao{tabela, itensCopiados, f}`.
 5. Disparo manual:
-   - `adminhttp` ganha `POST /admin/reconstruir`, que chama `Rebuilder.Trigger()` (= `Mode.EnterRebuilding()`) e responde 202 `{"estado":"reconstruindo"}`.
+   - `adminhttp.New(addr, reporter, metrics, rebuilder)` ganha o quarto parâmetro (nulo = sem a rota) e `POST /admin/reconstruir`, que chama `Rebuilder.Trigger()` (= `Mode.EnterRebuilding()`; depois de uma recusa, também libera uma nova tentativa) e responde 202 `{"estado":"reconstruindo"}`. Na líder, `Trigger` devolve `ErrLeaderRebuild`.
    - Numa célula líder, responde 409 `{"erro":"a líder não se reconstrói"}`.
    - Já em `reconstruindo`, responde 202 sem efeito.
 6. O disparo automático vem da O-39 (`ErrNoSource`) e da partida (O-42).
@@ -666,29 +671,40 @@ Notas de modelagem (extensão conservadora do que existe):
    - Por que é seguro: o `boot-token` é gravado antes de a célula responder e o WAL é criado depois da decisão. Um volume com o token e sem WAL é de uma célula que nunca iniciou o Raft, então nunca votou nem confirmou nada; reusar o token não esconde nenhuma promessa perdida.
 1. O estado inicial da célula, no `bootstrap`, antes de iniciar os laços:
    - `P, _ := progress.LoadProgress()` e `R := node.FirstIndex()` (o primeiro retido em disco).
-   - Se `P + 1 < R` e `R > 2` (fora a partida do zero, em que o snapshot sintético é o índice 1), a célula começa em `reconstruindo`, com o log `"progresso %d atrás do disco retido %d: reconstrução automática"`. Isso substitui o "não sobe" do RT-09 (DC-04) e a recusa `ErrProgressBehind` do Incremento A (O-37, item 7).
+   - Se `usecase.StartsRebuilding(P, R)` (= `P + 1 < R` e `R > 2`, fora a partida do zero, em que o snapshot sintético é o índice 1; um progresso 0 com o disco já liberado também reconstrói, porque o disco só sai até um progresso com fsync, G1), a célula começa em `reconstruindo`, com o log `"progresso %d atrás do disco retido %d: reconstrução automática"`. Isso substitui o "não sobe" do RT-09 (DC-04) e a recusa `ErrProgressBehind` do Incremento A (O-37, item 7).
    - Senão, a célula começa em `normal`.
-2. `StatusReporter` ganha os campos `Mode`, `Recovery` e `Rebuild` (o retrato do `Compactor` e os blocos `raft` e `wal` já vêm da O-37, item 6). `CellStatus` ganha:
-   - `Raft *RaftLogStatus \`json:"raft"\``, com `Snapshot uint64 \`json:"snapshot"\`` e `Memoria struct{ Entradas uint64; Bytes int64 } \`json:"memoria"\``.
-   - `Wal *WalStatus \`json:"wal"\``, com `Retido struct{ Bytes int64; Arquivos int }`, `Piso uint64`, `Pinos int`, `TetoDuro bool` e `Janela map[string]bool` (só na líder).
-   - `CelulaEstado struct{ Estado string } \`json:"celula"\``.
+2. `StatusReporter` ganha os campos `Mode`, `Recovery` e `Rebuild`. O retrato do `Compactor` e os blocos `raft` e `wal` já existem e não mudam aqui: vêm da O-37, item 6, e o `raft.memoria` já tem `teto`, `primeiro` e `porPar` (O-51 da observabilidade, `GGQPA-XXX-202610240015`). `CellStatus` ganha só:
+   - `Modo ModoStatus{Estado string; Alvo domain.Index; Fonte string} \`json:"modo"\`` (a chave `celula` já é o ID da célula; as tasks leem `modo.estado`).
    - `Recuperacao *struct{ Fonte uint64; De, Ate, Alcancado uint64 } \`json:"recuperacao,omitempty"\``.
    - `Reconstrucao *struct{ Tabela string; ItensCopiados uint64; F uint64 } \`json:"reconstrucao,omitempty"\``.
-   - `Compactacao struct{ SnapshotEveryEntries, RaftCatchupEntries uint64; RaftRAMMax, RetainMaxBytes, WalSegmentBytes int64 } \`json:"compactacao"\``, que as tasks de teste conferem.
+   - `Compactacao struct{ SnapshotEveryEntries, RaftCatchupEntries uint64; RaftRAMMax, RetainMaxBytes, WalSegmentBytes, RetainDiskHardBytes int64 } \`json:"compactacao"\``, que as tasks de teste conferem (o `retainDiskHardBytes` é o que a `test-disk-hard-ceiling` exige).
+   - A `Reconstrucao` também traz `Fonte` e `Recusada` (o motivo da DC-11).
    - As chaves JSON ficam em português, em camelCase, como as atuais.
 3. `Ready()` ganha dois casos: `Mode.State() != CellNormal` → `"célula em <estado>"`, e `wal.TetoDuro && heldByApplied` → `"disco no teto duro: reconstrução necessária"`.
-4. `port.Metrics` ganha `SnapshotTaken(d)`, `SnapshotDeferred()`, `CatchUpEntries(n int)`, `RebuildItems(n int)` e `StartupDuration(d)` (e `NopMetrics`). `prommetrics` ganha:
-   - Eventos: `dr_raft_snapshot_duration_seconds` (histograma), `dr_raft_snapshot_deferred_total`, `dr_catchup_entries_total`, `dr_rebuild_items_total` e `dr_startup_duration_seconds` (gauge com o último valor).
-   - Coletados do `/status`: `dr_raft_mem_bytes`, `dr_raft_mem_entries`, `dr_raft_snapshot_index`, `dr_wal_retained_bytes`, `dr_wal_files`, `dr_retention_floor`, `dr_wal_pins` e `dr_cell_state{estado}`, com os três rótulos pré-inicializados e o valor 1 no estado atual.
-5. Dashboard: uma seção nova, "10 Log do Raft", com memória (bytes e entradas contra `RAFT_RAM_MAX`), índice do snapshot, WAL retido e arquivos, piso, estado da célula e entradas do `CatchUp`/itens da reconstrução. O teste de contrato do dashboard inclui as séries novas.
-6. Testes: o `/status` com os blocos novos na líder e na follower; `Ready` em cada estado; as séries novas registradas e pré-inicializadas; o estado inicial `reconstruindo` com um progresso falso atrás do disco.
-7. Testes da DC-12:
+4. Métricas. Já existem e **não são registradas de novo**: `SnapshotTaken`, `SnapshotDeferred` e `StartupDuration`, com as séries `dr_raft_snapshot_duration_seconds`, `dr_raft_snapshot_deferred_total` e `dr_startup_duration_seconds` (O-37, item 6). Também já existem os gauges da RAM e do snapshot (`dr_raft_mem_bytes`, `dr_raft_mem_entries`, `dr_raft_mem_max_bytes`, `dr_raft_mem_peer_bytes{par}`, `dr_raft_snapshot_index` e `dr_raft_behind_tail`), o evento `dr_raft_mem_ceiling_total` e as séries `dr_repl_*` e `dr_recovery_*` (O-47 e O-51 da observabilidade). Esta operação acrescenta só:
+   - `port.Metrics` ganha `CatchUpEntries(n int)` e `RebuildItems(n int)` (e `NopMetrics` e os fakes). Eventos no `prommetrics`: `dr_catchup_entries_total` e `dr_rebuild_items_total`.
+   - Coletados do `/status`: `dr_wal_retained_bytes`, `dr_wal_files`, `dr_retention_floor`, `dr_wal_pins` e `dr_cell_state{estado}`, com os três rótulos pré-inicializados e o valor 1 no estado atual.
+5. Dashboard: uma linha nova, **"11 · Log do Raft | disco, piso e recuperação"**, logo abaixo da linha 10 (row com id 70 e `y` 205; painéis com ids a partir de 71). A linha 10, da observabilidade, já mostra a RAM da líder contra `RAFT_RAM_MAX`, a RAM retida por célula, o teto atingido, as réplicas abandonadas e a recuperação; a linha 11 não repete esses painéis. Ela traz:
+   - o índice do snapshot por célula (`dr_raft_snapshot_index`) e o `dr_raft_mem_entries` por célula;
+   - o WAL retido e os arquivos;
+   - o piso e os pinos;
+   - o estado da célula (`dr_cell_state`);
+   - as entradas do `CatchUp` e os itens da reconstrução.
+
+   Na linha 10, a O-42 revê as descrições que citam o Incremento B como pendente: o painel 67 ("réplicas abandonadas … só voltam pelo Incremento B"), o painel 68 ("a sessão fica aberta até o Incremento B") e a ajuda do `dr_repl_behind_leader_ram`. Elas passam a dizer que a réplica volta pelo `CatchUp` ou pela reconstrução, e a sessão de recuperação (DC-17) fecha quando a célula volta à régua. O teste de contrato do dashboard inclui as séries novas.
+6. Testes:
+   - o `/status` com os blocos novos na líder e na follower;
+   - `Ready` em cada estado;
+   - as séries novas registradas e pré-inicializadas, e o registro do `prommetrics` sem nome duplicado;
+   - o estado inicial `reconstruindo` com um progresso falso atrás do disco.
+7. Testes da DC-12 (a pré-partida abre portas reais; a simulação das três células roda sobre a regra pura e a partida real é coberta pela CA-28 e pelo `task clean` + `e2e`):
    - `DecideBoot` em tabela: todos vazios → `Create`; um sem resposta → `Wait`; um rodando com o token certo → `Create`; um rodando com outro token ou sem `Genesis[self]` → `Refuse`; `ClusterID` diferente → `Refuse`; tabela local com itens → `Refuse`, mesmo com todos vazios.
-   - Bootstrap com fakes: três células vazias partindo com atrasos diferentes (uma 5 s depois) sobem todas; uma célula com o volume apagado depois de o grupo existir sai com `ErrLostRaftVolume`; uma célula que reinicia depois de ser vista vazia e antes de criar o WAL reusa o `boot-token` e sobe.
+   - Simulação com três células sobre `DecideBoot`: três células vazias partindo com atrasos diferentes (uma 5 s depois) sobem todas; uma célula com o volume apagado depois de o grupo existir é recusada; uma célula que reinicia depois de ser vista vazia e antes de criar o WAL reusa o `boot-token` e sobe.
+   - Na pré-partida, o `bootstrap` sobe um `peergrpc.Server` com `PreBoot` na porta do gRPC e um `adminhttp` com um `Reporter` de pré-partida na porta de administração, e para os dois antes do `etcdraft.Open`. Sem as tabelas ainda (a `create-tables` roda depois do compose), o `HasItems` espera 2 s e tenta de novo.
    - O `boot-token` gravado e relido; um arquivo corrompido é fatal.
 
 ### O-43 Update Taskfile, Compose e Docs - tasks novas (S.5 da trecho, DC-08)
-1. `taskfile.yaml`:
+1. `taskfile.yaml` (as tasks novas usam o auxiliar `scripts/drtool.py`, só biblioteca padrão: líder, campo do `/status`, rajada de escritas pela API, escrita até sair da janela, espera dos estados e comparação das 3 tabelas direto no LocalStack; os estados curtos também valem pelo log `"recuperação concluída"` e `"reconstrução concluída"`):
    - `rebuild` (`aliases: [reconstruir]`, variável `CELL`): `curl -fsS -X POST http://localhost:909{{.CELL}}/admin/reconstruir` e imprime a resposta.
    - `test-lagging-follower` (`aliases: [test-atrasada]`, variável `CELL`):
      1. Confere no `/status` que `compactacao.snapshotEveryEntries ≤ 1000` (senão falha com a mensagem "rode task start SNAPSHOT_EVERY_ENTRIES=200 RAFT_CATCHUP_ENTRIES=50 WAL_SEGMENT_BYTES=1MiB").
@@ -702,11 +718,11 @@ Notas de modelagem (extensão conservadora do que existe):
    - `test-out-of-window` (`aliases: [test-fora-da-janela]`, variável `CELL`):
      1. Exige `retainMaxBytes ≤ 8 MiB` no `/status` (senão falha com "rode task start ... RETAIN_MAX_BYTES=4MiB WAL_SEGMENT_BYTES=1MiB").
      2. Para a célula e escreve até `wal.janela[CELL] == false` no `/status` da líder (com uma escrita contínua de itens de cerca de 1 KiB).
-     3. Religa, mantém uma escrita lenta durante a cópia (`load INTERVAL=0.5`, em segundo plano) e espera `reconstruindo`, depois `recuperando` e depois `normal` (até 300 s).
+     3. Religa, mantém uma escrita lenta durante a cópia (`drtool.py trickle 0.5 <arquivo de parada>`, em segundo plano: o shell embutido do task não dá o `$!`, então a escrita para quando o arquivo de parada aparece, e não por `kill`) e espera `reconstruindo` e depois `normal` (até 300 s). `recuperando` só aparece quando o snapshot da líder passou do F copiado; senão o marcador é aceito direto, o que também é correto.
      4. Para a escrita e confere as 3 tabelas com os mesmos itens e `_dr_v`, inclusive os escritos durante a cópia.
    - `test-disk-hard-ceiling` (`aliases: [test-teto-disco]`, variável `CELL`): exige `RETAIN_DISK_HARD_BYTES` definido (pelo `/status`); dispara `rebuild` numa follower com escrita contínua; espera o log `"teto duro de disco: reconstrução abortada"` na fonte; confere que as escritas continuam com ACK, que `wal.retido` cai e que a reconstrução recomeça depois de `REBUILD_RETRY` (CA-26).
    - `soak` (`aliases: [carga-longa]`, variáveis `DURATION`, padrão `1h`, e `INTERVAL`, padrão `0.1`):
-     1. Roda o `load` em segundo plano por `DURATION`.
+     1. Roda a escrita contínua em segundo plano por `DURATION` (`drtool.py trickle INTERVAL`, um item a cada `INTERVAL` pela líder: 10 TPS com 0,1).
      2. No fim, consulta o Prometheus: `avg_over_time(process_resident_memory_bytes[10m])` e `avg_over_time(dr_wal_retained_bytes[10m])` agora e com `offset 20m`.
      3. Falha se algum crescer mais de 10% em alguma célula ou se `docker inspect` mostrar `OOMKilled=true` (CA-27).
    - `test-lost-volume` (`aliases: [test-volume-perdido]`, variável `CELL`), DC-12:
@@ -789,9 +805,10 @@ Notas de modelagem (extensão conservadora do que existe):
    - O disco nunca é liberado além do último progresso com fsync (`Durable()`), e o fsync do progresso vem antes de cada snapshot e de cada liberação (SG-18, G1).
    - Uma célula nunca entrega ao Raft um `MsgSnap` com índice maior que a sua marca d'água, nem de outro `cluster_id` (SG-19, G2).
    - O `LogReader` só entrega entradas confirmadas por um `HardState.commit` posterior, contíguas, e uma versão reescrita substitui a anterior (SG-20, G3).
-   - O `CatchUp` nunca envia além do gate da fonte (SG-21, G4).
+   - O `CatchUp` nunca envia além do gate da fonte (SG-21, G4), e nunca oferece uma faixa que atravesse o buraco de um marcador recebido (DC-18).
    - O aplicado ≤ gate continua valendo em todas as células. Na follower, o gate é `min(max(commit local, recuperado), recebido)`, e o recuperado só vem do `SourceGate` de um lote do `CatchUp` (SG-02 com DC-02).
    - Um só alimentador do applier: só o `CommitPump` escreve no canal do applier (DC-03).
+   - Nenhuma mensagem do Raft para outro nó chega ao Raft local, e nenhum pedido do canal de recuperação é servido para outro destino (DC-19).
    - Nenhum ACK antes do commit (2 de 3), de gate ≥ índice e do apply na líder (SG-01, sem mudança).
    - A reconstrução nunca regride um item: a cópia usa a mesma condição de versão do AP-04 (SG-06).
    - Fora de `normal`, a célula não responde leitura forte e tem o `/readyz` falso (AP-16).
@@ -837,4 +854,5 @@ Notas de modelagem (extensão conservadora do que existe):
 9. **Restrições de API**:
    - A API DynamoDB não muda, exceto pelo 503 `CELL_RECOVERING`.
    - A administração ganha `POST /admin/reconstruir` (202 na follower, 409 na líder) e as chaves novas do `/status`: `raft.snapshot`, `raft.memoria`, `wal.retido`, `wal.piso`, `wal.pinos`, `wal.tetoDuro`, `wal.janela`, `celula.estado`, `recuperacao`, `reconstrucao` e `compactacao`.
-   - O `GateUpdate` ganha `Floor`. Os métodos novos têm os contratos da O-38, e os códigos `NOT_RETAINED`, `SOURCE_NOT_READY`, `REBUILD_ABORTED` e `CELL_RECOVERING` são os únicos novos.
+   - As métricas têm um só dono. Uma série que já existe (`dr_raft_mem_*`, `dr_raft_snapshot_*`, `dr_raft_behind_tail`, `dr_startup_duration_seconds`, `dr_repl_*` e `dr_recovery_*`) não é registrada de novo nem renomeada: o registro duplicado derruba o processo na partida.
+   - O `GateUpdate` leva o `Floor` e o destino `To` no pedido (O-35, DC-19) e o `Applied` na resposta (DC-15 da observabilidade). Ninguém lê o `Applied` para decidir gate, piso ou compactação. Os métodos novos têm os contratos da O-38, e os códigos `NOT_RETAINED`, `SOURCE_NOT_READY`, `REBUILD_ABORTED` e `CELL_RECOVERING` são os únicos novos.

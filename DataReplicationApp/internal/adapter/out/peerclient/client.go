@@ -4,7 +4,9 @@ package peerclient
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io"
 	"strconv"
 	"sync"
 	"sync/atomic"
@@ -26,9 +28,10 @@ const (
 	callTimeout   = time.Second
 )
 
-// Client implementa etcdraft.Sender, port.Forwarder, port.BarrierClient e
-// port.GatePublisher.
+// Client implementa etcdraft.Sender, port.Forwarder, port.BarrierClient,
+// port.GatePublisher e port.RecoveryClient.
 type Client struct {
+	self           uint64
 	forwardTimeout time.Duration
 	queueBytes     int64 // PEER_QUEUE_BYTES: teto em bytes da fila de cada par; 0 = sem teto (DC-09)
 	log            zerolog.Logger
@@ -46,9 +49,10 @@ type Client struct {
 }
 
 var (
-	_ port.Forwarder     = (*Client)(nil)
-	_ port.BarrierClient = (*Client)(nil)
-	_ port.GatePublisher = (*Client)(nil)
+	_ port.Forwarder      = (*Client)(nil)
+	_ port.BarrierClient  = (*Client)(nil)
+	_ port.GatePublisher  = (*Client)(nil)
+	_ port.RecoveryClient = (*Client)(nil)
 )
 
 type peer struct {
@@ -68,7 +72,7 @@ type peer struct {
 // memória).
 func New(self uint64, peers map[uint64]string, forwardTimeout time.Duration, queueBytes int64, log zerolog.Logger, extra ...grpc.DialOption) (*Client, error) {
 	ctx, cancel := context.WithCancel(context.Background())
-	c := &Client{forwardTimeout: forwardTimeout, queueBytes: queueBytes, log: log, peers: map[uint64]*peer{}, ctx: ctx, cancel: cancel}
+	c := &Client{self: self, forwardTimeout: forwardTimeout, queueBytes: queueBytes, log: log, peers: map[uint64]*peer{}, ctx: ctx, cancel: cancel}
 	for id, addr := range peers {
 		if id == self {
 			continue
@@ -193,7 +197,7 @@ func (c *Client) Barrier(ctx context.Context, leader string) (domain.Index, doma
 func (c *Client) Publish(gate, floor domain.Index) {
 	for _, p := range c.peers {
 		p.gateMu.Lock()
-		p.gate = &peerv1.GateUpdateRequest{Gate: uint64(gate), Floor: uint64(floor)}
+		p.gate = &peerv1.GateUpdateRequest{Gate: uint64(gate), Floor: uint64(floor), To: p.id}
 		p.gateMu.Unlock()
 		select {
 		case p.gateC <- struct{}{}:
@@ -226,6 +230,108 @@ func (c *Client) pumpGate(p *peer) {
 		cancel()
 	}
 }
+
+// Retained pergunta ao par o que ele retém (RT-19), com prazo de 1 s.
+func (c *Client) Retained(ctx context.Context, node uint64) (port.RetainedInfo, error) {
+	p := c.peers[node]
+	if p == nil {
+		return port.RetainedInfo{}, fmt.Errorf("%w: par %d desconhecido", port.ErrSourceGone, node)
+	}
+	ctx, cancel := context.WithTimeout(ctx, callTimeout)
+	defer cancel()
+	r, err := p.rpc.Retained(ctx, &peerv1.RetainedRequest{})
+	if err != nil {
+		return port.RetainedInfo{}, fmt.Errorf("%w: %v", port.ErrSourceGone, err)
+	}
+	if err := peerv1.ErrOf(r.Code); err != nil {
+		return port.RetainedInfo{}, err
+	}
+	if r.Node != 0 && r.Node != node { // DC-19: a conexão caiu noutra célula
+		return port.RetainedInfo{}, fmt.Errorf("%w: o par %d respondeu como nó %d", port.ErrSourceGone, node, r.Node)
+	}
+	return port.RetainedInfo{Node: r.Node, FirstRetained: domain.Index(r.FirstRetained), Commit: domain.Index(r.Commit),
+		Gate: domain.Index(r.Gate), State: r.State, Leader: r.Leader, ClusterID: r.ClusterID, Epoch: r.Epoch,
+		EmptyVolume: r.EmptyVolume, BootToken: r.BootToken, Genesis: r.Genesis}, nil
+}
+
+// CatchUp abre o fluxo das entradas de from a to no par (RT-19).
+func (c *Client) CatchUp(ctx context.Context, node uint64, from, to domain.Index) (port.EntryStream, error) {
+	p := c.peers[node]
+	if p == nil {
+		return nil, fmt.Errorf("%w: par %d desconhecido", port.ErrSourceGone, node)
+	}
+	ctx, cancel := context.WithCancel(ctx)
+	s, err := p.rpc.CatchUp(ctx, &peerv1.CatchUpRequest{From: uint64(from), To: uint64(to), Owner: c.self, Node: node})
+	if err != nil {
+		cancel()
+		return nil, fmt.Errorf("%w: %v", port.ErrSourceGone, err)
+	}
+	return &entryStream{s: s, cancel: cancel}, nil
+}
+
+// CopyTable abre o fluxo da cópia das tabelas no par (AP-18).
+func (c *Client) CopyTable(ctx context.Context, node uint64, tables []domain.LogicalTable) (port.CopyStream, error) {
+	p := c.peers[node]
+	if p == nil {
+		return nil, fmt.Errorf("%w: par %d desconhecido", port.ErrSourceGone, node)
+	}
+	ctx, cancel := context.WithCancel(ctx)
+	s, err := p.rpc.CopyTable(ctx, &peerv1.CopyTableRequest{Tables: tables, Owner: c.self, Node: node})
+	if err != nil {
+		cancel()
+		return nil, fmt.Errorf("%w: %v", port.ErrSourceGone, err)
+	}
+	return &copyStream{s: s, cancel: cancel}, nil
+}
+
+// recvErr traduz o erro do fluxo: io.EOF passa; o resto é a fonte que caiu.
+func recvErr(err error) error {
+	if errors.Is(err, io.EOF) {
+		return io.EOF
+	}
+	return fmt.Errorf("%w: %v", port.ErrSourceGone, err)
+}
+
+type entryStream struct {
+	s      peerv1.ClientStream[peerv1.CatchUpBatch]
+	cancel context.CancelFunc
+}
+
+func (e *entryStream) Recv() (port.CatchUpBatch, error) {
+	b, err := e.s.Recv()
+	if err != nil {
+		return port.CatchUpBatch{}, recvErr(err)
+	}
+	if err := peerv1.ErrOf(b.Code); err != nil {
+		return port.CatchUpBatch{}, err
+	}
+	return port.CatchUpBatch{Entries: b.Entries, SourceGate: domain.Index(b.SourceGate)}, nil
+}
+
+func (e *entryStream) Close() { e.cancel() }
+
+type copyStream struct {
+	s      peerv1.ClientStream[peerv1.CopyTablePage]
+	cancel context.CancelFunc
+}
+
+func (c *copyStream) Recv() (port.CopyPage, error) {
+	p, err := c.s.Recv()
+	if err != nil {
+		return port.CopyPage{}, recvErr(err)
+	}
+	if err := peerv1.ErrOf(p.Code); err != nil {
+		return port.CopyPage{}, err
+	}
+	out := port.CopyPage{F: domain.Index(p.F), Table: p.Table, KeySchema: p.KeySchema, TableDone: p.TableDone, Done: p.Done,
+		Items: make([]port.VersionedItem, len(p.Items))}
+	for i, it := range p.Items {
+		out.Items[i] = port.VersionedItem{Key: it.Key, Item: it.Item, Version: domain.Index(it.Version)}
+	}
+	return out, nil
+}
+
+func (c *copyStream) Close() { c.cancel() }
 
 func (c *Client) peerOf(node string) (*peer, error) {
 	id, err := strconv.ParseUint(node, 10, 64)

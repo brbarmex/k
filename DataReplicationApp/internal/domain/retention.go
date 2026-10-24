@@ -69,14 +69,20 @@ func (v RetentionView) FirstRetained() Index {
 // LeaderFloor calcula, na líder, o piso de retenção e quem está na janela (RT-15, DC-08):
 // um par está na janela enquanto os bytes retidos desde o seu Match não passam de
 // retainMax. O piso é o menor Match na janela; sem nenhum par na janela, é o snapshot.
+//
+// DC-20: a saída da janela não tem volta. Um par cujo Match + 1 já saiu do disco retido
+// está fora, mesmo que os bytes contados a partir do primeiro segmento que sobrou caibam de
+// novo em retainMax: o que ele precisa já foi apagado. Match 0 (ainda desconhecido, logo
+// depois de uma eleição) não tem essa regra.
 func LeaderFloor(match map[uint64]Index, self uint64, v RetentionView, retainMax int64) (Index, map[uint64]bool) {
 	floor, found := v.Snapshot, false
 	in := make(map[uint64]bool, len(match))
+	first := v.FirstRetained()
 	for id, m := range match {
 		if id == self {
 			continue
 		}
-		ok := v.RetainedSince(m) <= retainMax
+		ok := v.RetainedSince(m) <= retainMax && (m == 0 || len(v.Segments) == 0 || m+1 >= first)
 		in[id] = ok
 		if ok && (!found || m < floor) {
 			floor, found = m, true

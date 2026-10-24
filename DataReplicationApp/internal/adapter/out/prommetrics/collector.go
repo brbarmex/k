@@ -28,7 +28,13 @@ type StateCollector struct {
 	replDelay, replSaturated, replSynced         *prometheus.Desc
 	recoveryOn, recoveryElapsed, behindLeaderRAM *prometheus.Desc
 	replSyncMax, replHorizon                     *prometheus.Desc
+	// Log do Raft no disco e estado da célula (O-42, RT-15, AP-16).
+	walRetained, walFiles, retentionFloor, walPins *prometheus.Desc
+	cellState                                      *prometheus.Desc
 }
+
+// CellStates são os três valores do rótulo estado de dr_cell_state, sempre exportados.
+var CellStates = []string{"normal", "recuperando", "reconstruindo"}
 
 // NewStateCollector cria o coletor de estado.
 func NewStateCollector(source StatusSource) *StateCollector {
@@ -74,9 +80,14 @@ func NewStateCollector(source StatusSource) *StateCollector {
 		replSynced:      d("dr_repl_synced", "1 se a célula está dentro de REPL_SYNC_MAX (DC-13). Só na líder.", "par"),
 		recoveryOn:      d("dr_recovery_in_progress", "1 se a célula está numa sessão de recuperação (DC-17). Só na líder.", "par"),
 		recoveryElapsed: d("dr_recovery_elapsed_seconds", "Duração da sessão de recuperação em curso (0 sem sessão). Só na líder.", "par"),
-		behindLeaderRAM: d("dr_repl_behind_leader_ram", "1 se o par está atrás da primeira entrada na RAM da líder: só volta pelo Incremento B. Só na líder.", "par"),
+		behindLeaderRAM: d("dr_repl_behind_leader_ram", "1 se o par está atrás da primeira entrada na RAM da líder: volta pelo CatchUp ou pela reconstrução. Só na líder.", "par"),
 		replSyncMax:     d("dr_repl_sync_max_seconds", "REPL_SYNC_MAX: atraso máximo de uma célula sincronizada (DC-13). Só na líder."),
 		replHorizon:     d("dr_repl_clock_horizon_seconds", "Horizonte das amostras do relógio de replicação (DC-16). Só na líder."),
+		walRetained:     d("dr_wal_retained_bytes", "Bytes dos arquivos .wal retidos no disco do log do Raft (RT-15)."),
+		walFiles:        d("dr_wal_files", "Arquivos .wal retidos no disco do log do Raft (RT-15)."),
+		retentionFloor:  d("dr_retention_floor", "Piso de retenção do disco: calculado na líder, recebido na follower (RT-15)."),
+		walPins:         d("dr_wal_pins", "Pinos de retenção ativos (leituras do disco, CatchUp e reconstrução)."),
+		cellState:       d("dr_cell_state", "1 no estado atual da célula diante do log (normal, recuperando, reconstruindo; AP-16).", "estado"),
 	}
 }
 
@@ -87,7 +98,8 @@ func (c *StateCollector) Describe(ch chan<- *prometheus.Desc) {
 		c.applyLag, c.applyLagMax, c.applyInbox, c.commitUndelivered, c.electionTicks,
 		c.memBytes, c.memEntries, c.memMax, c.memPeer, c.snapshotIndex, c.behindTail,
 		c.replApplied, c.replKnown, c.replAge, c.replLag, c.replDelay, c.replSaturated, c.replSynced,
-		c.recoveryOn, c.recoveryElapsed, c.behindLeaderRAM, c.replSyncMax, c.replHorizon} {
+		c.recoveryOn, c.recoveryElapsed, c.behindLeaderRAM, c.replSyncMax, c.replHorizon,
+		c.walRetained, c.walFiles, c.retentionFloor, c.walPins, c.cellState} {
 		ch <- d
 	}
 }
@@ -145,6 +157,13 @@ func (c *StateCollector) Collect(ch chan<- prometheus.Metric) {
 	g(c.behindTail, b2f(st.Raft.AtrasCauda))
 	for par, b := range m.PorPar {
 		g(c.memPeer, float64(b), par)
+	}
+	g(c.walRetained, float64(st.Wal.Retido.Bytes))
+	g(c.walFiles, float64(st.Wal.Retido.Arquivos))
+	g(c.retentionFloor, float64(st.Wal.Piso))
+	g(c.walPins, float64(st.Wal.Pinos))
+	for _, e := range CellStates {
+		g(c.cellState, b2f(st.Modo.Estado == e), e)
 	}
 	if r := st.Replicacao; r != nil {
 		g(c.replSyncMax, r.SyncMaxSeg)

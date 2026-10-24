@@ -55,6 +55,9 @@ func (s *readStore) Scan(context.Context, domain.LogicalTable, int, []byte) (por
 	s.calls++
 	return port.ScanPage{Items: [][]byte{[]byte(`{}`)}}, nil
 }
+func (s *readStore) ScanVersioned(context.Context, domain.LogicalTable, int, []byte) (port.VersionedPage, error) {
+	return port.VersionedPage{}, nil
+}
 
 type fakeBarrierClient struct {
 	ri, gate domain.Index

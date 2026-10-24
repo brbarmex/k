@@ -27,6 +27,7 @@ func (f fakeSource) Ready() (bool, string)      { return f.ready, "" }
 func leaderSource() fakeSource {
 	return fakeSource{ready: true, st: usecase.CellStatus{
 		Celula: "1", No: 1, Papel: "lider", Lider: 1, Termo: 3, Commit: 10, Gate: 10, Aplicado: 9,
+		Modo:   usecase.ModoStatus{Estado: "normal"},
 		Match:  map[string]uint64{"1": 10, "2": 10, "3": 7},
 		Quorum: &usecase.QuorumStatus{Ativos: 2, Votantes: 3, Ok: true},
 		Raft: usecase.RaftLogStatus{Snapshot: 8, Memoria: usecase.MemoriaStatus{Entradas: 4, Bytes: 4096, Teto: 1 << 20,
@@ -207,6 +208,9 @@ func TestAllSeriesRegistered(t *testing.T) {
 		"dr_repl_sync_max_seconds", "dr_repl_clock_horizon_seconds",
 		"dr_recovery_in_progress", "dr_recovery_elapsed_seconds",
 		"dr_replication_duration_seconds", "dr_recovery_duration_seconds",
+		// Compactação do log, Incremento B (O-42, item 4)
+		"dr_catchup_entries_total", "dr_rebuild_items_total",
+		"dr_wal_retained_bytes", "dr_wal_files", "dr_retention_floor", "dr_wal_pins", "dr_cell_state",
 	} {
 		if !names[n] {
 			t.Errorf("série %s não registrada", n)
@@ -248,6 +252,23 @@ func TestDashboardOnlyUsesExistingMetrics(t *testing.T) {
 		}
 		if len(used) < 20 {
 			t.Errorf("%s cita só %d séries dr_*; esperado o conjunto da O-18", filepath.Base(path), len(used))
+		}
+	}
+}
+
+// O-42: dr_cell_state exporta os três estados, com 1 só no atual; e o registro não tem nome
+// duplicado (o NewRecorder e o Gather falhariam: uma série tem um só dono).
+func TestCellStateSeries(t *testing.T) {
+	src := leaderSource()
+	r := NewRecorder("1", src)
+	r.CatchUpEntries(3)
+	r.RebuildItems(2)
+	out := scrape(t, r)
+	for _, want := range []string{`dr_cell_state{celula="1",estado="normal"} 1`, `dr_cell_state{celula="1",estado="recuperando"} 0`,
+		`dr_cell_state{celula="1",estado="reconstruindo"} 0`, `dr_catchup_entries_total{celula="1"} 3`,
+		`dr_rebuild_items_total{celula="1"} 2`, `dr_wal_retained_bytes{celula="1"}`} {
+		if !strings.Contains(out, want) {
+			t.Errorf("falta %s", want)
 		}
 	}
 }

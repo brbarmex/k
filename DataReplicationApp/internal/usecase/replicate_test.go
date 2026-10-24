@@ -2,7 +2,6 @@ package usecase
 
 import (
 	"context"
-	"errors"
 	"testing"
 	"time"
 
@@ -127,23 +126,23 @@ func TestSignalWithoutNewCommitIsHarmless(t *testing.T) {
 	}
 }
 
-// O-37, item 7 (FL-07): a retomada é recusada só com um progresso gravado atrás do disco
-// retido; progresso 0 (ausente ou corrompido) começa no primeiro retido, seguro pelo G1.
-func TestCheckResume(t *testing.T) {
+// O-42, item 1 (DC-04, FL-07): a partida começa em reconstruindo com o progresso atrás do
+// disco retido; a partida do zero e o progresso na cauda começam em normal.
+func TestStartsRebuilding(t *testing.T) {
 	for _, tc := range []struct {
 		progress, first domain.Index
-		ok              bool
+		rebuild         bool
 	}{
-		{0, 5000, true},    // ausente ou corrompido
-		{0, 2, true},       // partida do zero
-		{9000, 5000, true}, // na cauda
-		{4999, 5000, true}, // a próxima entrada é a primeira retida
-		{4998, 5000, false},
-		{10, 5000, false},
+		{0, 2, false},       // partida do zero
+		{0, 1, false},       // só o snapshot sintético
+		{9000, 5000, false}, // na cauda
+		{4999, 5000, false}, // a próxima entrada é a primeira retida
+		{4998, 5000, true},  // progresso falso atrás do disco
+		{10, 5000, true},
+		{0, 5000, true}, // progresso perdido com o disco já liberado
 	} {
-		err := CheckResume(tc.progress, tc.first)
-		if (err == nil) != tc.ok || (err != nil && !errors.Is(err, ErrProgressBehind)) {
-			t.Errorf("CheckResume(%d, %d) = %v, quer ok=%v", tc.progress, tc.first, err, tc.ok)
+		if got := StartsRebuilding(tc.progress, tc.first); got != tc.rebuild {
+			t.Errorf("StartsRebuilding(%d, %d) = %v, quer %v", tc.progress, tc.first, got, tc.rebuild)
 		}
 	}
 }

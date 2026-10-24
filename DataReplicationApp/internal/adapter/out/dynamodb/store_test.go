@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -128,5 +129,117 @@ func TestStoreAgainstLocalStack(t *testing.T) {
 	}
 	if miss, err := s.Get(ctx, "dr_teste_{cell}", []byte(`{"pk":{"S":"nao"}}`)); err != nil || miss != nil {
 		t.Fatalf("item ausente = %s %v", miss, err)
+	}
+}
+
+// O-40 (AP-18, DC-11, DC-12): ScanVersioned com e sem _dr_v, HasItems, e a sobrescrita no
+// lugar da cópia: os velhos ficam com a versão da fonte, os iguais não mudam e o mais
+// novo não regride. Só roda com DR_IT_DYNAMODB_ENDPOINT definida.
+func TestVersionedCopyAgainstLocalStack(t *testing.T) {
+	endpoint := os.Getenv("DR_IT_DYNAMODB_ENDPOINT")
+	if endpoint == "" {
+		t.Skip("DR_IT_DYNAMODB_ENDPOINT não definida")
+	}
+	t.Setenv("AWS_ACCESS_KEY_ID", "test")
+	t.Setenv("AWS_SECRET_ACCESS_KEY", "test")
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	const tbl = "dr_copia_{cell}"
+	newCell := func(name string) (*Store, string) {
+		tm, _ := domain.NewTableMap(fmt.Sprintf("%s%d", name, time.Now().UnixNano()), []string{tbl})
+		s, err := New(ctx, endpoint, "sa-east-1", tm, 4)
+		if err != nil {
+			t.Fatal(err)
+		}
+		phys, _ := tm.Physical(tbl)
+		if _, err := s.client.CreateTable(ctx, &dynamodb.CreateTableInput{
+			TableName:            aws.String(phys),
+			AttributeDefinitions: []types.AttributeDefinition{{AttributeName: aws.String("pk"), AttributeType: types.ScalarAttributeTypeS}},
+			KeySchema:            []types.KeySchemaElement{{AttributeName: aws.String("pk"), KeyType: types.KeyTypeHash}},
+			BillingMode:          types.BillingModePayPerRequest,
+		}); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() {
+			s.client.DeleteTable(context.Background(), &dynamodb.DeleteTableInput{TableName: aws.String(phys)})
+		})
+		if err := s.LoadCatalog(ctx, 30*time.Second, zerolog.Nop()); err != nil {
+			t.Fatal(err)
+		}
+		return s, phys
+	}
+	src, srcPhys := newCell("src")
+	dst, _ := newCell("dst")
+
+	if has, err := dst.HasItems(ctx, []domain.LogicalTable{tbl}); err != nil || has {
+		t.Fatalf("HasItems na tabela vazia = %v %v", has, err)
+	}
+	put := func(s *Store, pk, nome string, v domain.Index) {
+		item := `{"pk":{"S":"` + pk + `"},"nome":{"S":"` + nome + `"}}`
+		if err := s.ApplyBatch(ctx, []port.VersionedOp{{Op: domain.Op{Table: tbl, Kind: domain.OpPut,
+			Key: []byte(`{"pk":{"S":"` + pk + `"}}`), Item: []byte(item)}, Version: v}}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	put(src, "velho", "fonte", 10)
+	put(src, "igual", "fonte", 7)
+	put(src, "novo", "fonte", 5)
+	// Um item sem _dr_v na fonte (gravado por fora): versão 0.
+	if _, err := src.client.PutItem(ctx, &dynamodb.PutItemInput{TableName: aws.String(srcPhys),
+		Item: map[string]types.AttributeValue{"pk": &types.AttributeValueMemberS{Value: "semversao"}}}); err != nil {
+		t.Fatal(err)
+	}
+	put(dst, "velho", "local", 3)
+	put(dst, "igual", "local", 7)
+	put(dst, "novo", "local", 9)
+	if has, err := dst.HasItems(ctx, []domain.LogicalTable{tbl}); err != nil || !has {
+		t.Fatalf("HasItems com itens = %v %v", has, err)
+	}
+
+	var items []port.VersionedItem
+	var start []byte
+	for {
+		page, err := src.ScanVersioned(ctx, tbl, 2, start)
+		if err != nil {
+			t.Fatal(err)
+		}
+		items = append(items, page.Items...)
+		if page.LastKey == nil {
+			break
+		}
+		start = page.LastKey
+	}
+	versions := map[string]domain.Index{}
+	for _, it := range items {
+		if strings.Contains(string(it.Item), VersionAttr) {
+			t.Fatalf("_dr_v vazou no item: %s", it.Item)
+		}
+		var k map[string]map[string]string
+		if err := json.Unmarshal(it.Key, &k); err != nil {
+			t.Fatalf("chave canônica %s: %v", it.Key, err)
+		}
+		versions[k["pk"]["S"]] = it.Version
+	}
+	if len(items) != 4 || versions["velho"] != 10 || versions["igual"] != 7 || versions["novo"] != 5 || versions["semversao"] != 0 {
+		t.Fatalf("ScanVersioned = %v", versions)
+	}
+
+	for _, it := range items { // a cópia da reconstrução: o mesmo ApplyBatch condicional (AP-04)
+		if err := dst.ApplyBatch(ctx, []port.VersionedOp{{Op: domain.Op{Table: tbl, Kind: domain.OpPut, Key: it.Key, Item: it.Item},
+			Version: it.Version}}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	nome := func(pk string) string {
+		b, err := dst.Get(ctx, tbl, []byte(`{"pk":{"S":"`+pk+`"}}`))
+		if err != nil || b == nil {
+			t.Fatalf("Get %s: %s %v", pk, b, err)
+		}
+		var m map[string]map[string]string
+		_ = json.Unmarshal(b, &m)
+		return m["nome"]["S"]
+	}
+	if nome("velho") != "fonte" || nome("igual") != "local" || nome("novo") != "local" {
+		t.Fatalf("sobrescrita no lugar: velho=%s igual=%s novo=%s", nome("velho"), nome("igual"), nome("novo"))
 	}
 }

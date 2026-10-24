@@ -141,3 +141,37 @@ func TestStatusReplicacao(t *testing.T) {
 		t.Fatalf("follower com replicacao: %+v", got.Replicacao)
 	}
 }
+
+// O-42 (AP-16): o /status mostra o modo, a recuperação e a reconstrução em curso, e o
+// /readyz fica falso fora de normal.
+func TestStatusCellMode(t *testing.T) {
+	s := newStatus(port.RaftInfo{NodeID: 1, Lead: 2, Running: true})
+	s.Compaction = CompactacaoStatus{SnapshotEveryEntries: 200, RaftCatchupEntries: 50}
+	if st := s.Status(); st.Modo.Estado != "normal" || st.Recuperacao != nil || st.Compactacao.SnapshotEveryEntries != 200 {
+		t.Fatalf("sem modo: %+v", st)
+	}
+	mode := &domain.CellMode{}
+	s.Mode = mode
+	s.Recovery = &Recovery{Mode: mode}
+	s.Rebuild = &Rebuild{Mode: mode}
+	if ok, _ := s.Ready(); !ok {
+		t.Fatal("normal está pronta")
+	}
+	mode.EnterRecovering(40)
+	mode.SetSource("3")
+	st := s.Status()
+	if st.Modo != (ModoStatus{Estado: "recuperando", Alvo: 40, Fonte: "3"}) || st.Recuperacao == nil || st.Reconstrucao != nil {
+		t.Fatalf("recuperando: %+v %+v", st.Modo, st.Recuperacao)
+	}
+	if ok, why := s.Ready(); ok || why != "célula em recuperando" {
+		t.Fatalf("readyz recuperando: %v %q", ok, why)
+	}
+	mode.EnterRebuilding()
+	st = s.Status()
+	if st.Modo.Estado != "reconstruindo" || st.Reconstrucao == nil || st.Recuperacao != nil {
+		t.Fatalf("reconstruindo: %+v", st)
+	}
+	if ok, why := s.Ready(); ok || why != "célula em reconstruindo" {
+		t.Fatalf("readyz reconstruindo: %v %q", ok, why)
+	}
+}

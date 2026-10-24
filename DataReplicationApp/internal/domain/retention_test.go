@@ -88,3 +88,19 @@ func TestLeaderFloor(t *testing.T) {
 		t.Fatalf("só a líder: piso %d", floor)
 	}
 }
+
+// DC-20: a saída da janela não tem volta. Depois que o segmento com o Match do par saiu, os
+// bytes contados do primeiro segmento que sobrou cabem de novo, mas o par continua fora.
+func TestLeaderFloorWindowIsSticky(t *testing.T) {
+	v := RetentionView{Snapshot: 900, Segments: []Segment{{Seq: 5, First: 600, Bytes: 100}, {Seq: 6, First: 700, Bytes: 100}}}
+	floor, in := LeaderFloor(map[uint64]Index{1: 900, 2: 550, 3: 880}, 1, v, 400)
+	if in[2] || floor != 880 {
+		t.Fatalf("par com o Match abaixo do primeiro retido: janela %v piso %d", in, floor)
+	}
+	if floor, in := LeaderFloor(map[uint64]Index{1: 900, 2: 599, 3: 880}, 1, v, 400); !in[2] || floor != 599 {
+		t.Fatalf("Match + 1 = primeiro retido ainda está na janela: %v %d", in, floor)
+	}
+	if _, in := LeaderFloor(map[uint64]Index{1: 900, 2: 0, 3: 880}, 1, v, 400); !in[2] {
+		t.Fatal("Match 0 (desconhecido) segue a regra dos bytes")
+	}
+}

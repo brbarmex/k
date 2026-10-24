@@ -1,10 +1,12 @@
-// Package adminhttp é o endpoint de administração (S.7) com net/http: /livez, /readyz e
-// /status.
+// Package adminhttp é o endpoint de administração (S.7) com net/http: /livez, /readyz,
+// /status e POST /admin/reconstruir (AP-18). Só na porta de administração, nunca publicada
+// além do host.
 package adminhttp
 
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"time"
 
@@ -17,14 +19,20 @@ type Reporter interface {
 	Ready() (bool, string)
 }
 
+// Rebuilder dispara a reconstrução manual (usecase.Rebuild).
+type Rebuilder interface {
+	Trigger() error
+}
+
 // Server é o servidor de administração.
 type Server struct {
 	srv *http.Server
 }
 
 // New monta as rotas no endereço addr. metrics é o handler de /metrics (O-17); nulo não
-// registra a rota. O pacote não importa o Prometheus.
-func New(addr string, r Reporter, metrics http.Handler) *Server {
+// registra a rota. O pacote não importa o Prometheus. rb liga o POST /admin/reconstruir;
+// nulo não registra a rota.
+func New(addr string, r Reporter, metrics http.Handler, rb Rebuilder) *Server {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /livez", func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte("ok"))
@@ -42,6 +50,22 @@ func New(addr string, r Reporter, metrics http.Handler) *Server {
 	})
 	if metrics != nil {
 		mux.Handle("GET /metrics", metrics)
+	}
+	if rb != nil {
+		mux.HandleFunc("POST /admin/reconstruir", func(w http.ResponseWriter, _ *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			if err := rb.Trigger(); errors.Is(err, usecase.ErrLeaderRebuild) {
+				w.WriteHeader(http.StatusConflict)
+				_ = json.NewEncoder(w).Encode(map[string]string{"erro": "a líder não se reconstrói"})
+				return
+			} else if err != nil {
+				w.WriteHeader(http.StatusInternalServerError)
+				_ = json.NewEncoder(w).Encode(map[string]string{"erro": err.Error()})
+				return
+			}
+			w.WriteHeader(http.StatusAccepted)
+			_ = json.NewEncoder(w).Encode(map[string]string{"estado": "reconstruindo"})
+		})
 	}
 	return &Server{srv: &http.Server{Addr: addr, Handler: mux, ReadHeaderTimeout: 5 * time.Second}}
 }

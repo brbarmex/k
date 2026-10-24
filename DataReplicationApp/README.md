@@ -38,6 +38,12 @@ task test-leader-failover     # checks leader failover (CA-09)
 task test-leader-outage-load  # writes across a 15-second leader outage
 task test-no-quorum           # checks writes without quorum (CA-07)
 task test-invalid-requests    # checks invalid/unsupported operations (CA-10/13)
+task rebuild CELL=N           # manual rebuild of a follower (POST /admin/reconstruir)
+task test-lagging-follower CELL=N   # follower behind the tail recovers by CatchUp (CA-24)
+task test-out-of-window CELL=N      # follower out of the window is rebuilt (CA-25)
+task test-disk-hard-ceiling CELL=N  # hard disk ceiling aborts and retries the rebuild (CA-26)
+task test-lost-volume CELL=N        # lost Raft volume: the cell refuses to start (DC-12, CA-28)
+task soak DURATION=1h               # long load: RSS and retained WAL stable, no OOM (CA-27)
 ```
 
 | Task | What it does | What to check |
@@ -56,6 +62,12 @@ task test-invalid-requests    # checks invalid/unsupported operations (CA-10/13)
 | `stop` / `clean` | runs `down` / `down -v` | `clean` removes all three volumes |
 | `test` | runs `docker build --target test .` (`go test -race ./...`) | CA-14 |
 | `e2e` | starts the stack, writes, scans, reads, and inspects | `e2e: PASS` |
+| `rebuild CELL=N` | `POST /admin/reconstruir` on cell N | 202 on a follower, 409 on the leader |
+| `test-lagging-follower CELL=N` | stops the follower, writes past the snapshot, restarts the leader, starts the follower | `modo.estado` goes through `recuperando` back to `normal`; same items and `_dr_v` in the 3 tables |
+| `test-out-of-window CELL=N` | stops the follower until `wal.janela[N]` is false, starts it under slow writes | `reconstruindo`, then `recuperando`, then `normal`; the writes made during the copy reach all 3 tables |
+| `test-disk-hard-ceiling CELL=N` | rebuilds the follower under continuous writes | the source logs `teto duro de disco: reconstrução abortada`; writes keep their ACK; the rebuild starts again after `REBUILD_RETRY` |
+| `test-lost-volume CELL=N` | deletes the follower's Raft volume and starts it | the cell exits with `troca-de-pvc-em-cell-ativa`; the other two keep acknowledging writes |
+| `soak DURATION=1h` | runs `load` for the duration | RSS and `dr_wal_retained_bytes` grow at most 10% between 10-minute windows; no `OOMKilled` |
 
 Portas no host: API da célula N em `800N`, administração em `909N`, LocalStack da célula N em `4565+N` (um por célula: 4566, 4567, 4568), Prometheus em `9095` e Grafana em `3000`. O gRPC entre células (7000) não é publicado.
 
@@ -144,9 +156,39 @@ O adaptador `prometheus/client_golang` fica isolado em `internal/adapter/out/pro
 - **Um LocalStack por célula.** Cada célula grava no seu `localstack-N` (`DYNAMODB_ENDPOINT` por célula), como em produção há um DynamoDB por célula. `task test-banco-lento CELL=N` pausa só o banco da célula N e confere que o termo do Raft não muda (ADR-060, C35).
 - **Teste de carga local com TPS baixo.** A POC usa só o LocalStack, sem banco em memória (decisão do Bruno, 14/10): carga local baixa (por exemplo 10 TPS) e vazão medida na AWS. Para exercitar a admissão localmente, `task start APPLY_LAG_MAX=50`.
 - **Applier estacionado.** Erro permanente do banco para o applier daquela célula sem pular o item e sem derrubar o processo; o `/readyz` cai e o `/status` mostra `erroApply`. Com workers em paralelo, os itens anteriores ao venenoso terminam, o despacho para, e a marca d'água fica logo antes dele. Erro transitório é repetido com backoff de 100 ms a 5 s.
-- **Um volume por célula.** O `CommitPump` tem duas goroutines (gate e commits) e só entrega as entradas ao applier; o WAL do Raft é a única cópia durável delas. O progresso do applier é um registro de 16 bytes com CRC, gravado sem fsync no arquivo `/var/lib/dr/raft/progress`, ao lado do WAL e no mesmo volume (`cell-N-raft`); perdê-lo só alonga o replay, que é idempotente pela versão. A compactação do Raft fica desligada na POC (RT-11).
+- **Um volume por célula.** O `CommitPump` tem duas goroutines (gate e commits) e só entrega as entradas ao applier; o WAL do Raft é a única cópia durável delas. O progresso do applier é um registro de 16 bytes com CRC, gravado sem fsync no arquivo `/var/lib/dr/raft/progress`, ao lado do WAL e no mesmo volume (`cell-N-raft`); perdê-lo só alonga o replay, que é idempotente pela versão. O mesmo volume guarda o arquivo `snapshot` (o marcador), `snapshot-recebido` (o índice do último marcador recebido) e `boot-token` (ver "Log do Raft limitado").
 - **`x-dr-index`.** AWS CLI does not print response headers; `task write` reads the index from `--debug` output.
 - **Testes de integração.** O teste do `StateStore` contra o LocalStack só roda com `DR_IT_DYNAMODB_ENDPOINT` definida (ex.: `http://localhost:4566`).
+
+## Log do Raft limitado
+
+A memória, o disco e a partida do log do Raft têm teto em cada célula (canvas `GGQPA-XXX-202610181712`, decisões DC-01 a DC-12 e DC-18):
+
+- **Snapshot-marcador.** A cada `SNAPSHOT_EVERY_ENTRIES` entradas ou `SNAPSHOT_EVERY_BYTES`, o `Compactor` grava o progresso com fsync, o arquivo `snapshot` (cluster, epoch e confirmado, com CRC) e o snapshot do WAL, sem dados: o banco de cada célula já é o estado (RT-11, DC-06). A partida relê só a cauda depois do último snapshot (RT-09).
+- **RAM.** O `MemoryStorage` guarda `RAFT_CATCHUP_ENTRIES` antes do snapshot e o que as followers **dentro da janela** ainda não confirmaram (DC-08). Acima de `RAFT_RAM_MAX`, compacta até o snapshot e ignora o `Match` (SG-23).
+- **Disco.** Um `.wal` só sai abaixo de `min(aplicado durável, piso, menor pino, snapshot)` (SG-18). O piso é o menor `Match` das réplicas na janela (bytes retidos desde o `Match` ≤ `RETAIN_MAX_BYTES`), calculado pela líder e enviado no `GateUpdate`. Os pinos seguram o disco durante uma leitura, um `CatchUp` servido e uma reconstrução (DC-10). No teto duro (`RETAIN_DISK_HARD` do volume ou `RETAIN_DISK_HARD_BYTES`), só os pinos da reconstrução são soltos.
+- **Estados da célula** (`/status` → `modo.estado`): `normal`; `recuperando`, quando um marcador chega à frente do aplicado: a célula pede as entradas que faltam a outra célula pelo `CatchUp`, com o gate seguindo o confirmado da fonte (DC-02); `reconstruindo`, quando nenhuma célula retém o que falta: copia as tabelas de uma célula em normal pelo `CopyTable`, **sobrescrevendo no lugar** com o mesmo `PutItem` condicional do apply (DC-11), grava o progresso F e reinicia (DC-04). Fora de `normal`, a leitura forte responde 503 `CELL_RECOVERING` e o `/readyz` fica falso; a escrita continua sendo encaminhada à líder.
+- **Volume perdido (DC-12).** Uma célula com o volume do Raft vazio só cria o grupo no nascimento: grava um `boot-token`, pergunta aos pares e só cria com todos vazios ou com um `Genesis` que tem o token dela. Se o grupo já existe (ou a tabela local já tem itens), ela não sobe; devolvê-la é a feature `troca-de-pvc-em-cell-ativa` (`parklot/adr-troca-de-pvc-em-cell-ativa.md`). Na POC, `task clean`.
+- **Buraco do marcador recebido (DC-18).** Um marcador aceito pula entradas que nunca entram no log local; o índice dele fica em `snapshot-recebido`, e a célula nunca serve um `CatchUp` que atravesse esse buraco.
+
+| Variável | Padrão | Valor de teste |
+|---|---|---|
+| `SNAPSHOT_EVERY_ENTRIES` | 10000 | 200 |
+| `SNAPSHOT_EVERY_BYTES` | 64MiB | — |
+| `RAFT_CATCHUP_ENTRIES` | 5000 | 50 |
+| `RAFT_RAM_MAX` | 256MiB | 40MiB (teto) |
+| `RAFT_COMPACT_INTERVAL` | 1s | — |
+| `RETAIN_MAX_BYTES` | 2GiB | 4MiB |
+| `RETAIN_DISK_HARD` | 0.85 | — |
+| `RETAIN_DISK_HARD_BYTES` | 0 (desligado) | 12MiB |
+| `WAL_SEGMENT_BYTES` | 64000000 | 1MiB |
+| `REBUILD_RETRY` | 1m | 20s |
+| `REBUILD_PIN_TTL` | 5m | — |
+| `PEER_QUEUE_BYTES` | 64MiB | — |
+
+Exemplos: `task start SNAPSHOT_EVERY_ENTRIES=200 RAFT_CATCHUP_ENTRIES=50 WAL_SEGMENT_BYTES=1MiB` e `task test-lagging-follower CELL=2` (CA-24); com `RETAIN_MAX_BYTES=4MiB`, `task test-out-of-window CELL=2` (CA-25); com `RETAIN_DISK_HARD_BYTES=12MiB REBUILD_RETRY=20s`, `task test-disk-hard-ceiling CELL=2` (CA-26). No dashboard, a linha 11 mostra o estado de cada célula, o snapshot, o WAL retido, o piso, os pinos e a vazão do `CatchUp` e da reconstrução; a linha 10 mostra a RAM.
+
+**Volumes antigos.** Os volumes criados antes do metadado com `cluster_id` não sobem (RT-20): rode `task clean`.
 
 ## Bibliotecas
 
@@ -162,5 +204,9 @@ As da N-01: `fasthttp`, `net/http`, `zerolog`, `viper`, `fx`, `google.golang.org
 2. Sem dedupe de retry: uma escrita `PENDING` repetida vira outra entrada (as tasks usam `AWS_MAX_ATTEMPTS=1`).
 3. ~~Um único LocalStack para as três células.~~ Resolvido em 14/10: um LocalStack por célula, como em produção; os três ainda dividem a CPU e o disco do notebook.
 4. `inspecionar` logo depois do ACK pode mostrar o item em só 1 ou 2 tabelas.
-5. Sem compactação do Raft, a memória cresce com o uso.
+5. ~~Sem compactação do Raft, a memória cresce com o uso.~~ Fechado pela compactação do log (ver "Log do Raft limitado"). Ficam:
+   - o formato do WAL é o do etcd v3.7.2 (`LogReader`); toda atualização do etcd roda a CA-20 de novo;
+   - a partida é proporcional ao retido depois do último snapshot;
+   - a reconstrução é lenta no LocalStack (a cópia é item a item);
+   - sem `DeleteItem`: com a sobrescrita no lugar, um delete futuro exige lápide com `_dr_v` (DC-11).
 6. Uma follower só aplica até o último gate recebido (atraso máximo de `GATE_PUBLISH_INTERVAL`).

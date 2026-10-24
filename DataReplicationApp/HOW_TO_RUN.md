@@ -81,7 +81,9 @@ To view write and read rates, run `task load` in another terminal. It alternates
 - **Normal operation:** `Current Leader` shows one cell, `Quorum` is `OK`, `Ready Cells` is 3, and `Role per Cell` shows one leader and two followers. With `task load` running, successful ACKs appear and `commit`, `gate`, and `applied` advance on all cells.
 - **Leader failure (CA-09):** during election, `Current Leader` may show `NO LEADER` and the stopped cell is no longer ready. After failover, `Leader Changes` increases, `Term` advances, and the new leader appears in `Role per Cell`. Quorum returns to `OK`; writes resume. The old leader rejoins as a follower and catches up.
 - **Quorum loss (CA-07):** stop two cells and wait for `CheckQuorum`. The `Quorum` panel shows `NO QUORUM`, active voters drops below 2, and the remaining cell no longer reports a leader. A write attempt is counted as `no_leader` (or `pending` if it was already in flight); indexes stop advancing. Restart the cells and wait for election, quorum, and readiness before checking for successful ACKs.
-- **Sincronização e recuperação (seção 10):** tudo é medido pela líder, a partir do aplicado de cada célula no **banco** (não do log). `Cluster sincronizado` fica em `SINCRONIZADO` quando as três células estão a até `REPL_SYNC_MAX` (padrão 2 s) da líder; acima de 15 s fora, `Células fora da régua há mais de 15 s` fica vermelho. `Versão replicada por célula` mostra o `drv_X` garantido no banco de cada uma ao lado do commit da líder. `RAM do Raft na líder x RAFT_RAM_MAX` sobe enquanto uma follower está fora (atenção em 70%, crítico em 90%); no teto, `Teto da RAM atingido` sobe e a follower passa a contar como abandonada (só volta pelo Incremento B). `Recuperação por célula` mostra a sessão em curso e o P99 das encerradas, e `Tempo de replicação da líder` mostra as etapas `commit`, `banco_lider`, `banco_quorum` (2 de 3 bancos) e `banco_todas`. O mesmo aparece no `GET /status` da líder, na seção `replicacao`. Para ver tudo mexer: `task load` num terminal e `task test-follower-outage` em outro.
+- **Sincronização e recuperação (seção 10):** tudo é medido pela líder, a partir do aplicado de cada célula no **banco** (não do log). `Cluster sincronizado` fica em `SINCRONIZADO` quando as três células estão a até `REPL_SYNC_MAX` (padrão 2 s) da líder; acima de 15 s fora, `Células fora da régua há mais de 15 s` fica vermelho. `Versão replicada por célula` mostra o `drv_X` garantido no banco de cada uma ao lado do commit da líder. `RAM do Raft na líder x RAFT_RAM_MAX` sobe enquanto uma follower está fora (atenção em 70%, crítico em 90%); no teto, `Teto da RAM atingido` sobe e a follower passa a contar como abandonada: ela volta pelo `CatchUp` ou pela reconstrução (seção 11). `Recuperação por célula` mostra a sessão em curso e o P99 das encerradas, e `Tempo de replicação da líder` mostra as etapas `commit`, `banco_lider`, `banco_quorum` (2 de 3 bancos) e `banco_todas`. O mesmo aparece no `GET /status` da líder, na seção `replicacao`. Para ver tudo mexer: `task load` num terminal e `task test-follower-outage` em outro.
+
+- **Log do Raft, recuperação e reconstrução (seção 11):** `Estado da célula diante do log` fica verde (`normal`) nas três. Com uma follower atrás da cauda (`task test-lagging-follower`), ela passa por amarelo (`recuperando`) e `Recuperação e reconstrução` mostra as entradas do `CatchUp` por segundo; fora da janela (`task test-out-of-window`), fica vermelha (`reconstruindo`) enquanto copia as tabelas, reinicia e volta por `recuperando`. `WAL retido no disco` e `Arquivos .wal retidos` caem depois de cada snapshot; uma réplica atrasada na janela, um pino ou o piso seguram o disco. `Piso de retenção e commit` mostra o que a líder ainda segura para as réplicas. O `GET /status` mostra o mesmo em `modo`, `recuperacao`, `reconstrucao`, `raft`, `wal` e `compactacao`.
 
 To exercise these signals, run `task test-leader-failover` or `task test-no-quorum` with the dashboard open. Run `task load` in a separate terminal for live traffic and stop it with Ctrl+C afterward. `PENDING` means the result is unknown, not definitively rejected.
 
@@ -151,6 +153,13 @@ task test-leader-outage-load   # leader outage with writes before and after fail
 task test-no-quorum            # CA-07
 task test-banco-lento CELL=2   # CA-19: banco de uma célula pausado, sem eleição
 task test-invalid-requests     # CA-10 and CA-13
+
+# Log do Raft limitado (Incremento B); cada uma pede o task start indicado no README
+task test-lagging-follower CELL=2    # CA-24: atrás da cauda, volta pelo CatchUp
+task test-out-of-window CELL=2       # CA-25: fora da janela, reconstrói e volta
+task test-disk-hard-ceiling CELL=2   # CA-26: o teto duro aborta e a reconstrução recomeça
+task test-lost-volume CELL=2         # CA-28: volume perdido, a célula não sobe (depois, task clean)
+task soak DURATION=1h                # CA-27: RSS e WAL estáveis, sem OOM
 ```
 
 ## 6. Failure scenarios

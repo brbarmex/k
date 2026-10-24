@@ -33,6 +33,48 @@ type CellStatus struct {
 	// Replicacao é a replicação até o banco de cada célula, vista pela líder (D-04,
 	// DC-13). Só na líder.
 	Replicacao *ReplicacaoStatus `json:"replicacao,omitempty"`
+
+	// Estado da célula diante do log (AP-16, S.7 da trecho). A chave é "modo" porque
+	// "celula" já é o ID da célula.
+	Modo         ModoStatus          `json:"modo"`
+	Recuperacao  *RecuperacaoStatus  `json:"recuperacao,omitempty"`
+	Reconstrucao *ReconstrucaoStatus `json:"reconstrucao,omitempty"`
+	Compactacao  CompactacaoStatus   `json:"compactacao"`
+}
+
+// ModoStatus é o estado da célula: normal, recuperando ou reconstruindo.
+type ModoStatus struct {
+	Estado string       `json:"estado"`
+	Alvo   domain.Index `json:"alvo,omitempty"`
+	Fonte  string       `json:"fonte,omitempty"`
+}
+
+// RecuperacaoStatus é a recuperação em curso pelo CatchUp (AP-17).
+type RecuperacaoStatus struct {
+	Fonte     uint64       `json:"fonte"`
+	De        domain.Index `json:"de"`
+	Ate       domain.Index `json:"ate"`
+	Alcancado domain.Index `json:"alcancado"`
+}
+
+// ReconstrucaoStatus é a reconstrução em curso pelo CopyTable (AP-18). Recusada traz o
+// motivo da recusa (DC-11): a célula fica fora até um novo POST /admin/reconstruir.
+type ReconstrucaoStatus struct {
+	Fonte         uint64              `json:"fonte,omitempty"`
+	Tabela        domain.LogicalTable `json:"tabela,omitempty"`
+	ItensCopiados uint64              `json:"itensCopiados"`
+	F             domain.Index        `json:"f"`
+	Recusada      string              `json:"recusada,omitempty"`
+}
+
+// CompactacaoStatus é a configuração da compactação do log, que as tasks de teste conferem.
+type CompactacaoStatus struct {
+	SnapshotEveryEntries uint64 `json:"snapshotEveryEntries"`
+	RaftCatchupEntries   uint64 `json:"raftCatchupEntries"`
+	RaftRAMMax           int64  `json:"raftRamMax"`
+	RetainMaxBytes       int64  `json:"retainMaxBytes"`
+	WalSegmentBytes      int64  `json:"walSegmentBytes"`
+	RetainDiskHardBytes  int64  `json:"retainDiskHardBytes"`
 }
 
 // ReplicacaoStatus é a régua de sincronia e cada célula (a própria líder incluída).
@@ -43,8 +85,8 @@ type ReplicacaoStatus struct {
 }
 
 // ReplicacaoCelula é uma célula vista pela líder. Aplicado é a versão _dr_v garantida no
-// banco dela; AtrasCaudaLider = a líder não tem mais na RAM o que ela precisa (só volta
-// pelo Incremento B); MemoriaBytes = o que a RAM da líder segura por ela (DC-14).
+// banco dela; AtrasCaudaLider = a líder não tem mais na RAM o que ela precisa (volta pelo
+// CatchUp ou pela reconstrução); MemoriaBytes = o que a RAM da líder segura por ela (DC-14).
 type ReplicacaoCelula struct {
 	Aplicado         uint64  `json:"aplicado"`
 	Conhecido        bool    `json:"conhecido"`
@@ -64,8 +106,8 @@ type ReplicacaoCelula struct {
 type RaftLogStatus struct {
 	Snapshot domain.Index  `json:"snapshot"`
 	Memoria  MemoriaStatus `json:"memoria"`
-	// AtrasCauda: a célula recebeu um marcador à frente do seu aplicado e espera a
-	// recuperação (Incremento B).
+	// AtrasCauda: a célula recebeu um marcador à frente do seu aplicado e está em
+	// recuperação (AP-17).
 	AtrasCauda bool `json:"atrasCauda"`
 }
 
@@ -133,6 +175,13 @@ type StatusReporter struct {
 
 	// Replication é o monitor da replicação até o banco (D-04); nulo = sem a seção.
 	Replication *ReplicationMonitor
+
+	// Estado da célula (AP-16): o modo, a recuperação e a reconstrução em curso; nulos =
+	// sempre normal. Compaction é a configuração mostrada no /status.
+	Mode       *domain.CellMode
+	Recovery   *Recovery
+	Rebuild    *Rebuild
+	Compaction CompactacaoStatus
 }
 
 func (r *StatusReporter) Status() CellStatus {
@@ -181,6 +230,21 @@ func (r *StatusReporter) Status() CellStatus {
 		st.Quorum = &QuorumStatus{Ativos: ri.QuorumActive, Votantes: ri.Voters, Ok: ri.QuorumActive >= ri.Voters/2+1}
 		st.Replicacao = r.replicacao(ri)
 	}
+	st.Compactacao = r.Compaction
+	st.Modo.Estado = domain.CellNormal.String()
+	if r.Mode != nil {
+		state := r.Mode.State()
+		st.Modo = ModoStatus{Estado: state.String(), Alvo: r.Mode.Target(), Fonte: r.Mode.Source()}
+		if state == domain.CellRecovering && r.Recovery != nil {
+			p := r.Recovery.Progress()
+			st.Recuperacao = &RecuperacaoStatus{Fonte: p.Fonte, De: p.De, Ate: p.Ate, Alcancado: p.Alcancado}
+		}
+		if state == domain.CellRebuilding && r.Rebuild != nil {
+			b := r.Rebuild.Status()
+			st.Reconstrucao = &ReconstrucaoStatus{Fonte: b.Fonte, Tabela: b.Tabela, ItensCopiados: b.ItensCopiados, F: b.F,
+				Recusada: b.Recusada}
+		}
+	}
 	if h := r.Applier.Health(); h.Stopped {
 		st.ErroApply = "parado em (" + strconv.FormatUint(uint64(h.Index), 10) + ", " +
 			strconv.FormatUint(uint64(h.Ord), 10) + "): " + h.Err
@@ -201,6 +265,8 @@ func (r *StatusReporter) Ready() (bool, string) {
 		return false, "sem líder conhecida"
 	case r.Applier.Health().Stopped:
 		return false, "applier parado"
+	case r.Mode != nil && r.Mode.State() != domain.CellNormal:
+		return false, "célula em " + r.Mode.State().String()
 	case ri.HardCeiling && ri.HeldByApplied:
 		return false, "disco no teto duro: reconstrução necessária"
 	}

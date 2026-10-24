@@ -3,19 +3,26 @@ package peerv1
 import (
 	"errors"
 
+	"example.com/datareplication/internal/port"
 	"example.com/datareplication/internal/usecase"
 )
 
 // Códigos de resultado no fio. O Forward e a barreira preservam a CLASSE do resultado da
 // líder, para a follower responder exatamente como a líder (RF-10).
 const (
-	CodeOK           = "OK"
-	CodeNoLeader     = "NO_LEADER"
-	CodeNotLeader    = "NOT_LEADER"
-	CodePending      = "PENDING"
-	CodeThrottling   = "THROTTLING"
-	CodeReadTimeout  = "READ_TIMEOUT"
-	CodeInternal     = "INTERNAL"
+	CodeOK          = "OK"
+	CodeNoLeader    = "NO_LEADER"
+	CodeNotLeader   = "NOT_LEADER"
+	CodePending     = "PENDING"
+	CodeThrottling  = "THROTTLING"
+	CodeReadTimeout = "READ_TIMEOUT"
+	CodeInternal    = "INTERNAL"
+
+	// Canal de recuperação (RT-19) e leitura fora de normal (AP-16).
+	CodeNotRetained    = "NOT_RETAINED"
+	CodeSourceNotReady = "SOURCE_NOT_READY"
+	CodeRebuildAborted = "REBUILD_ABORTED"
+	CodeCellRecovering = "CELL_RECOVERING"
 )
 
 // ErrInternal é o erro reconstruído de um INTERNAL vindo da líder.
@@ -36,6 +43,14 @@ func CodeOf(err error) string {
 		return CodeThrottling
 	case errors.Is(err, usecase.ErrReadTimeout):
 		return CodeReadTimeout
+	case errors.Is(err, port.ErrNotRetained):
+		return CodeNotRetained
+	case errors.Is(err, port.ErrSourceNotReady):
+		return CodeSourceNotReady
+	case errors.Is(err, usecase.ErrRebuildAborted):
+		return CodeRebuildAborted
+	case errors.Is(err, usecase.ErrCellRecovering):
+		return CodeCellRecovering
 	default:
 		return CodeInternal
 	}
@@ -56,6 +71,14 @@ func ErrOf(code string) error {
 		return usecase.ErrBackpressure
 	case CodeReadTimeout:
 		return usecase.ErrReadTimeout
+	case CodeNotRetained:
+		return port.ErrNotRetained
+	case CodeSourceNotReady:
+		return port.ErrSourceNotReady
+	case CodeRebuildAborted:
+		return usecase.ErrRebuildAborted
+	case CodeCellRecovering:
+		return usecase.ErrCellRecovering
 	default:
 		return ErrInternal
 	}

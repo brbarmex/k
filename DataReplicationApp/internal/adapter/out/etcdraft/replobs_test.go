@@ -151,3 +151,38 @@ func TestMemByPeerAndCeiling(t *testing.T) {
 		})
 	}
 }
+
+// DC-19: uma mensagem do Raft para outro nó (a conexão de um par caiu noutra célula) é
+// descartada no Step: o heartbeat com o commit de outro par não derruba a célula.
+func TestStepDropsMessagesForOtherNode(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	c := newCluster(t, ctx)
+	defer func() {
+		for id := range c.dirs {
+			c.stop(id)
+		}
+	}()
+	l := c.leader(5 * time.Second)
+	var f *Node
+	for id, n := range c.net.nodes {
+		if id != l.cfg.ID {
+			f = n
+			break
+		}
+	}
+	other := uint64(6) - l.cfg.ID - f.cfg.ID
+	hb := &raftpb.Message{Type: raftpb.MsgHeartbeat.Enum(), To: proto.Uint64(other), From: proto.Uint64(l.cfg.ID),
+		Term: proto.Uint64(uint64(l.Term())), Commit: proto.Uint64(uint64(f.CommitIndex()) + 1000)}
+	data, err := proto.Marshal(hb)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Step(ctx, [][]byte{data}); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(100 * time.Millisecond) // o Raft entraria em pânico aqui (tocommit fora do log)
+	if f.CommitIndex() >= 1000 {
+		t.Fatal("a mensagem para outro nó chegou ao Raft")
+	}
+}

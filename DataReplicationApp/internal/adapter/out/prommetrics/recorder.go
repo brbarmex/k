@@ -27,7 +27,7 @@ var (
 	MsgTypes     = []string{"app", "app_resp", "vote", "vote_resp", "prevote", "prevote_resp", "heartbeat", "heartbeat_resp", "snap", "outro"}
 	WriteResults = []string{"ok", "no_leader", "pending", "throttling", "recusada", "erro"}
 	ReadOps      = []string{"get", "scan"}
-	ReadResults  = []string{"ok", "no_leader", "read_timeout", "applier_stopped", "recusada", "erro"}
+	ReadResults  = []string{"ok", "no_leader", "read_timeout", "applier_stopped", "cell_recovering", "recusada", "erro"}
 	// ThrottleCauses são as causas da contrapressão (O-27, ADR-060).
 	ThrottleCauses = []string{"buffer_cheio", "nao_lider", "atraso_apply"}
 	// HTTPOps são as operações pré-inicializadas na porta de API (O-28).
@@ -68,6 +68,8 @@ type Recorder struct {
 	replStage  *prometheus.HistogramVec
 	recovery   *prometheus.HistogramVec
 	ramCeiling prometheus.Counter
+	catchUp    prometheus.Counter
+	rebuild    prometheus.Counter
 }
 
 var _ port.Metrics = (*Recorder)(nil)
@@ -167,6 +169,14 @@ func NewRecorder(celula string, source StatusSource) *Recorder {
 		Name: "dr_raft_mem_ceiling_total",
 		Help: "Ciclos do Compactor com a RAM do Raft acima de RAFT_RAM_MAX: a líder compactou até o snapshot e abandonou o Match das réplicas atrasadas (SG-23).",
 	})).(prometheus.Counter)
+	r.catchUp = f(prometheus.NewCounter(prometheus.CounterOpts{
+		Name: "dr_catchup_entries_total",
+		Help: "Entradas recebidas pelo canal de recuperação (CatchUp) numa célula atrás da cauda (AP-17).",
+	})).(prometheus.Counter)
+	r.rebuild = f(prometheus.NewCounter(prometheus.CounterOpts{
+		Name: "dr_rebuild_items_total",
+		Help: "Itens gravados pela cópia da reconstrução (CopyTable), sobrescrita no lugar (AP-18, DC-11).",
+	})).(prometheus.Counter)
 	for _, e := range ReplStages {
 		r.replStage.WithLabelValues(e)
 	}
@@ -237,7 +247,9 @@ func (r *Recorder) ReplicationStage(etapa string, d time.Duration) {
 func (r *Recorder) RecoveryFinished(par uint64, d time.Duration) {
 	r.recovery.WithLabelValues(strconv.FormatUint(par, 10)).Observe(d.Seconds())
 }
-func (r *Recorder) RAMCeilingHit() { r.ramCeiling.Inc() }
+func (r *Recorder) RAMCeilingHit()       { r.ramCeiling.Inc() }
+func (r *Recorder) CatchUpEntries(n int) { r.catchUp.Add(float64(n)) }
+func (r *Recorder) RebuildItems(n int)   { r.rebuild.Add(float64(n)) }
 
 // RegisterState registra o coletor de estado. Existe porque a fonte (StatusReporter)
 // depende do nó Raft, que por sua vez recebe este Recorder: o bootstrap liga a fonte

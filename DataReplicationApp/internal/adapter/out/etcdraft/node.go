@@ -95,6 +95,7 @@ type Node struct {
 	ram       ramTracker
 	advanced  atomic.Uint64 // último índice entregue pelo laço E avançado (DC-05)
 	deferred  atomic.Uint64 // maior índice de marcador descartado por aplicado atrás (RT-18)
+	holeIdx   atomic.Uint64 // índice do último marcador recebido: o log local não tem nada até ele (DC-18)
 	snapMu    sync.Mutex
 	snapIdx   domain.Index          // índice do último snapshot (WAL e MemoryStorage)
 	marker    domain.SnapshotMarker // marcador do último snapshot
@@ -133,6 +134,12 @@ func Open(cfg Config, send Sender, log zerolog.Logger) (*Node, error) {
 		snapIdx:  o.snap, marker: o.marker, cs: o.cs, genesis: o.genesis,
 		snapLog: newRateLog(10 * time.Second),
 	}
+	hole, err := readHole(holePath(cfg.MarkerPath))
+	if err != nil {
+		_ = w.Close()
+		return nil, err
+	}
+	n.holeIdx.Store(uint64(hole))
 	n.ram.recordSnapshot(o.snap)
 	n.ram.recordAppend(o.ents)
 	n.advanced.Store(uint64(o.snap))
@@ -324,6 +331,12 @@ func (n *Node) saveReceivedSnapshot(snap *raftpb.Snapshot) (domain.SnapshotMarke
 	}
 	md := snap.GetMetadata()
 	s := domain.Index(md.GetIndex())
+	// DC-18: o buraco é gravado antes do marcador e do WAL; uma queda entre os passos só
+	// deixa o buraco maior que o necessário, o que é seguro.
+	if err := writeHole(holePath(n.cfg.MarkerPath), s); err != nil {
+		return m, err
+	}
+	n.holeIdx.Store(uint64(s))
 	if err := writeMarker(n.cfg.MarkerPath, m, s); err != nil {
 		return m, err
 	}
@@ -468,6 +481,16 @@ func (n *Node) Step(ctx context.Context, msgs [][]byte) error {
 		m := &raftpb.Message{}
 		if err := proto.Unmarshal(data, m); err != nil {
 			return fmt.Errorf("etcdraft: mensagem ilegível: %w", err)
+		}
+		if m.GetTo() != n.cfg.ID {
+			// DC-19: a conexão de um par pode cair noutra célula (o IP de um container
+			// reiniciado é reaproveitado por outro). Uma mensagem para outro nó nunca chega ao
+			// Raft: um heartbeat com o commit de outro par derrubaria esta célula.
+			if ok, sup := n.snapLog.allow("outro-no", time.Now()); ok {
+				n.log.Warn().Uint64("para", m.GetTo()).Uint64("de", m.GetFrom()).Int("suprimidas", sup).
+					Msg("mensagem do Raft para outro nó descartada")
+			}
+			continue
 		}
 		n.metrics.RaftMessageReceived(typeName(m))
 		if t := m.GetType(); t == raftpb.MsgHeartbeat || t == raftpb.MsgHeartbeatResp {
@@ -650,6 +673,9 @@ func (n *Node) Pins() *Retention { return n.ret }
 
 // Compactor devolve o compactador, ou nulo quando a compactação está desligada.
 func (n *Node) Compactor() *Compactor { return n.compactor }
+
+// hole é o índice do último marcador recebido (DC-18).
+func (n *Node) hole() domain.Index { return domain.Index(n.holeIdx.Load()) }
 
 func (n *Node) isLeader() bool { return n.lead.Load() == n.cfg.ID }
 

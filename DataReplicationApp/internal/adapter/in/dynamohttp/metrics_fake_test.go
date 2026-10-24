@@ -21,6 +21,15 @@ func (r *recMetrics) inc(k string) {
 	r.calls[k]++
 }
 
+func (r *recMetrics) add(k string, n int) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.calls == nil {
+		r.calls = map[string]int{}
+	}
+	r.calls[k] += n
+}
+
 func (r *recMetrics) n(k string) int {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -53,3 +62,5 @@ func (r *recMetrics) ReplicationStage(etapa string, _ time.Duration) {
 }
 func (r *recMetrics) RecoveryFinished(uint64, time.Duration) { r.inc("recovery") }
 func (r *recMetrics) RAMCeilingHit()                         { r.inc("ram_ceiling") }
+func (r *recMetrics) CatchUpEntries(n int)                   { r.add("catchup_entries", n) }
+func (r *recMetrics) RebuildItems(n int)                     { r.add("rebuild_items", n) }

@@ -64,8 +64,24 @@ type StateStore interface {
 }
 
 // Scanner é a varredura da tabela base no banco da célula, sempre consistente.
+// ScanVersioned é a mesma varredura com a versão _dr_v de cada item, para a cópia da
+// reconstrução (AP-18, DC-11); nunca chega à API.
 type Scanner interface {
 	Scan(ctx context.Context, table domain.LogicalTable, limit int, startKey []byte) (ScanPage, error)
+	ScanVersioned(ctx context.Context, table domain.LogicalTable, limit int, startKey []byte) (VersionedPage, error)
+}
+
+// VersionedItem é um item com a chave canônica e a versão _dr_v (0 = sem versão).
+type VersionedItem struct {
+	Key     []byte
+	Item    []byte // JSON do DynamoDB, sem _dr_v
+	Version domain.Index
+}
+
+// VersionedPage é uma página do ScanVersioned; LastKey nil no fim.
+type VersionedPage struct {
+	Items   []VersionedItem
+	LastKey []byte
 }
 
 // ScanPage é uma página de Scan: itens em JSON do DynamoDB (sem _dr_v), a chave
@@ -118,11 +134,76 @@ type LogSource interface {
 
 // RetentionPins segura o disco do log a partir de um índice enquanto alguém lê dele
 // (leitura do disco, canal de recuperação, reconstrução). O pino segura as entradas
-// depois de idx.
+// depois de idx. Has diz se o pino do dono ainda existe (o teto duro solta os de
+// reconstrução, RT-15).
 type RetentionPins interface {
 	Pin(owner string, idx domain.Index) (release func())
 	PinFor(owner string, idx domain.Index, ttl time.Duration)
 	Unpin(owner string)
+	Has(owner string) bool
+}
+
+// Erros do canal de recuperação (RT-19).
+var (
+	// ErrSourceNotReady: a fonte não está em normal (ou ainda está na pré-partida).
+	ErrSourceNotReady = errors.New("fonte fora de normal")
+	// ErrSourceGone: a fonte caiu ou o transporte falhou no meio do fluxo.
+	ErrSourceGone = errors.New("fonte indisponível")
+)
+
+// RetainedInfo é a resposta do Retained (RT-19): o que a célula retém e em que estado está.
+// Na pré-partida (DC-12), só ClusterID, EmptyVolume, BootToken e State ("partida").
+type RetainedInfo struct {
+	Node          uint64
+	FirstRetained domain.Index
+	Commit        domain.Index
+	Gate          domain.Index
+	State         string // normal, recuperando, reconstruindo ou partida
+	Leader        bool
+	ClusterID     string
+	Epoch         uint64
+	EmptyVolume   bool
+	BootToken     string
+	Genesis       map[uint64]string
+}
+
+// CatchUpBatch é um lote do CatchUp: entradas contíguas e o gate da fonte que as cobre
+// (DC-02, SG-21).
+type CatchUpBatch struct {
+	Entries    []domain.Entry
+	SourceGate domain.Index
+}
+
+// CopyPage é uma página do CopyTable (AP-18). F e KeySchema vêm na primeira página de cada
+// tabela; TableDone fecha a tabela e Done, a cópia inteira.
+type CopyPage struct {
+	F         domain.Index
+	Table     domain.LogicalTable
+	KeySchema domain.KeySchema
+	Items     []VersionedItem
+	TableDone bool
+	Done      bool
+}
+
+// EntryStream é o fluxo do CatchUp; Recv devolve io.EOF ao alcançar o fim pedido.
+type EntryStream interface {
+	Recv() (CatchUpBatch, error)
+	Close()
+}
+
+// CopyStream é o fluxo do CopyTable; Recv devolve io.EOF depois do Done.
+type CopyStream interface {
+	Recv() (CopyPage, error)
+	Close()
+}
+
+// RecoveryClient é o canal de recuperação entre células (RT-19): Retained, CatchUp e
+// CopyTable. Os códigos do fio viram ErrNotRetained, ErrSourceNotReady e
+// usecase.ErrRebuildAborted; falha de transporte vira ErrSourceGone.
+type RecoveryClient interface {
+	Retained(ctx context.Context, node uint64) (RetainedInfo, error)
+	CatchUp(ctx context.Context, node uint64, from, to domain.Index) (EntryStream, error)
+	CopyTable(ctx context.Context, node uint64, tables []domain.LogicalTable) (CopyStream, error)
 }
 
 // RetentionFloorSink recebe, na follower, o piso de retenção publicado pela líder (RT-15).

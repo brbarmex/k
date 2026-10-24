@@ -550,11 +550,13 @@ tasks:
         restore_followers() { docker compose start cell-$FOLLOWER1 cell-$FOLLOWER2 >/dev/null; }
         trap restore_followers EXIT
         docker compose stop cell-$FOLLOWER1 cell-$FOLLOWER2
-        sleep 3
-        STATUS=$(curl -fsS http://localhost:909$LEADER/status)
-        printf '%s' "$STATUS" | python3 -c 'import json,sys; s=json.load(sys.stdin); sys.exit(0 if s.get("lider",0) == 0 else 1)' || {
-          echo "FAIL: isolated cell-$LEADER still reports a leader"; exit 1;
-        }
+        # CheckQuorum: a líder isolada desiste em até dois timeouts de eleição
+        # (ELECTION_TICKS=30 → até 6 s); espera até 15 s.
+        T=0
+        until curl -fsS http://localhost:909$LEADER/status | python3 -c 'import json,sys; s=json.load(sys.stdin); sys.exit(0 if s.get("lider",0) == 0 else 1)' 2>/dev/null; do
+          T=$((T+1)); [ $T -le 30 ] || { echo "FAIL: isolated cell-$LEADER still reports a leader"; exit 1; }
+          sleep 0.5
+        done
         if {{.AWS}} dynamodb put-item --endpoint-url http://localhost:800$LEADER \
             --table-name cadastro_cliente_cell_$LEADER \
             --item '{"pk":{"S":"cli-no-quorum-'"$(date +%s)"'"},{{.FIXED_ITEM}}}' >/dev/null 2>&1; then
@@ -657,6 +659,190 @@ tasks:
         [ "$COMMIT_BEFORE" = "$COMMIT_AFTER" ] || { echo "FAIL: invalid requests changed the Raft commit index"; exit 1; }
         echo "PASS: invalid requests did not change the Raft commit index"
         echo "PASS: all five invalid/unsupported requests were rejected"
+
+  rebuild:
+    aliases: [reconstruir]
+    desc: Trigger the manual rebuild of cell CELL (POST /admin/reconstruir; 409 on the leader, AP-18)
+    cmds:
+      - |
+        CODE=$(curl -sS -o /tmp/dr-rebuild.$$ -w '%{http_code}' -X POST http://localhost:909{{.CELL}}/admin/reconstruir)
+        echo "HTTP $CODE $(cat /tmp/dr-rebuild.$$)"; rm -f /tmp/dr-rebuild.$$
+        [ "$CODE" = "202" ]
+
+  test-lagging-follower:
+    aliases: [test-atrasada]
+    desc: Stop follower CELL, write past the snapshot, restart the leader and verify recovery by CatchUp (CA-24)
+    cmds:
+      - |
+        set -eu
+        T="python3 scripts/drtool.py"
+        CELL={{.CELL}}
+        SINCE=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+        LEADER=$($T leader) || { echo "FAIL: no leader found"; exit 1; }
+        EVERY=$($T field $LEADER 'd["compactacao"]["snapshotEveryEntries"]')
+        CATCHUP=$($T field $LEADER 'd["compactacao"]["raftCatchupEntries"]')
+        [ "$EVERY" -le 1000 ] || { echo "FAIL: rode task start SNAPSHOT_EVERY_ENTRIES=200 RAFT_CATCHUP_ENTRIES=50 WAL_SEGMENT_BYTES=1MiB"; exit 1; }
+        [ "$CELL" != "$LEADER" ] || { echo "FAIL: cell-$CELL is the leader; choose a follower"; exit 1; }
+        restore() { docker compose start cell-$CELL >/dev/null 2>&1 || true; }
+        trap restore EXIT
+        docker compose stop cell-$CELL
+        $T burst $LEADER $((EVERY + CATCHUP + 100))
+        echo "Restarting the leader cell-$LEADER (forces the tail, DC-08)"
+        docker compose restart cell-$LEADER
+        sleep 2
+        LEADER=$(python3 -c 'import sys; sys.path.insert(0, "scripts"); import drtool; print(drtool.wait_leader())')
+        echo "Leader cell-$LEADER; starting cell-$CELL"
+        docker compose start cell-$CELL
+        trap - EXIT
+        $T wait-recovery $CELL 120 recuperando "$SINCE"
+        $T compare
+        echo "PASS: cell-$CELL recovered by CatchUp (CA-24)"
+
+  test-out-of-window:
+    aliases: [test-fora-da-janela]
+    desc: Stop follower CELL until it leaves the retention window, then verify the rebuild under slow writes (CA-25)
+    cmds:
+      - |
+        set -eu
+        T="python3 scripts/drtool.py"
+        CELL={{.CELL}}
+        SINCE=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+        LEADER=$($T leader) || { echo "FAIL: no leader found"; exit 1; }
+        RETAIN=$($T field $LEADER 'd["compactacao"]["retainMaxBytes"]')
+        [ "$RETAIN" -le 8388608 ] || { echo "FAIL: rode task start SNAPSHOT_EVERY_ENTRIES=200 RAFT_CATCHUP_ENTRIES=50 WAL_SEGMENT_BYTES=1MiB RETAIN_MAX_BYTES=4MiB"; exit 1; }
+        [ "$CELL" != "$LEADER" ] || { echo "FAIL: cell-$CELL is the leader; choose a follower"; exit 1; }
+        STOP=$(mktemp -u /tmp/dr-stop.XXXXXX)
+        restore() { docker compose start cell-$CELL >/dev/null 2>&1 || true; touch "$STOP"; }
+        trap restore EXIT
+        docker compose stop cell-$CELL
+        $T until-out-of-window $CELL 1024 || { echo "FAIL: cell-$CELL did not leave the window"; exit 1; }
+        docker compose start cell-$CELL
+        LOADLOG=$(mktemp)
+        $T trickle 0.5 "$STOP" > "$LOADLOG" 2>&1 &
+        # recuperando só aparece se o snapshot da líder passou do F copiado; senão o marcador
+        # é aceito direto (O-44).
+        $T wait-recovery $CELL 300 reconstruindo "$SINCE"
+        touch "$STOP"; wait
+        tail -1 "$LOADLOG"; rm -f "$LOADLOG" "$STOP"
+        trap - EXIT
+        sleep 3
+        $T wait-recovery $CELL 60 "" "$SINCE"
+        $T compare
+        echo "PASS: cell-$CELL rebuilt and caught up, including the writes made during the copy (CA-25)"
+
+  test-disk-hard-ceiling:
+    aliases: [test-teto-disco]
+    desc: Trigger a rebuild of follower CELL under continuous writes; the source must abort it at the hard disk ceiling (CA-26)
+    cmds:
+      - |
+        set -eu
+        T="python3 scripts/drtool.py"
+        CELL={{.CELL}}
+        SINCE=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+        LEADER=$($T leader) || { echo "FAIL: no leader found"; exit 1; }
+        HARD=$($T field $LEADER 'd["compactacao"]["retainDiskHardBytes"]')
+        [ "$HARD" -gt 0 ] || { echo "FAIL: rode task start ... RETAIN_DISK_HARD_BYTES=12MiB REBUILD_RETRY=20s"; exit 1; }
+        [ "$CELL" != "$LEADER" ] || { echo "FAIL: cell-$CELL is the leader; choose a follower"; exit 1; }
+        STOP=$(mktemp -u /tmp/dr-stop.XXXXXX)
+        stop_load() { touch "$STOP"; }
+        trap stop_load EXIT
+        $T trickle 0 "$STOP" 4096 8 >/dev/null 2>&1 &
+        task rebuild CELL=$CELL
+        END=$(( $(date +%s) + 300 )); FOUND=""
+        while [ "$(date +%s)" -lt "$END" ]; do
+          for N in {{.CELLS}}; do
+            if docker compose logs --no-log-prefix --since "$SINCE" cell-$N 2>/dev/null | grep -q "teto duro de disco: reconstrução abortada"; then FOUND=$N; fi
+          done
+          [ -z "$FOUND" ] || break
+          sleep 2
+        done
+        [ -n "$FOUND" ] || { echo "FAIL: the source never aborted the rebuild at the hard ceiling"; exit 1; }
+        echo "Source cell-$FOUND aborted the rebuild at the hard ceiling"
+        RET_BEFORE=$($T field $FOUND 'd["wal"]["retido"]["bytes"]')
+        $T burst $LEADER 20 || { echo "FAIL: writes stopped being acknowledged"; exit 1; }
+        sleep 5
+        RET_AFTER=$($T field $FOUND 'd["wal"]["retido"]["bytes"]')
+        echo "Source retained bytes: $RET_BEFORE -> $RET_AFTER"
+        stop_load; wait; rm -f "$STOP"; trap - EXIT
+        END=$(( $(date +%s) + 300 ))
+        while [ "$(date +%s)" -lt "$END" ]; do
+          N=$(docker compose logs --no-log-prefix --since "$SINCE" cell-$CELL 2>/dev/null | grep -c "reconstrução iniciada" || true)
+          [ "$N" -ge 2 ] && break
+          sleep 2
+        done
+        [ "${N:-0}" -ge 2 ] || { echo "FAIL: the rebuild did not start again after REBUILD_RETRY"; exit 1; }
+        echo "The rebuild started again after REBUILD_RETRY"
+        $T wait-recovery $CELL 300 reconstruindo "$SINCE"
+        $T compare
+        echo "PASS: hard ceiling aborted the rebuild, writes kept their ACK and the rebuild finished afterwards (CA-26)"
+
+  soak:
+    aliases: [carga-longa]
+    desc: Run the load for DURATION (default 1h) and fail if RSS or the retained WAL grow over 10% or a cell is OOM-killed (CA-27)
+    vars:
+      DURATION: '{{.DURATION | default "1h"}}'
+      INTERVAL: '{{.INTERVAL | default "0.1"}}'
+    cmds:
+      - |
+        set -eu
+        SECS=$(python3 -c 'import sys,re; m=re.fullmatch(r"(\d+)([smh])", sys.argv[1]); sys.exit("DURATION: use 30m, 1h...") if not m else print(int(m[1])*dict(s=1,m=60,h=3600)[m[2]])' "{{.DURATION}}")
+        echo "soak: load at INTERVAL={{.INTERVAL}} for {{.DURATION}}"
+        STOP=$(mktemp -u /tmp/dr-stop.XXXXXX); LOADLOG=$(mktemp)
+        trap 'touch "$STOP"' EXIT
+        python3 scripts/drtool.py trickle {{.INTERVAL}} "$STOP" > "$LOADLOG" 2>&1 &
+        sleep "$SECS"
+        touch "$STOP"; wait; trap - EXIT
+        tail -1 "$LOADLOG"; rm -f "$LOADLOG" "$STOP"
+        python3 - <<'PY'
+        import json, sys, urllib.parse, urllib.request
+        def q(expr):
+            url = "http://localhost:9095/api/v1/query?query=" + urllib.parse.quote(expr)
+            return {r["metric"].get("celula", "?"): float(r["value"][1]) for r in json.load(urllib.request.urlopen(url, timeout=10))["data"]["result"]}
+        fail = False
+        for name, m in (("RSS", "process_resident_memory_bytes"), ("WAL retido", "dr_wal_retained_bytes")):
+            now = q(f"avg by (celula) (avg_over_time({m}[10m]))")
+            before = q(f"avg by (celula) (avg_over_time({m}[10m] offset 20m))")
+            for c in sorted(now):
+                b = before.get(c)
+                growth = (now[c] - b) / b if b else 0.0
+                print(f"{name} cell-{c}: {b} -> {now[c]} ({growth:+.1%})")
+                if growth > 0.10:
+                    fail = True
+        sys.exit("FAIL: growth over 10% (CA-27)" if fail else 0)
+        PY
+        for N in {{.CELLS}}; do
+          OOM=$(docker inspect -f '{{"{{"}}.State.OOMKilled{{"}}"}}' $(docker compose ps -aq cell-$N))
+          [ "$OOM" = "false" ] || { echo "FAIL: cell-$N was OOM-killed"; exit 1; }
+        done
+        echo "PASS: no growth over 10% and no OOM (CA-27)"
+
+  test-lost-volume:
+    aliases: [test-volume-perdido]
+    desc: Delete follower CELL's Raft volume; the cell must refuse to start (DC-12, CA-28) while the other two keep writing
+    cmds:
+      - |
+        set -eu
+        T="python3 scripts/drtool.py"
+        CELL={{.CELL}}
+        LEADER=$($T leader) || { echo "FAIL: no leader found"; exit 1; }
+        [ "$CELL" != "$LEADER" ] || { echo "FAIL: cell-$CELL is the leader; choose a follower"; exit 1; }
+        $T burst $LEADER 10
+        PROJECT=$(docker compose ls --format json | python3 -c 'import json,os,sys; print(next(p["Name"] for p in json.load(sys.stdin) if os.getcwd() in p["ConfigFiles"]))')
+        docker compose stop cell-$CELL
+        docker compose rm -f cell-$CELL
+        docker volume rm ${PROJECT}_cell-$CELL-raft
+        docker compose up -d --no-deps cell-$CELL
+        T0=$(date +%s); REFUSED=""
+        while [ $(( $(date +%s) - T0 )) -lt 30 ]; do
+          if docker compose logs --no-log-prefix cell-$CELL 2>/dev/null | grep -q "troca-de-pvc-em-cell-ativa"; then REFUSED=1; break; fi
+          sleep 1
+        done
+        [ -n "$REFUSED" ] || { echo "FAIL: cell-$CELL did not refuse to start with the lost volume"; exit 1; }
+        docker compose stop cell-$CELL >/dev/null
+        echo "cell-$CELL refused to start: $(docker compose logs --no-log-prefix cell-$CELL 2>/dev/null | grep -o 'volume do Raft perdido[^"]*' | tail -1)"
+        $T burst $LEADER 10 || { echo "FAIL: the other two cells stopped acknowledging writes"; exit 1; }
+        echo "PASS: the lost volume was refused and the other two cells keep acknowledging writes (DC-12, CA-28)"
+        echo "cell-$CELL stays down until task clean"
 
   wal:
     desc: List the WAL, the applier progress and the snapshot marker files for cell CELL (CA-11, DC-06)

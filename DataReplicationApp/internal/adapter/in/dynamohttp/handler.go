@@ -209,6 +209,8 @@ func resultOf(err error) string {
 		return "read_timeout"
 	case errors.Is(err, usecase.ErrApplierStopped):
 		return "applier_stopped"
+	case errors.Is(err, usecase.ErrCellRecovering):
+		return "cell_recovering"
 	case errors.Is(err, usecase.ErrPending), errors.Is(err, context.DeadlineExceeded):
 		return "pending"
 	default:
@@ -232,6 +234,11 @@ func writeError(c *fasthttp.RequestCtx, err error) {
 		writeCoded(c, "READ_TIMEOUT", "strong read barrier not reached in time, retry")
 	case errors.Is(err, usecase.ErrApplierStopped):
 		writeCoded(c, "APPLIER_STOPPED", "the applier on this cell is stopped on a poison item; human action is required (ADR-038)")
+	case errors.Is(err, usecase.ErrCellRecovering):
+		// AP-16: a célula está atrás da cauda ou em reconstrução; o banco local não serve a
+		// leitura forte. O corpo segue a N-05 do canvas da compactação.
+		c.Response.Header.Set("x-dr-code", "CELL_RECOVERING")
+		writeErr(c, 503, "InternalServerError", "célula em recuperação; tente outra célula")
 	case errors.Is(err, usecase.ErrPending), errors.Is(err, context.DeadlineExceeded):
 		writeCoded(c, "PENDING", "result unknown, retry") // o SDK retenta; a versão absorve
 	default:

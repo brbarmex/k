@@ -126,11 +126,13 @@ func Runtime() fx.Option {
 			func(s CellStore) port.Scanner { return s },
 			func(s CellStore) port.Catalog { return s },
 			newResume,
+			func() *domain.CellMode { return &domain.CellMode{} },
 			newPeerClient,
 			func(c *peerclient.Client) port.Forwarder { return c },
 			func(c *peerclient.Client) port.BarrierClient { return c },
 			func(c *peerclient.Client) port.GatePublisher { return c },
 			func() *domain.ReplicationClock { return &domain.ReplicationClock{} },
+			newRecovery,
 			newRaft,
 			func(n *etcdraft.Node) port.ConsensusEngine { return n },
 			func(n *etcdraft.Node) port.RaftInbound { return n },
@@ -143,6 +145,7 @@ func Runtime() fx.Option {
 			func(r *usecase.ReadService) port.Reader { return r },
 			newGateSync,
 			newReplicationMonitor,
+			newRebuild,
 			newStatus,
 			func(tm domain.TableMap, cat port.Catalog) dynamohttp.ParseFunc {
 				return (&dynamohttp.Parser{Tables: tm, Catalog: cat}).Parse
@@ -169,6 +172,8 @@ type CellStore interface {
 	port.Scanner
 	port.Catalog
 	LoadCatalog(ctx context.Context, wait time.Duration, log zerolog.Logger) error
+	// HasItems confere se alguma tabela já tem itens (fail-fast do volume perdido, DC-12).
+	HasItems(ctx context.Context, tables []domain.LogicalTable) (bool, error)
 }
 
 func newStore(cfg config.Config, tm domain.TableMap) (CellStore, error) {
@@ -216,6 +221,11 @@ type raftIn struct {
 	Applied  port.AppliedWaiter
 	// ReplClock recebe as amostras da líder (DC-16).
 	ReplClock *domain.ReplicationClock
+	// Recovery é a política do MsgSnap (RT-18) e o canal de recuperação (AP-17).
+	Recovery *usecase.Recovery
+	Mode     *domain.CellMode
+	Store    CellStore
+	Tables   domain.TableMap
 }
 
 func newRaft(in raftIn) (*etcdraft.Node, error) {
@@ -229,13 +239,22 @@ func newRaft(in raftIn) (*etcdraft.Node, error) {
 	if vb, err := etcdraft.VolumeBytes(volume); err == nil && float64(cfg.RetainMaxBytes) >= float64(vb)*cfg.RetainDiskHard {
 		return nil, fmt.Errorf("RETAIN_MAX_BYTES maior que o teto duro do volume (%d >= %d × %.2f)", cfg.RetainMaxBytes, vb, cfg.RetainDiskHard)
 	}
+	var genesis map[uint64]string
+	if !etcdraft.HasState(cfg.RaftDir) { // DC-12: volume vazio, só cria o grupo no nascimento
+		g, err := preBoot(in, volume)
+		if err != nil {
+			return nil, err
+		}
+		genesis = g
+	}
 	n, err := etcdraft.Open(etcdraft.Config{
 		ID: cfg.NodeID, Voters: config.IDs(cfg.Peers),
 		Dir: cfg.RaftDir, TickInterval: 100 * time.Millisecond, ElectionTicks: cfg.ElectionTicks,
 		Applied: uint64(in.Resume.From) - 1, Metrics: in.Metrics,
 		ClusterID: cfg.ClusterID, SegmentBytes: cfg.WalSegmentBytes,
 		MarkerPath: filepath.Join(volume, "snapshot"),
-		Policy:     newNoopPolicy(in.Applied, in.Log),
+		Policy:     in.Recovery,
+		Genesis:    genesis,
 		Compaction: etcdraft.CompactionConfig{
 			Progress: in.Progress, Gate: in.Gate,
 			EveryEntries: cfg.SnapshotEveryEntries, EveryBytes: cfg.SnapshotEveryBytes,
@@ -248,10 +267,13 @@ func newRaft(in raftIn) (*etcdraft.Node, error) {
 	if err != nil {
 		return nil, err
 	}
-	// O-37, item 7: um progresso atrás do disco retido pularia entradas; a célula não sobe.
-	if err := usecase.CheckResume(in.Resume.Progress, n.FirstIndex()); err != nil {
-		_ = n.Close()
-		return nil, err
+	// DC-04 (O-42, item 1): um progresso atrás do disco retido pularia entradas. A célula
+	// começa em reconstruindo, em vez de não subir (substitui o RT-09 antigo e a recusa da
+	// O-37, item 7). Fora a partida do zero, em que o snapshot sintético é o índice 1.
+	if p, r := in.Resume.Progress, n.FirstIndex(); usecase.StartsRebuilding(p, r) {
+		in.Log.Warn().Uint64("progresso", uint64(p)).Uint64("primeiroRetido", uint64(r)).
+			Msgf("progresso %d atrás do disco retido %d: reconstrução automática", p, r)
+		in.Mode.EnterRebuilding()
 	}
 	// G6: o confirmado nunca recua depois de um reinício; o do marcador restaura o gate antes
 	// de os laços começarem.
@@ -260,30 +282,115 @@ func newRaft(in raftIn) (*etcdraft.Node, error) {
 	return n, nil
 }
 
-// noopPolicy é a política do MsgSnap do Incremento A (O-37): aceita o marcador só com o
-// aplicado ≥ S (SG-19) e, atrás da cauda, só avisa. A recuperação pelo canal entre células
-// é do Incremento B; até lá a célula fica parada e visível no /status (atrasCauda).
-type noopPolicy struct {
-	applied port.AppliedWaiter
-	log     zerolog.Logger
+// preBootReporter é o /status e o /readyz da pré-partida (DC-12).
+type preBootReporter struct{ cfg config.Config }
 
-	mu   sync.Mutex
-	last time.Time
+func (r preBootReporter) Status() usecase.CellStatus {
+	return usecase.CellStatus{Celula: r.cfg.CellID, No: r.cfg.NodeID, Papel: "follower",
+		Modo: usecase.ModoStatus{Estado: "partida"}}
+}
+func (preBootReporter) Ready() (bool, string) {
+	return false, "partida: decidindo se o grupo está nascendo"
 }
 
-func newNoopPolicy(a port.AppliedWaiter, log zerolog.Logger) *noopPolicy {
-	return &noopPolicy{applied: a, log: log}
+// preBootInterval é a cadência da pergunta aos pares na pré-partida.
+const preBootInterval = 2 * time.Second
+
+// preBoot decide, com o volume do Raft vazio, se o grupo está nascendo (DC-12): grava o
+// token de partida, responde aos pares só com ele (Retained em pré-partida), confere a
+// tabela local e pergunta aos pares a cada 2 s até domain.DecideBoot criar ou recusar.
+// Devolve o Genesis a gravar no metadado do WAL.
+func preBoot(in raftIn, volume string) (map[uint64]string, error) {
+	cfg, log := in.Cfg, in.Log
+	tok, err := etcdraft.LoadBootToken(filepath.Join(volume, "boot-token"))
+	if err != nil {
+		return nil, err
+	}
+	srv := &peergrpc.Server{Self: cfg.NodeID, PreBoot: &peergrpc.PreBoot{ClusterID: cfg.ClusterID, BootToken: tok}}
+	lis, err := net.Listen("tcp", cfg.PeerAddr)
+	if err != nil {
+		return nil, err
+	}
+	go func() { _ = srv.Serve(lis) }()
+	defer srv.Stop()
+	admin := adminhttp.New(cfg.AdminAddr, preBootReporter{cfg}, nil, nil)
+	go func() { _ = admin.ListenAndServe() }()
+	defer func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = admin.Shutdown(ctx)
+	}()
+	ctx := context.Background()
+	logs := time.Time{}
+	var local bool
+	for {
+		has, err := in.Store.HasItems(ctx, in.Tables.Tables())
+		if err == nil {
+			local = has
+			break
+		}
+		if now := time.Now(); now.Sub(logs) >= 10*time.Second {
+			logs = now
+			log.Info().Err(err).Msg("partida: aguardando as tabelas para decidir se o grupo está nascendo")
+		}
+		time.Sleep(preBootInterval)
+	}
+	logs = time.Time{}
+	for {
+		peers := map[uint64]domain.BootPeer{}
+		for _, id := range config.IDs(cfg.Peers) {
+			if id == cfg.NodeID {
+				continue
+			}
+			info, err := in.Send.Retained(ctx, id)
+			if err != nil {
+				peers[id] = domain.BootPeer{}
+				continue
+			}
+			peers[id] = domain.BootPeer{Responded: true, ClusterID: info.ClusterID, EmptyVolume: info.EmptyVolume,
+				BootToken: info.BootToken, Genesis: info.Genesis}
+		}
+		d := domain.DecideBoot(cfg.NodeID, cfg.ClusterID, tok, local, peers)
+		switch d.Kind {
+		case domain.BootCreate:
+			log.Info().Interface("genesis", d.Genesis).Msg("partida: o grupo está nascendo; criando o WAL")
+			return d.Genesis, nil
+		case domain.BootRefuse:
+			return nil, fmt.Errorf("%w: %s; a célula não sobe. Devolver a célula ao grupo é a feature troca-de-pvc-em-cell-ativa (parklot/adr-troca-de-pvc-em-cell-ativa.md); na POC, rode task clean",
+				usecase.ErrLostRaftVolume, d.Reason)
+		}
+		if now := time.Now(); now.Sub(logs) >= 10*time.Second {
+			logs = now
+			log.Info().Msgf("aguardando os pares %v para decidir se o grupo está nascendo", d.Waiting)
+		}
+		time.Sleep(preBootInterval)
+	}
 }
 
-func (p *noopPolicy) Applied() domain.Index { return p.applied.Applied() }
+// newRecovery é a política do MsgSnap e o canal de recuperação (AP-17, DC-02).
+func newRecovery(cfg config.Config, pc *peerclient.Client, mode *domain.CellMode, g *domain.Gate, a *usecase.Applier,
+	m port.Metrics, log zerolog.Logger) *usecase.Recovery {
+	return &usecase.Recovery{Self: cfg.NodeID, Peers: config.IDs(cfg.Peers), Client: pc, Mode: mode, Gate: g, Applier: a,
+		Retry: cfg.RebuildRetry, Metrics: m, Log: log}
+}
 
-func (p *noopPolicy) Behind(target domain.Index) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	if now := time.Now(); now.Sub(p.last) >= 10*time.Second {
-		p.last = now
-		p.log.Warn().Uint64("alvo", uint64(target)).Uint64("aplicado", uint64(p.applied.Applied())).
-			Msg("célula atrás da cauda: aguardando recuperação (Incremento B)")
+// newRebuild é a reconstrução por cópia da tabela (AP-18, DC-04, DC-11).
+func newRebuild(cfg config.Config, pc *peerclient.Client, st CellStore, n *etcdraft.Node, p port.ApplyProgress,
+	mode *domain.CellMode, a *usecase.Applier, inbox chan []domain.Entry, tm domain.TableMap, m port.Metrics,
+	log zerolog.Logger) *usecase.Rebuild {
+	return &usecase.Rebuild{Self: cfg.NodeID, Peers: config.IDs(cfg.Peers), Client: pc, Catalog: st,
+		Identity: identityOf(n), Store: st, Progress: p, Mode: mode,
+		Idle:     func() bool { return a.Idle() && len(inbox) == 0 },
+		IsLeader: func() bool { l, ok := n.Leader(); return ok && l.Local },
+		Tables:   tm.Tables(), Retry: cfg.RebuildRetry,
+		Backoff: usecase.Backoff{Min: 100 * time.Millisecond, Max: 5 * time.Second}, Metrics: m, Log: log}
+}
+
+// identityOf é o cluster_id e o epoch do marcador local (DC-11).
+func identityOf(n *etcdraft.Node) func() (string, uint64) {
+	return func() (string, uint64) {
+		mk := n.Marker()
+		return mk.ClusterID, mk.Epoch
 	}
 }
 
@@ -292,8 +399,10 @@ func newApplier(cfg config.Config, g *domain.Gate, st port.StateStore, p port.Ap
 		Backoff: usecase.Backoff{Min: 100 * time.Millisecond, Max: 5 * time.Second}, Log: log, Metrics: m}
 }
 
-func newReadService(cfg config.Config, c port.ConsensusEngine, g *domain.Gate, a port.AppliedWaiter, b port.BarrierClient, st port.StateStore, sc port.Scanner, m port.Metrics) *usecase.ReadService {
-	return &usecase.ReadService{Consensus: c, Gate: g, Applied: a, Barrier: b, Store: st, Scanner: sc, WaitLeader: cfg.WaitLeader, Metrics: m}
+func newReadService(cfg config.Config, c port.ConsensusEngine, g *domain.Gate, a port.AppliedWaiter, b port.BarrierClient,
+	st port.StateStore, sc port.Scanner, m port.Metrics, mode *domain.CellMode) *usecase.ReadService {
+	return &usecase.ReadService{Consensus: c, Gate: g, Applied: a, Barrier: b, Store: st, Scanner: sc, WaitLeader: cfg.WaitLeader,
+		Metrics: m, Mode: mode}
 }
 
 // newGateSync: o piso de retenção vai junto com o gate (RT-15). Na líder, o Compactor o
@@ -316,22 +425,44 @@ func newReplicationMonitor(cfg config.Config, c port.ConsensusEngine, clk *domai
 	return mon
 }
 
-func newCommitPump(n *etcdraft.Node, g *domain.Gate, to chan []domain.Entry, r Resume) *usecase.CommitPump {
-	return &usecase.CommitPump{Consensus: n, Gate: g, ToApplier: to, From: r.From}
+// newCommitPump: em recuperando, o pump lê do Recovery (DC-03).
+func newCommitPump(n *etcdraft.Node, g *domain.Gate, to chan []domain.Entry, r Resume, mode *domain.CellMode,
+	rec *usecase.Recovery, a *usecase.Applier, log zerolog.Logger) *usecase.CommitPump {
+	return &usecase.CommitPump{Consensus: n, Gate: g, ToApplier: to, From: r.From, Mode: mode, Remote: rec, Applied: a, Log: log}
 }
 
-func newStatus(cfg config.Config, r port.RaftStatus, g *domain.Gate, a *usecase.Applier, cat port.Catalog,
-	p *usecase.CommitPump, inbox chan []domain.Entry, mon *usecase.ReplicationMonitor) *usecase.StatusReporter {
-	return &usecase.StatusReporter{CellID: cfg.CellID, NodeID: cfg.NodeID, Raft: r, Gate: g, Applier: a, Catalog: cat,
-		Pump: p, ApplyInbox: func() int { return len(inbox) },
-		ApplyLagMax: cfg.ApplyLagMax, ElectionTicks: cfg.ElectionTicks, Replication: mon}
+type statusIn struct {
+	fx.In
+	Cfg      config.Config
+	Raft     port.RaftStatus
+	Gate     *domain.Gate
+	Applier  *usecase.Applier
+	Catalog  port.Catalog
+	Pump     *usecase.CommitPump
+	Inbox    chan []domain.Entry
+	Monitor  *usecase.ReplicationMonitor
+	Mode     *domain.CellMode
+	Recovery *usecase.Recovery
+	Rebuild  *usecase.Rebuild
+}
+
+func newStatus(in statusIn) *usecase.StatusReporter {
+	cfg := in.Cfg
+	return &usecase.StatusReporter{CellID: cfg.CellID, NodeID: cfg.NodeID, Raft: in.Raft, Gate: in.Gate, Applier: in.Applier,
+		Catalog: in.Catalog, Pump: in.Pump, ApplyInbox: func() int { return len(in.Inbox) },
+		ApplyLagMax: cfg.ApplyLagMax, ElectionTicks: cfg.ElectionTicks, Replication: in.Monitor,
+		Mode: in.Mode, Recovery: in.Recovery, Rebuild: in.Rebuild,
+		Compaction: usecase.CompactacaoStatus{SnapshotEveryEntries: cfg.SnapshotEveryEntries,
+			RaftCatchupEntries: cfg.RaftCatchupEntries, RaftRAMMax: cfg.RaftRAMMax, RetainMaxBytes: cfg.RetainMaxBytes,
+			WalSegmentBytes: cfg.WalSegmentBytes, RetainDiskHardBytes: cfg.RetainDiskHardBytes}}
 }
 
 // runAdmin abre a administração primeiro: o /livez responde enquanto as tabelas são
 // conferidas.
-func runAdmin(lc fx.Lifecycle, cfg config.Config, st *usecase.StatusReporter, rec *prommetrics.Recorder, log zerolog.Logger) {
+func runAdmin(lc fx.Lifecycle, cfg config.Config, st *usecase.StatusReporter, rec *prommetrics.Recorder, rb *usecase.Rebuild,
+	log zerolog.Logger) {
 	rec.RegisterState(st) // a fonte do estado só existe depois do nó Raft (ver RegisterState)
-	s := adminhttp.New(cfg.AdminAddr, st, rec.Handler())
+	s := adminhttp.New(cfg.AdminAddr, st, rec.Handler(), rb)
 	lc.Append(fx.Hook{
 		OnStart: func(context.Context) error {
 			go func() {
@@ -359,6 +490,11 @@ type runtimeDeps struct {
 	ReplMonitor *usecase.ReplicationMonitor
 	Reads       *usecase.ReadService
 	Writer      port.Writer
+	// Canal de recuperação servido aos pares (RT-19) e a reconstrução local (AP-18).
+	Mode    *domain.CellMode
+	Gate    *domain.Gate
+	Tables  domain.TableMap
+	Rebuild *usecase.Rebuild
 }
 
 // runRuntime confere as tabelas, abre o gRPC entre células e roda os laços de fundo.
@@ -366,13 +502,23 @@ type runtimeDeps struct {
 // Docker reinicia (RT-05). O Applier estacionado não é erro: o processo fica de pé.
 func runRuntime(d runtimeDeps) {
 	ctx, cancel := context.WithCancel(context.Background())
-	peer := &peergrpc.Server{Raft: d.Node, Writer: d.Writer, Barrier: d.Reads, Gate: d.GateSync}
+	peer := &peergrpc.Server{Self: d.Cfg.NodeID, Raft: d.Node, Writer: d.Writer, Barrier: d.Reads, Gate: d.GateSync,
+		Log: d.Node.LogReader(), Pins: d.Node.Pins(), Scanner: d.Store, Catalog: d.Store, Mode: d.Mode, SourceGate: d.Gate,
+		Applied: d.Applier, Status: d.Node, Tables: d.Tables.Tables(), PinTTL: d.Cfg.RebuildPinTTL,
+		Identity: identityOf(d.Node), Genesis: d.Node.Genesis}
 	var wg sync.WaitGroup
 	fatal := func(name string, run func(context.Context) error) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			if err := run(ctx); err != nil && !errors.Is(err, context.Canceled) {
+			err := run(ctx)
+			switch {
+			case err == nil, errors.Is(err, context.Canceled):
+			case errors.Is(err, usecase.ErrRestartAfterRebuild):
+				// DC-04: a única saída intencional; o compose reinicia (restart: on-failure).
+				d.Log.Info().Err(err).Str("laco", name).Msg("reiniciando a célula depois da reconstrução")
+				os.Exit(1)
+			default:
 				d.Log.Fatal().Err(err).Str("laco", name).Msg("laço de fundo parou")
 			}
 		}()
@@ -397,6 +543,7 @@ func runRuntime(d runtimeDeps) {
 			fatal("applier", d.Applier.Run)
 			fatal("gatesync", d.GateSync.Run)
 			fatal("replmonitor", d.ReplMonitor.Run)
+			fatal("rebuild", d.Rebuild.Run)
 			if c := d.Node.Compactor(); c != nil {
 				fatal("compactor", c.Run) // fsync do progresso, do marcador ou do WAL: fatal (RT-05)
 			}
@@ -404,7 +551,8 @@ func runRuntime(d runtimeDeps) {
 				Uint64("applyLagMax", d.Cfg.ApplyLagMax).Int("electionTicks", d.Cfg.ElectionTicks).
 				Uint64("retomaEm", uint64(d.Pump.From)).Uint64("snapshot", uint64(d.Node.SnapshotIndex())).
 				Int64("ramMax", d.Cfg.RaftRAMMax).Int64("retainMax", d.Cfg.RetainMaxBytes).
-				Int64("segmento", d.Cfg.WalSegmentBytes).Dur("replSyncMax", d.Cfg.ReplSyncMax).Msg("célula iniciada")
+				Int64("segmento", d.Cfg.WalSegmentBytes).Dur("replSyncMax", d.Cfg.ReplSyncMax).
+				Str("estado", d.Mode.State().String()).Msg("célula iniciada")
 			return nil
 		},
 		OnStop: func(stopCtx context.Context) error {

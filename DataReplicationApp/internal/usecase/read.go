@@ -36,6 +36,8 @@ type ReadService struct {
 	Scanner    port.Scanner
 	WaitLeader time.Duration // WAIT_LEADER; 0 = não espera
 	Metrics    port.Metrics  // duração da barreira (O-16); nulo = sem métricas
+	// Mode: fora de normal, a célula não responde leitura forte (AP-16); nulo = normal.
+	Mode *domain.CellMode
 }
 
 var _ port.Reader = (*ReadService)(nil)
@@ -71,6 +73,9 @@ func (s *ReadService) barrier(ctx context.Context) (domain.Index, error) {
 }
 
 func (s *ReadService) waitBarrier(ctx context.Context) error {
+	if s.Mode != nil && s.Mode.State() != domain.CellNormal {
+		return ErrCellRecovering // antes da barreira: o banco local está atrás (AP-16)
+	}
 	start := time.Now()
 	b, err := s.barrier(ctx)
 	if err != nil {

@@ -70,3 +70,32 @@ func TestCellModeConcurrent(t *testing.T) {
 	}
 	wg.Wait()
 }
+
+// O-39: a subida do alvo avisa quem espera, e SetNormalIf só volta a normal no alvo certo.
+func TestCellModeTargetRiseAndSetNormalIf(t *testing.T) {
+	var m CellMode
+	m.EnterRecovering(10)
+	ch := m.Changed()
+	m.EnterRecovering(10) // mesmo alvo: nada muda
+	select {
+	case <-ch:
+		t.Fatal("alvo igual não devia avisar")
+	default:
+	}
+	m.EnterRecovering(15)
+	select {
+	case <-ch:
+	default:
+		t.Fatal("a subida do alvo devia avisar")
+	}
+	if m.SetNormalIf(10) || m.State() != CellRecovering {
+		t.Fatal("alvo antigo não volta a normal")
+	}
+	if !m.SetNormalIf(15) || m.State() != CellNormal {
+		t.Fatal("o alvo atual volta a normal")
+	}
+	m.EnterRebuilding()
+	if m.SetNormalIf(0) {
+		t.Fatal("de reconstruindo, só a partida")
+	}
+}

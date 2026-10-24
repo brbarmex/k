@@ -1,6 +1,7 @@
 // Package peerv1 é o contrato gRPC entre células (RT-12, ADR-021), declarado à mão, sem
-// .proto gerado (N-03): quatro métodos unários (Step, Forward, ReadBarrier, GateUpdate)
-// com um codec JSON forçado no cliente e no servidor. A resposta do GateUpdate leva o
+// .proto gerado (N-03): cinco métodos unários (Step, Forward, ReadBarrier, GateUpdate e
+// Retained) e dois fluxos do servidor (CatchUp e CopyTable, RT-19), com um codec JSON
+// forçado no cliente e no servidor. A resposta do GateUpdate leva o
 // aplicado da follower (DC-15), um campo opcional: as versões anteriores continuam
 // compatíveis nos dois sentidos.
 package peerv1

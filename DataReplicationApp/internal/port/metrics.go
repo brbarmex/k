@@ -68,6 +68,10 @@ type Metrics interface {
 	// RAMCeilingHit: um ciclo do Compactor encontrou a RAM do Raft acima de RAFT_RAM_MAX e
 	// compactou até o snapshot, ignorando o Match (SG-23).
 	RAMCeilingHit()
+	// CatchUpEntries: entradas recebidas pelo canal de recuperação (AP-17).
+	CatchUpEntries(n int)
+	// RebuildItems: itens gravados pela cópia da reconstrução (AP-18).
+	RebuildItems(n int)
 }
 
 // NopMetrics não faz nada: usada nos testes e quando nenhuma métrica é injetada.
@@ -97,6 +101,8 @@ func (NopMetrics) StartupDuration(time.Duration)          {}
 func (NopMetrics) ReplicationStage(string, time.Duration) {}
 func (NopMetrics) RecoveryFinished(uint64, time.Duration) {}
 func (NopMetrics) RAMCeilingHit()                         {}
+func (NopMetrics) CatchUpEntries(int)                     {}
+func (NopMetrics) RebuildItems(int)                       {}
 
 // MetricsOrNop devolve m, ou NopMetrics quando m é nulo.
 func MetricsOrNop(m Metrics) Metrics {

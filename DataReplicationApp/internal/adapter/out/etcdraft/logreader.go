@@ -63,13 +63,15 @@ func (r *LogReader) Read(ctx context.Context, lo, hi domain.Index, maxBytes uint
 }
 
 // FirstRetained é o primeiro índice que ainda pode estar no disco. O snapshot sintético
-// de partida (índice 1) nunca é uma entrada.
+// de partida (índice 1) nunca é uma entrada, e nada até o último marcador recebido está no
+// log local (o buraco, DC-18).
 func (r *LogReader) FirstRetained() domain.Index {
+	floor := max(bootIndex+1, r.node.hole()+1)
 	segs, err := r.ret.Segments()
 	if err != nil {
-		return bootIndex + 1
+		return floor
 	}
-	return max(domain.RetentionView{Segments: segs}.FirstRetained(), bootIndex+1)
+	return max(domain.RetentionView{Segments: segs}.FirstRetained(), floor)
 }
 
 // readDisk lê [lo, to] dos segmentos .wal, com um pino em lo − 1 enquanto lê.

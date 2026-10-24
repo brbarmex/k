@@ -7,6 +7,8 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/rs/zerolog"
+
 	"example.com/datareplication/internal/domain"
 	"example.com/datareplication/internal/port"
 )
@@ -34,26 +36,33 @@ type CommitPump struct {
 	// aplicado com o progresso durável, porque o disco nunca é liberado além dele (G1).
 	From domain.Index
 
+	// Modo da célula (AP-16, DC-03): em normal, o log local; em recuperando, a fonte remota
+	// (Remote, o Recovery); em reconstruindo, nada. Nulo = sempre normal (testes).
+	Mode   *domain.CellMode
+	Remote RemoteSource
+	// Applied espera o aplicado alcançar o alvo da recuperação antes de voltar a normal.
+	Applied port.AppliedWaiter
+	Log     zerolog.Logger
+
 	delivered atomic.Uint64 // último índice entregue ao Applier
+}
+
+// RemoteSource é a fonte remota das entradas em recuperando (usecase.Recovery).
+type RemoteSource interface {
+	Next(ctx context.Context, from domain.Index) ([]domain.Entry, error)
 }
 
 // readBytes é o teto de cada leitura por faixa do log (RAM ou disco).
 const readBytes = 1 << 20
 
-// ErrProgressBehind: o progresso do applier está atrás do primeiro índice retido em disco
-// (O-37, item 7). Começar no primeiro retido pularia entradas que o banco da célula não tem.
-var ErrProgressBehind = errors.New("progresso do applier atrás do disco retido")
-
-// CheckResume confere a retomada da partida contra o disco retido. Progresso 0 (ausente ou
-// corrompido) é aceito: o disco só é liberado até o progresso com fsync (G1), então tudo
-// antes do primeiro retido já está no banco. Um progresso gravado e atrás do primeiro
-// retido só aparece com um arquivo de progresso antigo restaurado: a célula não sobe
-// (no Incremento B, ela parte em reconstrução, DC-04).
-func CheckResume(progressIdx, firstRetained domain.Index) error {
-	if progressIdx > 0 && progressIdx+1 < firstRetained {
-		return fmt.Errorf("%w: progresso %d atrás do disco retido %d: reconstrução necessária", ErrProgressBehind, progressIdx, firstRetained)
-	}
-	return nil
+// StartsRebuilding diz se a partida começa em reconstruindo (DC-04, O-42): o progresso do
+// applier atrás do primeiro índice retido em disco pularia entradas que o banco da célula
+// não tem. Substitui a recusa do Incremento A (a célula não subia). A partida do zero
+// (primeiro retido ≤ 2: o índice 1 é o snapshot sintético) nunca reconstrói. Progresso 0
+// com o disco já liberado também reconstrói: o disco só é liberado até um progresso com
+// fsync (G1), então um progresso ausente quer dizer um volume que perdeu o arquivo.
+func StartsRebuilding(progressIdx, firstRetained domain.Index) bool {
+	return progressIdx+1 < firstRetained && firstRetained > 2
 }
 
 // ResumeFrom é o primeiro índice que a bomba entrega na partida (ADR-060, item 5): o
@@ -99,7 +108,54 @@ func (p *CommitPump) runCommits(ctx context.Context) error {
 	next := max(p.From, p.Consensus.FirstIndex(), 1)
 	p.delivered.Store(uint64(next - 1))
 	started := false // já entregou algo nesta execução
+	var finishing domain.Index
 	for {
+		var modeCh <-chan struct{} // nulo sem modo: o select nunca o escolhe
+		state := domain.CellNormal
+		if p.Mode != nil {
+			modeCh = p.Mode.Changed() // antes de ler o estado: não perde transição
+			state = p.Mode.State()
+		}
+		switch state {
+		case domain.CellRebuilding: // a reconstrução copia o banco; nada é entregue (AP-18)
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-modeCh:
+			}
+			continue
+		case domain.CellRecovering: // a fonte remota (DC-03)
+			ents, err := p.Remote.Next(ctx, next)
+			switch {
+			case errors.Is(err, ErrCaughtUp):
+				if t := p.Mode.Target(); t != finishing {
+					finishing = t
+					go p.finishRecovery(ctx, t)
+				}
+				select {
+				case <-ctx.Done():
+					return ctx.Err()
+				case <-modeCh:
+				case <-p.Consensus.CommitChanged():
+				}
+				continue
+			case errors.Is(err, ErrNoSource):
+				p.Mode.EnterRebuilding()
+				p.Log.Warn().Uint64("de", uint64(next)).Msgf("sem fonte que retenha %d: reconstrução", next)
+				continue
+			case err != nil:
+				return err // contexto, ou a fonte quebrou a contiguidade (fatal)
+			}
+			if len(ents) == 0 {
+				continue
+			}
+			if err := p.deliver(ctx, next, ents); err != nil {
+				return err
+			}
+			next = ents[len(ents)-1].Index + 1
+			started = true
+			continue
+		}
 		changed := p.Consensus.CommitChanged() // antes de ler o índice: não perde avanço
 		commit := p.Consensus.CommitIndex()
 		if next > commit {
@@ -107,19 +163,21 @@ func (p *CommitPump) runCommits(ctx context.Context) error {
 			case <-ctx.Done():
 				return ctx.Err()
 			case <-changed:
-				continue
+			case <-modeCh:
 			}
+			continue
 		}
 		ents, err := p.Consensus.CommittedEntries(next, commit, readBytes)
 		if errors.Is(err, port.ErrNotRetained) && !started {
 			// Na partida, sem a entrada next na RAM nem no disco, a célula está atrás da
-			// cauda e vai receber o marcador (O-34, RT-18): espera o commit avançar.
+			// cauda e vai receber o marcador (O-34, RT-18): espera o commit ou a recuperação.
 			select {
 			case <-ctx.Done():
 				return ctx.Err()
 			case <-changed:
-				continue
+			case <-modeCh:
 			}
+			continue
 		}
 		if err != nil {
 			return err // o log perdeu entradas não entregues: bug, fatal (G1)
@@ -127,16 +185,40 @@ func (p *CommitPump) runCommits(ctx context.Context) error {
 		if len(ents) == 0 {
 			continue
 		}
-		if ents[0].Index != next {
-			return fmt.Errorf("commitpump: esperava o índice %d, veio %d", next, ents[0].Index)
-		}
-		select {
-		case p.ToApplier <- ents: // pode esperar o applier: o laço do Raft não espera
-		case <-ctx.Done():
-			return ctx.Err()
+		if err := p.deliver(ctx, next, ents); err != nil {
+			return err
 		}
 		next = ents[len(ents)-1].Index + 1
-		p.delivered.Store(uint64(next - 1))
 		started = true
+	}
+}
+
+// deliver confere a contiguidade e entrega o lote ao applier.
+func (p *CommitPump) deliver(ctx context.Context, next domain.Index, ents []domain.Entry) error {
+	if ents[0].Index != next {
+		return fmt.Errorf("commitpump: esperava o índice %d, veio %d", next, ents[0].Index)
+	}
+	for i := 1; i < len(ents); i++ {
+		if ents[i].Index != ents[i-1].Index+1 {
+			return fmt.Errorf("commitpump: buraco depois do índice %d", ents[i-1].Index)
+		}
+	}
+	select {
+	case p.ToApplier <- ents: // pode esperar o applier: o laço do Raft não espera
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+	p.delivered.Store(uint64(ents[len(ents)-1].Index))
+	return nil
+}
+
+// finishRecovery espera o aplicado alcançar o alvo e volta a normal, se o alvo não subiu
+// nesse meio-tempo (uma goroutine por alvo).
+func (p *CommitPump) finishRecovery(ctx context.Context, target domain.Index) {
+	if err := p.Applied.WaitApplied(ctx, target); err != nil {
+		return
+	}
+	if p.Mode.SetNormalIf(target) {
+		p.Log.Info().Uint64("alvo", uint64(target)).Msg("recuperação concluída")
 	}
 }

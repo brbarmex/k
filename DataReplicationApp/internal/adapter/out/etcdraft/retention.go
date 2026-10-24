@@ -69,6 +69,14 @@ func (r *Retention) Unpin(owner string) {
 	r.mu.Unlock()
 }
 
+// Has diz se o dono ainda tem um pino válido (o teto duro solta os de reconstrução).
+func (r *Retention) Has(owner string) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	p, ok := r.pins[owner]
+	return ok && (p.expires.IsZero() || time.Now().Before(p.expires))
+}
+
 // readerOwner devolve um dono único para uma leitura do disco.
 func (r *Retention) readerOwner() string { return "ler-" + strconv.FormatUint(r.seq.Add(1), 10) }
 

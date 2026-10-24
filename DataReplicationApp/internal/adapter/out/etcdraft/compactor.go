@@ -248,7 +248,10 @@ func (c *Compactor) releaseDisk(now time.Time, segs []domain.Segment, floor doma
 		for _, s := range view().Removable(limit - 1) {
 			if err := os.Remove(filepath.Join(c.ret.dir, segmentName(s.Seq, uint64(s.First)))); err != nil && !errors.Is(err, os.ErrNotExist) {
 				c.log.Warn().Err(err).Uint64("seq", s.Seq).Msg("remoção de segmento do WAL falhou; tento no próximo ciclo")
+				continue
 			}
+			c.log.Info().Uint64("seq", s.Seq).Uint64("primeiro", uint64(s.First)).Uint64("limite", uint64(limit)).
+				Uint64("piso", uint64(floor)).Uint64("aplicadoDuravel", uint64(durable)).Msg("segmento do WAL removido")
 		}
 	}
 	if after, err := c.ret.Segments(); err == nil {

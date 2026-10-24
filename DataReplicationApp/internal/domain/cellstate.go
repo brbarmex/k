@@ -60,16 +60,17 @@ func (m *CellMode) SetSource(s string) {
 }
 
 // EnterRecovering põe a célula em recuperação até pelo menos t. Em reconstrução não muda
-// nada (a reconstrução já termina adiante do marcador) e devolve false.
+// nada (a reconstrução já termina adiante do marcador) e devolve false. A subida do alvo
+// também avisa quem espera em Changed: o CommitPump parado no alvo antigo volta a pedir.
 func (m *CellMode) EnterRecovering(t Index) bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.state == CellRebuilding {
 		return false
 	}
-	prev := m.state
+	prev, prevTarget := m.state, m.target
 	m.state, m.target = CellRecovering, max(m.target, t)
-	if prev != m.state {
+	if prev != m.state || m.target != prevTarget {
 		m.notifyLocked()
 	}
 	return true
@@ -99,7 +100,20 @@ func (m *CellMode) SetNormal() {
 	m.notifyLocked()
 }
 
-// Changed devolve um canal fechado na próxima transição de estado.
+// SetNormalIf volta a normal só se a célula ainda está em recuperação com o alvo t: um alvo
+// que subiu enquanto o aplicado alcançava t mantém a recuperação. Devolve se voltou.
+func (m *CellMode) SetNormalIf(t Index) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.state != CellRecovering || m.target != t {
+		return false
+	}
+	m.state, m.target, m.source = CellNormal, 0, ""
+	m.notifyLocked()
+	return true
+}
+
+// Changed devolve um canal fechado na próxima transição de estado (e na subida do alvo).
 func (m *CellMode) Changed() <-chan struct{} {
 	m.mu.Lock()
 	defer m.mu.Unlock()
