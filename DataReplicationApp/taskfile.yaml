@@ -672,6 +672,8 @@ tasks:
   test-lagging-follower:
     aliases: [test-atrasada]
     desc: Stop follower CELL, write past the snapshot, restart the leader and verify recovery by CatchUp (CA-24)
+    vars:
+      TIMEOUT: '{{.TIMEOUT | default "300"}}' # segundos para a nova líder e para a célula voltar a normal
     cmds:
       - |
         set -eu
@@ -690,11 +692,11 @@ tasks:
         echo "Restarting the leader cell-$LEADER (forces the tail, DC-08)"
         docker compose restart cell-$LEADER
         sleep 2
-        LEADER=$(python3 -c 'import sys; sys.path.insert(0, "scripts"); import drtool; print(drtool.wait_leader())')
+        LEADER=$(python3 -c 'import sys; sys.path.insert(0, "scripts"); import drtool; print(drtool.wait_leader({{.TIMEOUT}}))')
         echo "Leader cell-$LEADER; starting cell-$CELL"
         docker compose start cell-$CELL
         trap - EXIT
-        $T wait-recovery $CELL 120 recuperando "$SINCE"
+        $T wait-recovery $CELL {{.TIMEOUT}} recuperando "$SINCE"
         $T compare
         echo "PASS: cell-$CELL recovered by CatchUp (CA-24)"
 
