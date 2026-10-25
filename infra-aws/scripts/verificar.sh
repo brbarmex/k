@@ -11,10 +11,50 @@ mostra() {
   if [ -n "$1" ]; then echo "$1"; achou=1; else echo "nada"; fi
 }
 
+# A busca por etiqueta segue listando recursos já apagados por horas depois do destroy:
+# cada ARN é conferido no serviço dono. Tipo sem conferência conta como existente.
+# Sucesso = existe; NotFound = já apagado; qualquer outro erro (permissão, throttling) = existe.
+achado() { # comando aws...
+  local saida
+  saida=$("$@" --region "$REGIAO" --output text 2>&1) && return 0
+  ! grep -q -E 'NotFound|does not exist' <<<"$saida"
+}
+
+existe() { # ARN
+  local arn="$1" svc tipo resto id
+  svc=$(cut -d: -f3 <<<"$arn"); resto=$(cut -d: -f6- <<<"$arn")
+  tipo=${resto%%/*}; id=${resto#*/}
+  case "$svc" in
+    ec2) # o describe-tags também lista apagados: vai no describe de cada tipo
+      case "$tipo" in
+        volume)              achado aws ec2 describe-volumes --volume-ids "$id" ;;
+        security-group)      achado aws ec2 describe-security-groups --group-ids "$id" ;;
+        security-group-rule) achado aws ec2 describe-security-group-rules --security-group-rule-ids "$id" ;;
+        vpc-endpoint)        achado aws ec2 describe-vpc-endpoints --vpc-endpoint-ids "$id" ;;
+        vpc)                 achado aws ec2 describe-vpcs --vpc-ids "$id" ;;
+        subnet)              achado aws ec2 describe-subnets --subnet-ids "$id" ;;
+        network-interface)   achado aws ec2 describe-network-interfaces --network-interface-ids "$id" ;;
+        instance) # terminada continua listada por um tempo
+          [ "$(aws ec2 describe-instances --region "$REGIAO" --instance-ids "$id" \
+            --query 'Reservations[0].Instances[0].State.Name' --output text 2>/dev/null)" != terminated ] ;;
+        *) return 0 ;;
+      esac ;;
+    eks) # cluster/<c>, nodegroup/<c>/..., addon/<c>/..., podidentityassociation/<c>/...: some com o cluster
+      aws eks describe-cluster --region "$REGIAO" --name "${id%%/*}" >/dev/null 2>&1 ;;
+    dynamodb)
+      aws dynamodb describe-table --region "$REGIAO" --table-name "$id" >/dev/null 2>&1 ;;
+    *) return 0 ;;
+  esac
+}
+
 secao "Recursos com a etiqueta projeto=$PROJETO (fora da stack conta)"
-mostra "$(aws resourcegroupstaggingapi get-resources --region "$REGIAO" \
+restantes=""
+for arn in $(aws resourcegroupstaggingapi get-resources --region "$REGIAO" \
   --tag-filters "Key=projeto,Values=$PROJETO" \
-  --query "ResourceTagMappingList[?!(Tags[?Key=='stack' && Value=='conta'])].ResourceARN" --output text)"
+  --query "ResourceTagMappingList[?!(Tags[?Key=='stack' && Value=='conta'])].ResourceARN" --output text); do
+  if existe "$arn"; then restantes+="$arn"$'\n'; fi
+done
+mostra "${restantes%$'\n'}"
 
 secao "Clusters EKS"
 mostra "$(aws eks list-clusters --region "$REGIAO" --query 'clusters[?starts_with(@, `'"$PROJETO"'`)]' --output text)"

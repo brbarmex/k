@@ -67,7 +67,8 @@ tasks:
     dir: "{{.TF_SESSAO}}"
     vars:
       EXPIRA:
-        sh: terraform output -raw expira_em 2>/dev/null || echo 2000-01-01T00:00:00Z
+        # O output pode vir vazio com saída 0 (depois de um apply com -target): o || não basta.
+        sh: v=$(terraform output -raw expira_em 2>/dev/null); echo "${v:-2000-01-01T00:00:00Z}"
     cmds:
       - terraform destroy -var meu_ip_cidr=0.0.0.0/32 -var expira_em={{.EXPIRA}}
 
