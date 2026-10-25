@@ -2,6 +2,8 @@
 
 Infra-as-code do plano aprovado em 23/10/2026 (pasta do projeto `teste_aws_baixo_custo/`: README e arquivos 01 a 07). Três clusters EKS em sa-east-1, um por AZ, cada um com uma célula da POC; DynamoDB on-demand por célula; Prometheus num nó próprio do cluster 1 e Grafana na sua máquina. Tudo que roda no Kubernetes sobe por Helm.
 
+Veja o [diagrama da arquitetura AWS](./dra.md).
+
 **Custo estimado:** ~US$ 0,62 por hora de infra (o nó do Prometheus, `t4g.medium` on-demand com disco e volume, soma ~US$ 0,09). Uma sessão de ~3,6 h com baseline a 500 TPS e 10 falhas a 100 TPS sai por **~US$ 4,27** (a 500 TPS nas falhas, ~US$ 9,00). Esquecido ligado, ~US$ 450 por mês: por isso a autodestruição.
 
 ## O que tem aqui
