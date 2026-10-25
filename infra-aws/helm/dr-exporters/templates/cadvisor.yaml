@@ -11,6 +11,9 @@ spec:
       labels: { app: cadvisor }
     spec:
       hostNetwork: true
+      # Sem token: o cAdvisor não fala com a API, e o /run do host montado somente leitura
+      # impede o kubelet de criar /var/run/secrets (na imagem, /var/run -> /run).
+      automountServiceAccountToken: false
       tolerations:
         - operator: Exists
       containers:

@@ -24,7 +24,8 @@ gomemlimit: 800MiB
 extraEnv: []      # lista de {name, value} para as variáveis da compactação etc.
 
 resources:
-  cpu: 1500m
+  # t4g.medium: 1930m alocáveis, ~540m dos pods de sistema e exporters. 1500m nunca agendava.
+  cpu: 1250m
   memory: 1Gi
 
 storage:

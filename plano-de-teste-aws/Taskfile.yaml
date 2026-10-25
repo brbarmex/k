@@ -1,0 +1,175 @@
+# Taskfile dos cenários de teste na AWS (Task v3). Roteiro: ROTEIRO.md desta pasta.
+# Rode a partir de plano-de-teste-aws/. As etapas de infra vêm do infra-aws/Taskfile.yaml
+# (incluído como infra:*), para não existirem em dois lugares.
+version: "3"
+
+includes:
+  infra:
+    taskfile: ../infra-aws/Taskfile.yaml
+    dir: ../infra-aws
+
+vars:
+  S: ./scripts
+
+tasks:
+  default:
+    cmds:
+      - task --list
+    silent: true
+
+  # ---------- uma vez ----------
+  preparar:
+    desc: "Uma vez por máquina: confere as ferramentas e registra os repositórios do Helm."
+    cmds:
+      - |
+        for f in terraform aws kubectl helm docker python3; do
+          command -v $f >/dev/null || { echo "falta: $f"; exit 1; }
+        done
+        terraform version | head -1; aws --version; kubectl version --client | head -1; helm version --short
+        aws sts get-caller-identity --query Arn --output text
+      - task: infra:helm:repos
+
+  conta:
+    desc: "Uma vez por conta: Budgets, anomalia e autodestruição (infra-aws/terraform/conta). Nunca destruir."
+    cmds:
+      - task: infra:conta:up
+
+  # ---------- infraestrutura da sessão ----------
+  subir:
+    desc: "Sobe tudo: VPC, 3 EKS, tabelas, DNS (~20 min) e os charts. IMAGE=ghcr.io/...@sha256:... (linux/arm64)"
+    requires:
+      vars: [IMAGE]
+    cmds:
+      - task: infra:aws:up
+      - task: infra:aws:kubeconfig
+      - task: infra:k8s:up
+        vars: { IMAGE: "{{.IMAGE}}" }
+      - task: infra:k8s:pronto
+
+  kubeconfig:
+    desc: "Cria os contextos cluster-1..3 no kubeconfig (kubectl --context cluster-N ...)."
+    cmds:
+      - task: infra:aws:kubeconfig
+
+  conectar:
+    desc: "Port-forwards em laço: Prometheus em 19090, admin das células em 1909N, API em 1800N. Deixe aberto noutro terminal."
+    interactive: true
+    cmds:
+      - task: infra:aws:kubeconfig
+      - task: infra:obs:ponte
+
+  grafana:
+    desc: "Grafana local em http://localhost:3001 (precisa do conectar aberto)."
+    cmds:
+      - task: infra:obs:up
+      - open http://localhost:3001 2>/dev/null || echo "abra http://localhost:3001"
+
+  status:
+    desc: "Papel, termo, commit, gate, aplicado e estado das 3 células."
+    cmds:
+      - python3 {{.S}}/drtool_aws.py status
+
+  pods:
+    desc: "Pods dos 3 clusters (sem Pending é o esperado)."
+    cmds:
+      - for: [1, 2, 3]
+        cmd: echo "== cluster-{{.ITEM}}" && kubectl --context cluster-{{.ITEM}} get pods -A -o wide
+
+  logs:
+    desc: "Segue o log de uma célula (CELL=N)."
+    requires:
+      vars: [CELL]
+    interactive: true
+    cmds:
+      - kubectl --context cluster-{{.CELL}} -n dr logs -f cell-{{.CELL}}-0
+
+  estender:
+    desc: "Adia a autodestruição (HORAS=2 a partir de agora)."
+    cmds:
+      - task: infra:aws:estender
+        vars: { HORAS: '{{.HORAS | default "2"}}' }
+
+  ip:
+    desc: "Seu IP mudou e o kubectl parou? Libera o IP novo na API do EKS."
+    cmds:
+      - task: infra:aws:ip
+
+  rampa:
+    desc: "Antes dos cenários com carga: acha o joelho de TPS (para sozinho com erro > 1%)."
+    cmds:
+      - task: infra:k6:rodar
+        vars: { CENARIO: rampa, PERFIL: rampa, MAX: '{{.MAX | default "2000"}}' }
+
+  # ---------- cenários (ROTEIRO.md) ----------
+  cenario:1:
+    desc: "C1 · QTD (10) escritas pela líder replicadas nas 3 células."
+    cmds:
+      - QTD={{.QTD | default "10"}} bash {{.S}}/cenario-1.sh
+
+  cenario:2:
+    desc: "C2 · QTD (3) escritas por uma follower, encaminhadas à líder e replicadas nas 3. CELL=N opcional."
+    cmds:
+      - QTD={{.QTD | default "3"}} CELL={{.CELL}} bash {{.S}}/cenario-2.sh
+
+  cenario:3:
+    desc: "C3 · TPS (500) na líder; 1 follower para no 1º minuto por FORA (180) s; acaba quando ela alcança a líder."
+    cmds:
+      - >-
+        TPS={{.TPS | default "500"}} AQUECIMENTO={{.AQUECIMENTO | default "60"}} FORA={{.FORA | default "180"}}
+        MODO={{.MODO | default "graceful"}} CELL={{.CELL}} bash {{.S}}/cenario-3.sh
+
+  cenario:4:
+    desc: "C4 · TPS (300) pelas followers; a líder cai, outra assume; a antiga volta depois de FORA (60) s e alcança."
+    cmds:
+      - >-
+        TPS={{.TPS | default "300"}} AQUECIMENTO={{.AQUECIMENTO | default "60"}} FORA={{.FORA | default "60"}}
+        MODO={{.MODO | default "abrupto"}} bash {{.S}}/cenario-4.sh
+
+  cenario:5:
+    desc: "C5 · Apaga a tabela de UMA follower direto no DynamoDB e recupera pela reconstrução. CELL=N opcional."
+    prompt: "Vai apagar TODOS os itens da tabela de uma follower direto no DynamoDB. Continuar?"
+    cmds:
+      - SEMENTE={{.SEMENTE | default "200"}} TPS={{.TPS | default "50"}} CELL={{.CELL}} bash {{.S}}/cenario-5.sh
+
+  cenario:6:
+    desc: "C6 · Corte de energia (reboot sem sync) no nó da ALVO (lider|follower) sob TPS (300): durabilidade."
+    prompt: "Vai reiniciar à força o nó EC2 de uma célula (sysrq-b). Continuar?"
+    cmds:
+      - ALVO={{.ALVO | default "lider"}} TPS={{.TPS | default "300"}} CELL={{.CELL}} bash {{.S}}/cenario-6.sh
+
+  cenarios:todos:
+    desc: "Roda 1, 2, 5, 3, 4 e 6 em sequência, parando no primeiro FAIL (~45 min)."
+    cmds:
+      - task: cenario:1
+      - task: cenario:2
+      - task: cenario:5
+      - task: cenario:3
+      - task: cenario:4
+      - task: cenario:6
+
+  # ---------- verificação avulsa ----------
+  comparar:
+    desc: "As 3 tabelas iguais (mesmas pk e _dr_v), lidas direto no DynamoDB. PREFIXO=cli#... opcional."
+    cmds:
+      - python3 {{.S}}/drtool_aws.py comparar {{if .PREFIXO}}'{{.PREFIXO}}'{{end}}
+
+  oraculo:
+    desc: "Oráculo do RPO (ORC-04) sobre o ledger de um cenário já coletado (CENARIO=c3-...)."
+    requires:
+      vars: [CENARIO]
+    cmds:
+      # ledger.json.gz do k6 e/ou escritas.jsonl das escritas manuais (cenários 1, 2 e 5)
+      - |
+        D=../infra-aws/resultados/{{.CENARIO}}
+        python3 {{.S}}/drtool_aws.py oraculo $(ls $D/ledger.json.gz $D/escritas.jsonl 2>/dev/null)
+
+  # ---------- derrubar ----------
+  derrubar:
+    desc: "Snapshot do Prometheus, remove os charts, destroy da sessão e confere órfãos. Rode SEMPRE ao fim."
+    prompt: "Vai destruir a infraestrutura da sessão (a stack conta fica). Continuar?"
+    cmds:
+      - task: infra:obs:snapshot
+        ignore_error: true
+      - task: infra:k8s:down
+      - task: infra:aws:down
+      - task: infra:aws:verificar

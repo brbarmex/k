@@ -17,7 +17,20 @@ module "eks" {
   create_kms_key              = false
   encryption_config           = null
 
+  # Quem roda o apply vira admin do cluster. Outros (role do SSO, outro usuário) entram
+  # por var.admins_eks, também como cluster admin.
   enable_cluster_creator_admin_permissions = true
+  access_entries = {
+    for i, arn in var.admins_eks : "admin_${i}" => {
+      principal_arn = arn
+      policy_associations = {
+        admin = {
+          policy_arn   = "arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy"
+          access_scope = { type = "cluster" }
+        }
+      }
+    }
+  }
 
   vpc_id = module.vpc.vpc_id
   # O plano de controle exige subnets em pelo menos 2 AZs; os nós ficam só na AZ da célula.

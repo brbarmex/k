@@ -2,6 +2,10 @@
 # AWS_SECRET_ACCESS_KEY do docker-compose NÃO podem ir para o manifesto (ganham do
 # Pod Identity e o DynamoDB real recusa).
 
+data "aws_caller_identity" "atual" {}
+
+# Só os clusters da POC nesta conta assumem as roles (confused deputy). O ARN é montado
+# pelo nome, e não lido do módulo, porque o add-on do EBS CSI usa a role dentro do módulo.
 data "aws_iam_policy_document" "pod_identity" {
   statement {
     effect  = "Allow"
@@ -9,6 +13,16 @@ data "aws_iam_policy_document" "pod_identity" {
     principals {
       type        = "Service"
       identifiers = ["pods.eks.amazonaws.com"]
+    }
+    condition {
+      test     = "StringEquals"
+      variable = "aws:SourceAccount"
+      values   = [data.aws_caller_identity.atual.account_id]
+    }
+    condition {
+      test     = "ArnLike"
+      variable = "aws:SourceArn"
+      values   = ["arn:aws:eks:${var.regiao}:${data.aws_caller_identity.atual.account_id}:cluster/${var.projeto}-cell-*"]
     }
   }
 }

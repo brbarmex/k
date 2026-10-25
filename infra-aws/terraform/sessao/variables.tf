@@ -30,6 +30,17 @@ variable "meu_ip_cidr" {
   }
 }
 
+variable "admins_eks" {
+  description = "ARNs (usuário ou role IAM) que recebem cluster admin nos 3 clusters, além de quem roda o apply."
+  type        = list(string)
+  default     = []
+
+  validation {
+    condition     = alltrue([for a in var.admins_eks : can(regex("^arn:aws:iam::[0-9]{12}:(user|role)/", a))])
+    error_message = "Use ARNs de usuário ou role IAM, por exemplo arn:aws:iam::123456789012:role/Admin."
+  }
+}
+
 variable "kubernetes_version" {
   description = "Versão do Kubernetes. Use a mais nova em suporte padrão: em suporte estendido o EKS cobra US$ 0,60/h por cluster."
   type        = string

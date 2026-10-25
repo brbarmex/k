@@ -11,9 +11,11 @@
 //   ENTRADA  todas | lider | follower | 1 | 2 | 3     (padrão todas)
 //   CENARIO  nome gravado no ledger                   (padrão sem-nome)
 //
-// Ledger (ORC-01): cada requisição vira uma amostra da métrica dr_ledger com pk, célula,
-// status, x-dr-index e x-dr-code nas tags. Rode com --out json=/out/<cenario>.json e
-// filtre metric == "dr_ledger" no oráculo. A pk não vai para o Prometheus.
+// Ledger (ORC-01): cada requisição vira uma amostra da métrica dr_ledger com cenário,
+// célula e status nas tags, e pk, x-dr-index, x-dr-code, erro e envio nos METADADOS.
+// Tag única por requisição vira uma série nova que o k6 nunca libera: a 300 TPS o pod
+// passava de 1 GiB e era despejado. Metadados saem no --out json sem criar série.
+// Rode com --out json=/out/<cenario>.json e filtre metric == "dr_ledger" no oráculo.
 
 import exec from "k6/execution";
 import http from "k6/http";
@@ -131,14 +133,16 @@ export function putItem(data) {
     tags: { name: "PutItem", celula: String(cell) },
   });
 
+  const meta = exec.vu.metrics.metadata;
+  meta.pk = pk;
+  meta.dr_index = res.headers["X-Dr-Index"] || "";
+  meta.dr_code = res.headers["X-Dr-Code"] || "";
+  meta.erro = res.error_code ? String(res.error_code) : "";
+  meta.enviado = String(enviado);
   ledger.add(res.timings.duration, {
     cenario: CENARIO,
-    pk,
     celula: String(cell),
     status: String(res.status),
-    dr_index: res.headers["X-Dr-Index"] || "",
-    dr_code: res.headers["X-Dr-Code"] || "",
-    erro: res.error_code ? String(res.error_code) : "",
-    enviado: String(enviado),
   });
+  for (const k of ["pk", "dr_index", "dr_code", "erro", "enviado"]) delete meta[k];
 }

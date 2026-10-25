@@ -5,6 +5,11 @@
 # Publica cell-N.dr.internal e cell-N-0.cell-N.dr.internal na zona privada a partir do
 # headless da célula. Credencial pelo Pod Identity (terraform/sessao/iam.tf espera
 # external-dns/external-dns): nada de chave aqui.
+# v0.22.0 (padrão do chart 1.22.0) não gera nada do headless: "No endpoints could be
+# generated", mesmo com o pod listado no EndpointSlice. v0.19.0 publica normalmente.
+image:
+  tag: v0.19.0
+
 serviceAccount:
   name: external-dns
 
@@ -24,6 +29,9 @@ interval: 10s
 extraArgs:
   - --aws-zone-type=private
   - --namespace=dr   # só o headless da célula; RBAC continua de cluster
+  # Publica o pod não pronto: o /readyz da célula depende de achar os pares pelo DNS, então
+  # sem isto a partida a frio nunca elege líder (o publishNotReadyAddresses do Service não basta).
+  - --always-publish-not-ready-addresses
 
 env:
   - name: AWS_REGION

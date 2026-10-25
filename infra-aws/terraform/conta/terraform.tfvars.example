@@ -1,6 +1,0 @@
-# Copie para terraform.tfvars (fora do git) e preencha.
-email_alertas = "voce@exemplo.com"
-# regiao                    = "sa-east-1"
-# orcamento_mensal_usd      = 15
-# orcamento_diario_usd      = 3
-# criar_monitor_de_anomalia = true
